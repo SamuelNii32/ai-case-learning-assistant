@@ -17,6 +17,7 @@
     "audit:security": "audit-ci --config ./audit-ci.json"
   },
   "dependencies": {
+    "lucide-react": "^0.545.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.9.3"

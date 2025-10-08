@@ -10,25 +10,27 @@ const renderApp = () => {
 describe('App Component', () => {
   it('renders the main heading', () => {
     renderApp()
-    expect(screen.getByText('✅ React + Tailwind + Router Working!')).toBeInTheDocument()
+    expect(screen.getByText('Welcome to AI Case Learning Assistant')).toBeInTheDocument()
   })
 
-  it('displays the technology checklist', () => {
+  it('displays the features list', () => {
     renderApp()
-    expect(screen.getByText('✅ React (working)')).toBeInTheDocument()
-    expect(screen.getByText('✅ Vite (working)')).toBeInTheDocument()
-    expect(screen.getByText('✅ Tailwind CSS (working)')).toBeInTheDocument()
-    expect(screen.getByText('✅ React Router (installed & working)')).toBeInTheDocument()
+    expect(screen.getByText('✅ AI-powered case analysis')).toBeInTheDocument()
+    expect(screen.getByText('✅ Interactive learning modules')).toBeInTheDocument()
+    expect(screen.getByText('✅ Progress tracking')).toBeInTheDocument()
+    expect(screen.getByText('✅ Comprehensive case library')).toBeInTheDocument()
   })
 
-  it('shows the home route message', () => {
+  it('renders the header component', () => {
     renderApp()
-    expect(screen.getByText('🎉 You\'re on the home route!')).toBeInTheDocument()
+    expect(screen.getByText('AI Case Assistant')).toBeInTheDocument()
   })
 
-  it('has the correct CSS classes applied', () => {
+  it('has navigation links', () => {
     renderApp()
-    const mainDiv = screen.getByText('✅ React + Tailwind + Router Working!').closest('div')
-    expect(mainDiv).toHaveClass('bg-blue-500', 'text-white', 'p-8', 'min-h-screen')
+    expect(screen.getByText('About')).toBeInTheDocument()
+    expect(screen.getByText('Privacy')).toBeInTheDocument()
+    expect(screen.getByText('Contact')).toBeInTheDocument()
+    expect(screen.getByText('Sign In')).toBeInTheDocument()
   })
 })
