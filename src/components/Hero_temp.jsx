@@ -1,5 +1,5 @@
-import { Link } from "react-router-dom"
-import { Button } from "./ui/button"
+import { Link } from 'react-router-dom'
+import { Button } from './ui/button'
 
 export function Hero() {
   return (
@@ -8,7 +8,8 @@ export function Hero() {
         Analyze complex cases. Learn with AI.
       </h1>
       <p className="text-xl text-gray-600 leading-relaxed">
-        Upload a case, choose guided walkthrough or free Q&A, and get evidence-grounded answers with citations.
+        Upload a case, choose guided walkthrough or free Q&A, and get evidence-grounded answers with
+        citations.
       </p>
       <div className="flex items-center gap-4">
         <Link to="/login">

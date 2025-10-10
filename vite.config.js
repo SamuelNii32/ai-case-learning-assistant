@@ -18,8 +18,8 @@ export default defineConfig({
         'src/test/',
         '**/*.test.{js,jsx}',
         'vite.config.js',
-        'tailwind.config.js'
-      ]
+        'tailwind.config.js',
+      ],
     },
   },
 })

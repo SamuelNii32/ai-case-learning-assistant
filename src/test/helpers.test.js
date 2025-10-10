@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { formatCaseTitle, validateEmail, calculateStudyProgress, formatDate } from '../utils/helpers'
+import {
+  formatCaseTitle,
+  validateEmail,
+  calculateStudyProgress,
+  formatDate,
+} from '../utils/helpers'
 
 describe('Helper Functions', () => {
   describe('formatCaseTitle', () => {

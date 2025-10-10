@@ -1,4 +1,4 @@
-import { Upload, MessageSquare, Lightbulb, FileText } from "lucide-react"
+import { Upload, MessageSquare, Lightbulb, FileText } from 'lucide-react'
 
 export function HowItWorks() {
   return (
@@ -37,8 +37,8 @@ export function HowItWorks() {
               </div>
               <h3 className="text-xl font-semibold text-slate-900">Upload Your Case</h3>
               <p className="text-slate-600">
-                Upload your case document in PDF format. Our system processes multimodal content including text, images,
-                and figures.
+                Upload your case document in PDF format. Our system processes multimodal content
+                including text, images, and figures.
               </p>
             </div>
           </div>
@@ -85,7 +85,8 @@ export function HowItWorks() {
               </div>
               <h3 className="text-xl font-semibold text-slate-900">Choose Your Mode</h3>
               <p className="text-slate-600">
-                Select guided walkthrough for structured learning or free Q&A mode for flexible exploration of the case.
+                Select guided walkthrough for structured learning or free Q&A mode for flexible
+                exploration of the case.
               </p>
             </div>
           </div>
@@ -99,8 +100,12 @@ export function HowItWorks() {
                     <div className="font-semibold text-slate-900 mb-1">Supply Chain Analysis</div>
                     <div className="space-y-1 text-slate-600">
                       <div>The global supply chain has</div>
-                      <div className="bg-blue-200 px-0.5 inline-block">experienced disruptions due to</div>
-                      <div className="bg-blue-200 px-0.5 inline-block">pandemic-related shutdowns</div>
+                      <div className="bg-blue-200 px-0.5 inline-block">
+                        experienced disruptions due to
+                      </div>
+                      <div className="bg-blue-200 px-0.5 inline-block">
+                        pandemic-related shutdowns
+                      </div>
                       <div>and geopolitical tensions.</div>
                     </div>
                     <div className="mt-2 text-[7px] text-slate-400">Page 3</div>
@@ -131,8 +136,8 @@ export function HowItWorks() {
               </div>
               <h3 className="text-xl font-semibold text-slate-900">Get AI Insights</h3>
               <p className="text-slate-600">
-                Receive evidence-grounded answers with direct citations to the source document, helping you learn
-                effectively.
+                Receive evidence-grounded answers with direct citations to the source document,
+                helping you learn effectively.
               </p>
             </div>
           </div>

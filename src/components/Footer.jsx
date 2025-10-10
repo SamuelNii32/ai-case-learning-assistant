@@ -1,5 +1,5 @@
-import { Link } from "react-router-dom"
-import { FileText } from "lucide-react"
+import { Link } from 'react-router-dom'
+import { FileText } from 'lucide-react'
 
 export function Footer() {
   return (
@@ -83,7 +83,9 @@ export function Footer() {
         </div>
 
         <div className="border-t border-slate-200 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-sm text-slate-600">© {new Date().getFullYear()} AI Case Assistant. All rights reserved.</p>
+          <p className="text-sm text-slate-600">
+            © {new Date().getFullYear()} AI Case Assistant. All rights reserved.
+          </p>
           <div className="flex items-center gap-6">
             <a href="#terms" className="text-sm text-slate-600 hover:text-slate-900">
               Terms

@@ -1,4 +1,4 @@
-import { MessageSquare, FileText } from "lucide-react"
+import { MessageSquare, FileText } from 'lucide-react'
 
 export function PreviewMock() {
   return (
@@ -23,16 +23,17 @@ export function PreviewMock() {
               <div className="font-semibold text-slate-900">Supply Chain Disruption Analysis</div>
               <div className="space-y-2 text-slate-600">
                 <p className="leading-relaxed">
-                  The global supply chain has experienced unprecedented disruptions due to various factors including
-                  pandemic-related shutdowns, geopolitical tensions, and natural disasters.
+                  The global supply chain has experienced unprecedented disruptions due to various
+                  factors including pandemic-related shutdowns, geopolitical tensions, and natural
+                  disasters.
                 </p>
                 <p className="leading-relaxed bg-blue-50 p-2 rounded border-l-2 border-blue-600">
-                  Key suppliers in Southeast Asia reported a 40% reduction in production capacity during Q2 2023,
-                  leading to significant delays in component delivery.
+                  Key suppliers in Southeast Asia reported a 40% reduction in production capacity
+                  during Q2 2023, leading to significant delays in component delivery.
                 </p>
                 <p className="leading-relaxed">
-                  Companies must develop robust mitigation strategies to ensure business continuity and maintain
-                  customer satisfaction during these challenging times.
+                  Companies must develop robust mitigation strategies to ensure business continuity
+                  and maintain customer satisfaction during these challenging times.
                 </p>
               </div>
               <div className="text-xs text-slate-400 pt-2">Page 3 of 24</div>
@@ -49,8 +50,8 @@ export function PreviewMock() {
                 </div>
                 <div className="flex-1 space-y-1">
                   <div className="text-xs text-slate-900 leading-relaxed">
-                    Based on the case, the primary challenge is the 40% reduction in production capacity from Southeast
-                    Asian suppliers.
+                    Based on the case, the primary challenge is the 40% reduction in production
+                    capacity from Southeast Asian suppliers.
                   </div>
                   <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
                     <FileText className="w-3 h-3" />
@@ -62,7 +63,9 @@ export function PreviewMock() {
               {/* User Message */}
               <div className="flex items-start gap-2 justify-end">
                 <div className="bg-slate-100 rounded-lg px-3 py-2 max-w-[80%]">
-                  <div className="text-xs text-slate-900">What mitigation strategies should we consider?</div>
+                  <div className="text-xs text-slate-900">
+                    What mitigation strategies should we consider?
+                  </div>
                 </div>
               </div>
 
@@ -73,7 +76,8 @@ export function PreviewMock() {
                 </div>
                 <div className="flex-1 space-y-1">
                   <div className="text-xs text-slate-900 leading-relaxed">
-                    Consider diversifying your supplier base and developing contingency plans for critical components...
+                    Consider diversifying your supplier base and developing contingency plans for
+                    critical components...
                   </div>
                 </div>
               </div>
