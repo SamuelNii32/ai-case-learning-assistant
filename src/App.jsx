@@ -9,6 +9,8 @@ import SettingsPage from './pages/Settings'
 import Workspace from './pages/Workspace'
 import AppLayout from './components/layout/AppLayout'
 import FocusLayout from './components/layout/FocusLayout'
+import SessionHistory from "./pages/SessionHistory";
+
 
 function App() {
   return (
@@ -137,12 +139,7 @@ function App() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route
               path="/session-history"
-              element={
-                <div className="p-8">
-                  <h1 className="text-2xl font-bold">Session History</h1>
-                  <p>Session history coming soon...</p>
-                </div>
-              }
+              element={<SessionHistory />}
             />
           </Route>
 

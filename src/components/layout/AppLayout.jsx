@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from '../dashboard/Sidebar'
 import Topbar from '../dashboard/Topbar'
-
+import SessionHistory from '../../pages/SessionHistory'
 const KEY = 'dashboard:search'
 
 export default function AppLayout() {

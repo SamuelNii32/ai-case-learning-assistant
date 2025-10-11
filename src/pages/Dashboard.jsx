@@ -11,7 +11,7 @@ export default function Dashboard() {
   const { searchQuery } = useOutletContext()
 
   const [activeFilter, setActiveFilter] = useState('all')
-  const [sortDir, setSortDir] = useState('desc') // "desc" = Newest first
+  const [sortDir, setSortDir] = useState('desc') 
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {

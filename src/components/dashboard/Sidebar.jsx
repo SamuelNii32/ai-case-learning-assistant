@@ -50,6 +50,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
                 to={to}
                 className={({ isActive }) => `${base} ${isActive ? active : inactive}`}
                 end={to !== '/dashboard'}
+                onClick={onClose}
               >
                 <Icon className="w-5 h-5" aria-hidden="true" />
                 <span>{label}</span>
@@ -69,6 +70,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
               isActive ? 'bg-slate-200/70 text-slate-900 font-medium' : 'hover:bg-slate-100 text-slate-700'
             }`
           }
+          onClick={onClose}
         >
           <Settings className="w-5 h-5" aria-hidden="true" />
           <span>Settings</span>
