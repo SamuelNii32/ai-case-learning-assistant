@@ -8,8 +8,8 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
   ]
 
   const base =
-    'flex items-center gap-2 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-300/60 focus:ring-offset-2'
-  const active = 'bg-slate-200/70 text-slate-900 font-medium'
+    'flex items-center gap-2 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-offset-2'
+  const active = 'text-white font-medium'
   const inactive = 'hover:bg-slate-100 text-slate-700'
 
   return (
@@ -27,7 +27,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
           to="/"
           className="flex items-center gap-2 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-300/60 focus:ring-offset-2 rounded"
         >
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{backgroundColor: '#003c71'}}>
             <FileText className="w-5 h-5 text-white" />
           </div>
           <span>AI Case Assistant</span>
@@ -49,6 +49,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
               <NavLink
                 to={to}
                 className={({ isActive }) => `${base} ${isActive ? active : inactive}`}
+                style={({ isActive }) => isActive ? {backgroundColor: '#003c71', borderLeft: `4px solid #deb406`} : {}}
                 end={to !== '/dashboard'}
                 onClick={onClose}
               >
@@ -66,10 +67,11 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
           to="/settings"
           end
           className={({ isActive }) =>
-            `flex items-center gap-2 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-300/60 focus:ring-offset-2 ${
-              isActive ? 'bg-slate-200/70 text-slate-900 font-medium' : 'hover:bg-slate-100 text-slate-700'
+            `flex items-center gap-2 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              isActive ? 'text-white font-medium' : 'hover:bg-slate-100 text-slate-700'
             }`
           }
+          style={({ isActive }) => isActive ? {backgroundColor: '#003c71', borderLeft: `4px solid #deb406`} : {}}
           onClick={onClose}
         >
           <Settings className="w-5 h-5" aria-hidden="true" />

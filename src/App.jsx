@@ -1,6 +1,6 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { Routes, Route, useLocation } from 'react-router-dom'
 import Header from './components/Header'
-import { Hero } from './components/Hero'
+import Landing from './pages/Landing'
 import { Footer } from './components/Footer'
 import SignInPage from './pages/SignIn'
 import SignUpPage from './pages/SignUp'
@@ -10,35 +10,28 @@ import Workspace from './pages/Workspace'
 import AppLayout from './components/layout/AppLayout'
 import FocusLayout from './components/layout/FocusLayout'
 import SessionHistory from "./pages/SessionHistory";
+import Upload from "./pages/Upload";
 
 
 function App() {
+  const location = useLocation();
+  // Hide the public site chrome (Header/Footer) on certain app routes
+  // The original code only hid chrome for `/upload`. Dashboard, workspace,
+  // settings and session-history are wrapped in AppLayout/FocusLayout and
+  // are intended to render without the public Header, so include them here.
+  const hideChrome = /^\/(upload|dashboard|settings|session-history|workspace)/.test(
+    location.pathname
+  );
   return (
-    <Router basename="/ai-case-learning-assistant">
       <div className="min-h-screen bg-gray-50">
+        {!hideChrome && <Header />}
         <Routes>
           {/* Public / marketing pages WITH Header */}
-          <Route
-            path="/"
-            element={
-              <>
-                <Header />
-                <main>
-                  <div className="max-w-7xl mx-auto px-6 py-12">
-                    <div className="text-center">
-                      <Hero />
-                    </div>
-                  </div>
-                </main>
-                <Footer />
-              </>
-            }
-          />
+          <Route path="/" element={<Landing />} />
           <Route
             path="/login"
             element={
               <>
-                <Header />
                 <main>
                   <SignInPage />
                 </main>
@@ -50,7 +43,6 @@ function App() {
             path="/signin"
             element={
               <>
-                <Header />
                 <main>
                   <SignInPage />
                 </main>
@@ -62,7 +54,6 @@ function App() {
             path="/signup"
             element={
               <>
-                <Header />
                 <main>
                   <SignUpPage />
                 </main>
@@ -70,11 +61,12 @@ function App() {
               </>
             }
           />
+                    <Route path="/upload" element={<Upload />} />
+
           <Route
             path="/instructor-dashboard"
             element={
               <>
-                <Header />
                 <main>
                   <div className="max-w-4xl mx-auto px-6 py-12">
                     <h1 className="text-3xl font-bold text-gray-900 mb-6">Instructor Dashboard</h1>
@@ -89,7 +81,6 @@ function App() {
             path="/about"
             element={
               <>
-                <Header />
                 <main>
                   <div className="max-w-4xl mx-auto px-6 py-12">
                     <h1 className="text-3xl font-bold text-gray-900 mb-6">About</h1>
@@ -106,7 +97,6 @@ function App() {
             path="/privacy"
             element={
               <>
-                <Header />
                 <main>
                   <div className="max-w-4xl mx-auto px-6 py-12">
                     <h1 className="text-3xl font-bold text-gray-900 mb-6">Privacy Policy</h1>
@@ -121,7 +111,6 @@ function App() {
             path="/contact"
             element={
               <>
-                <Header />
                 <main>
                   <div className="max-w-4xl mx-auto px-6 py-12">
                     <h1 className="text-3xl font-bold text-gray-900 mb-6">Contact Us</h1>
@@ -152,7 +141,6 @@ function App() {
           <Route path="*" element={<div className="p-8">Not Found</div>} />
         </Routes>
       </div>
-    </Router>
   )
 }
 

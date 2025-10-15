@@ -1,4 +1,3 @@
-// src/components/Header.jsx
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from './ui/button'
@@ -7,12 +6,10 @@ import { FileText, Menu, X } from 'lucide-react'
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
-  const toggleMenu = () => {
-    setIsMenuOpen(!isMenuOpen)
-  }
+  const toggleMenu = () => setIsMenuOpen(v => !v)
 
   return (
-    <header className="border-b border-slate-200">
+    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
       <div className="container mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2">
@@ -34,7 +31,9 @@ export default function Header() {
             Contact
           </Link>
           <Link to="/login">
-            <Button variant="outline">Sign In</Button>
+            <Button className="h-9 px-4 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-500 text-white hover:opacity-90">
+              Sign In
+            </Button>
           </Link>
         </nav>
 
@@ -44,11 +43,7 @@ export default function Header() {
           className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
           aria-label="Toggle menu"
         >
-          {isMenuOpen ? (
-            <X className="w-6 h-6 text-slate-600" />
-          ) : (
-            <Menu className="w-6 h-6 text-slate-600" />
-          )}
+          {isMenuOpen ? <X className="w-6 h-6 text-slate-600" /> : <Menu className="w-6 h-6 text-slate-600" />}
         </button>
       </div>
 
@@ -77,6 +72,7 @@ export default function Header() {
             >
               Contact
             </Link>
+
             <div className="pt-2">
               <Link to="/login" onClick={() => setIsMenuOpen(false)}>
                 <Button variant="outline" className="w-full">

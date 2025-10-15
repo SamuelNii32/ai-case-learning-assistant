@@ -1,1 +1,42 @@
 /* Custom styles can go here if needed */
+/* Custom styles can go here if needed */
+
+:root {
+  /* v0 dev color tokens */
+  --background: #f4f2c9; /* champagne */
+  --foreground: #0b1220;
+  --card: #ffffff;
+  --primary: #265999; /* cyan cobalt blue */
+  --primary-foreground: #ffffff;
+  --accent: #ca9703; /* chinese gold */
+  --ring: #4488bf; /* cyan-blue azure */
+  --muted-foreground: #6b7280;
+}
+
+/* global background/text */
+body {
+  background: var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* helper classes used by components */
+.bg-primary {
+  background-color: var(--primary) !important;
+}
+.text-primary {
+  color: var(--primary) !important;
+}
+.text-muted-foreground {
+  color: var(--muted-foreground) !important;
+}
+.text-foreground {
+  color: var(--foreground) !important;
+}
+.bg-champagne {
+  background-color: var(--background) !important;
+}
+.text-accent {
+  color: var(--accent) !important;
+}
