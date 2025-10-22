@@ -1,7 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 import { Search, ChevronDown, User, Settings, HelpCircle, LogOut, Menu } from 'lucide-react'
 
-export default function Topbar({ searchValue, onSearchChange, onMenuClick, inputId = 'global-search' }) {
+export default function Topbar({
+  searchValue,
+  onSearchChange,
+  onMenuClick,
+  inputId = 'global-search',
+}) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const dropdownRef = useRef(null)
 
@@ -68,7 +73,7 @@ export default function Topbar({ searchValue, onSearchChange, onMenuClick, input
           aria-expanded={isDropdownOpen}
           aria-controls="topbar-user-menu"
         >
-          <div className="w-9 h-9 md:w-10 md:h-10 bg-blue-600 rounded-full grid place-items-center text-white font-semibold">
+          <div className="w-9 h-9 md:w-10 md:h-10 bg-[#125691] rounded-full grid place-items-center text-white font-semibold">
             SC
           </div>
           <span className="hidden sm:inline font-medium text-slate-900">Sarah Chen</span>

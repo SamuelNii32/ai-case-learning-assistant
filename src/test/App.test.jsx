@@ -17,18 +17,29 @@ const renderApp = () => {
                 <div className="flex justify-between items-center py-6 md:justify-start md:space-x-10">
                   <div className="flex justify-start lg:w-0 lg:flex-1">
                     <span className="sr-only">AI Case Assistant</span>
-                    <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                    <div className="h-8 w-8 bg-[#125691] rounded-lg flex items-center justify-center">
                       <span className="text-white font-bold text-sm">AI</span>
                     </div>
                     <span className="ml-2 text-xl font-bold text-gray-900">AI Case Assistant</span>
                   </div>
                   <nav className="hidden md:flex space-x-10">
-                    <a href="#" className="text-base font-medium text-gray-500 hover:text-gray-900">About</a>
-                    <a href="#" className="text-base font-medium text-gray-500 hover:text-gray-900">Privacy</a>
-                    <a href="#" className="text-base font-medium text-gray-500 hover:text-gray-900">Contact</a>
+                    <a href="#" className="text-base font-medium text-gray-500 hover:text-gray-900">
+                      About
+                    </a>
+                    <a href="#" className="text-base font-medium text-gray-500 hover:text-gray-900">
+                      Privacy
+                    </a>
+                    <a href="#" className="text-base font-medium text-gray-500 hover:text-gray-900">
+                      Contact
+                    </a>
                   </nav>
                   <div className="hidden md:flex items-center justify-end md:flex-1 lg:w-0">
-                    <a href="#" className="whitespace-nowrap text-base font-medium text-gray-500 hover:text-gray-900">Sign In</a>
+                    <a
+                      href="#"
+                      className="whitespace-nowrap text-base font-medium text-gray-500 hover:text-gray-900"
+                    >
+                      Sign In
+                    </a>
                   </div>
                 </div>
               </div>
@@ -53,7 +64,7 @@ const renderApp = () => {
       </div>
     )
   }
-  
+
   return render(
     <MemoryRouter initialEntries={['/']}>
       <AppContent />

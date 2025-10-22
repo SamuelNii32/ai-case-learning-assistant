@@ -1,3 +1,70 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+/* Minimal palette variables and simple utilities to match the provided OKLCH theme.
+	 This file avoids advanced PostCSS at-rules and keeps changes localized.
+*/
+:root {
+  /* Palette provided by user */
+  --background: #f4f2c9; /* Champagne */
+  --foreground: #0f172a; /* slate-900-ish for readable text */
+  --primary: #265999; /* Cyan Cobalt Blue */
+  --primary-foreground: #ffffff;
+  --secondary: #f4f2c9; /* light champagne */
+  --muted: #f6f5ee;
+  --muted-foreground: #6b6b5a;
+  --accent: #ca9703; /* Chinese Gold */
+  --accent-foreground: #ffffff;
+  --border: #e9e6d1;
+}
+
+/* Dark mode overrides (optional) */
+.dark {
+  --background: #0f172a; /* dark slate */
+  --foreground: #f8fafc;
+  --muted: #1f2937;
+  --muted-foreground: #9ca3af;
+}
+
+/* Simple helper classes used by the converted landing components */
+.bg-primary {
+  background-color: var(--primary) !important;
+}
+.text-primary {
+  color: var(--primary) !important;
+}
+.text-primary-foreground {
+  color: var(--primary-foreground) !important;
+}
+.bg-accent {
+  background-color: var(--accent) !important;
+}
+.text-accent {
+  color: var(--accent) !important;
+}
+.text-muted-foreground {
+  color: var(--muted-foreground) !important;
+}
+.bg-background {
+  background-color: var(--background) !important;
+}
+.text-foreground {
+  color: var(--foreground) !important;
+}
+.border-primary {
+  border-color: var(--primary) !important;
+}
+
+/* PDF highlight from your theme */
+.pdf-highlight {
+  background: rgba(38, 89, 153, 0.08); /* subtle tint of primary */
+  border-left: 3px solid var(--primary);
+}
+
+/* Chart color variables (used by visual components) */
+:root {
+  --chart-1: #265999; /* Cyan Cobalt Blue */
+  --chart-2: #ca9703; /* Chinese Gold */
+  --chart-3: #4488bf; /* Cyan-Blue Azure */
+  --chart-4: #d5ad36; /* American Gold */
+  --chart-5: #4a74b8; /* medium blue */
+}

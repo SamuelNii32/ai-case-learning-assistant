@@ -15,8 +15,8 @@ export function HowItWorks() {
             <div className="relative rounded-xl overflow-hidden shadow-lg border border-slate-200 bg-white">
               <div className="h-60 bg-gradient-to-br from-slate-50 to-slate-100 p-6 flex flex-col items-center justify-center">
                 <div className="w-full max-w-sm space-y-4">
-                  <div className="border-2 border-dashed border-blue-300 rounded-lg p-8 bg-blue-50/50 flex flex-col items-center gap-3">
-                    <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center">
+                  <div className="border-2 border-dashed border-slate-200 rounded-lg p-8 bg-slate-50/50 flex flex-col items-center gap-3">
+                    <div className="w-12 h-12 bg-[#125691] rounded-full flex items-center justify-center">
                       <Upload className="w-6 h-6 text-white" />
                     </div>
                     <div className="text-center">
@@ -27,13 +27,13 @@ export function HowItWorks() {
                   <div className="text-xs text-slate-400 text-center">Supports PDF up to 50MB</div>
                 </div>
               </div>
-              <div className="absolute top-4 left-4 w-10 h-10 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-full flex items-center justify-center font-bold shadow-lg">
+              <div className="absolute top-4 left-4 w-10 h-10 bg-[#125691] text-white rounded-full flex items-center justify-center font-bold shadow-lg">
                 1
               </div>
             </div>
             <div className="text-center space-y-3">
-              <div className="w-12 h-12 bg-gradient-to-r from-blue-100 to-blue-200 rounded-full flex items-center justify-center mx-auto">
-                <Upload className="w-6 h-6 text-blue-600" />
+              <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto">
+                <Upload className="w-6 h-6 text-[#125691]" />
               </div>
               <h3 className="text-xl font-semibold text-slate-900">Upload Your Case</h3>
               <p className="text-slate-600">
@@ -59,7 +59,7 @@ export function HowItWorks() {
                   </div>
                   <div className="w-1/2 bg-white rounded border border-slate-200 p-2 flex flex-col">
                     <div className="flex gap-1 mb-2">
-                      <div className="flex-1 bg-blue-600 text-white rounded px-2 py-1 text-[8px] font-medium text-center">
+                      <div className="flex-1 bg-[#125691] text-white rounded px-2 py-1 text-[8px] font-medium text-center">
                         Guided
                       </div>
                       <div className="flex-1 bg-slate-100 text-slate-600 rounded px-2 py-1 text-[8px] font-medium text-center">
@@ -67,7 +67,7 @@ export function HowItWorks() {
                       </div>
                     </div>
                     <div className="flex-1 space-y-2">
-                      <div className="bg-blue-50 rounded p-1.5 text-[7px] text-slate-700">
+                      <div className="bg-slate-50 rounded p-1.5 text-[7px] text-slate-700">
                         <div className="font-semibold mb-0.5">Problem Identification</div>
                         <div className="text-slate-600">What is the main challenge?</div>
                       </div>
@@ -75,12 +75,12 @@ export function HowItWorks() {
                   </div>
                 </div>
               </div>
-              <div className="absolute top-4 left-4 w-10 h-10 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-full flex items-center justify-center font-bold shadow-lg">
+              <div className="absolute top-4 left-4 w-10 h-10 bg-[#125691] text-white rounded-full flex items-center justify-center font-bold shadow-lg">
                 2
               </div>
             </div>
             <div className="text-center space-y-3">
-              <div className="w-12 h-12 bg-gradient-to-r from-indigo-100 to-purple-200 rounded-full flex items-center justify-center mx-auto">
+              <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto">
                 <MessageSquare className="w-6 h-6 text-indigo-600" />
               </div>
               <h3 className="text-xl font-semibold text-slate-900">Choose Your Mode</h3>
@@ -100,7 +100,7 @@ export function HowItWorks() {
                     <div className="font-semibold text-slate-900 mb-1">Supply Chain Analysis</div>
                     <div className="space-y-1 text-slate-600">
                       <div>The global supply chain has</div>
-                      <div className="bg-blue-200 px-0.5 inline-block">
+                      <div className="bg-slate-200 px-0.5 inline-block">
                         experienced disruptions due to
                       </div>
                       <div className="bg-blue-200 px-0.5 inline-block">
@@ -112,12 +112,12 @@ export function HowItWorks() {
                   </div>
                   <div className="w-1/2 bg-white rounded border border-slate-200 p-2 space-y-2">
                     <div className="flex gap-1.5">
-                      <div className="w-4 h-4 bg-blue-600 rounded-full flex-shrink-0"></div>
+                      <div className="w-4 h-4 bg-[#125691] rounded-full flex-shrink-0"></div>
                       <div className="flex-1 space-y-1">
                         <div className="text-[7px] text-slate-700 leading-tight">
                           The main challenge is pandemic-related supply chain disruptions...
                         </div>
-                        <div className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-blue-100 text-blue-700 rounded text-[6px]">
+                        <div className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-slate-100 text-[#125691] rounded text-[6px]">
                           <FileText className="w-2 h-2" />
                           Page 3
                         </div>

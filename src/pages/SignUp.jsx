@@ -28,10 +28,10 @@ export default function SignUpPage() {
 
   return (
     <AuthCard
-      className="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50"
+      className="bg-white"
       title={
         <>
-          <div className="w-12 h-12 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center">
+          <div className="w-12 h-12 bg-[#125691] rounded-xl flex items-center justify-center">
             <FileText className="w-7 h-7 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Create Account</h1>
@@ -78,10 +78,7 @@ export default function SignUpPage() {
 
         <RoleSelector role={role} onRoleChange={setRole} />
 
-        <Button
-          type="submit"
-          className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-        >
+        <Button type="submit" className="w-full bg-[#125691] hover:bg-[#0f4f74]">
           Create Account
         </Button>
       </form>

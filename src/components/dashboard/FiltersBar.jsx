@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 export default function FiltersBar({ active, onChange }) {
   const base =
     'px-4 py-2 rounded-full border text-sm focus:outline-none focus:ring-2 focus:ring-blue-300/60 focus:ring-offset-2'
-  const on = 'bg-blue-600 text-white border-blue-700'
+  const on = 'bg-[#125691] text-white border-[#0f4f74]'
   const off = 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
 
   return (

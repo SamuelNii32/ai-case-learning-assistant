@@ -13,7 +13,7 @@ export default function Header() {
       <div className="container mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2">
-          <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+          <div className="w-10 h-10 bg-[#125691] rounded-lg flex items-center justify-center">
             <FileText className="w-6 h-6 text-white" />
           </div>
           <span className="font-semibold text-lg sm:text-xl text-slate-900">AI Case Assistant</span>
@@ -31,7 +31,7 @@ export default function Header() {
             Contact
           </Link>
           <Link to="/login">
-            <Button className="h-9 px-4 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-500 text-white hover:opacity-90">
+            <Button className="h-9 px-4 rounded-lg bg-[#125691] text-white hover:opacity-90">
               Sign In
             </Button>
           </Link>
@@ -43,7 +43,11 @@ export default function Header() {
           className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
           aria-label="Toggle menu"
         >
-          {isMenuOpen ? <X className="w-6 h-6 text-slate-600" /> : <Menu className="w-6 h-6 text-slate-600" />}
+          {isMenuOpen ? (
+            <X className="w-6 h-6 text-slate-600" />
+          ) : (
+            <Menu className="w-6 h-6 text-slate-600" />
+          )}
         </button>
       </div>
 

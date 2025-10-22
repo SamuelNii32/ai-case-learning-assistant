@@ -6,7 +6,7 @@ const AuthFormFooter = ({ mode, className = '' }) => {
       <div className={`text-center ${className}`}>
         <span className="text-sm text-gray-600">
           Don't have an account?{' '}
-          <Link to="/signup" className="font-medium text-blue-600 hover:text-blue-500">
+          <Link to="/signup" className="font-medium text-[#125691] hover:text-[#0f4f74]">
             Sign up
           </Link>
         </span>
@@ -19,7 +19,7 @@ const AuthFormFooter = ({ mode, className = '' }) => {
       <div className={`text-center ${className}`}>
         <span className="text-sm text-gray-600">
           Already have an account?{' '}
-          <Link to="/signin" className="font-medium text-blue-600 hover:text-blue-500">
+          <Link to="/signin" className="font-medium text-[#125691] hover:text-[#0f4f74]">
             Sign in
           </Link>
         </span>

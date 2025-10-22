@@ -9,18 +9,13 @@ export function Hero() {
   return (
     <div className="space-y-16">
       {/* Hero Section - Side by Side Layout */}
-      <div className="relative bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 rounded-3xl p-8 lg:p-12 overflow-hidden">
-        {/* Background decoration */}
-        <div className="absolute top-0 right-0 w-72 h-72 bg-gradient-to-br from-blue-200/30 to-purple-200/30 rounded-full blur-3xl"></div>
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-gradient-to-tr from-indigo-200/30 to-blue-200/30 rounded-full blur-3xl"></div>
-
+      <div className="relative rounded-3xl p-8 lg:p-12 overflow-hidden">
         <div className="relative grid lg:grid-cols-2 gap-12 items-start">
           {/* Left Side - Hero Text + ValueProps */}
           <div className="space-y-6 text-left">
-            <h1 className="text-4xl lg:text-5xl font-bold bg-gradient-to-r from-gray-900 via-blue-800 to-indigo-800 bg-clip-text text-transparent leading-tight">
-              Analyze complex cases.
-              <br />
-              Learn with AI.
+            <h1 className="text-4xl lg:text-5xl font-bold leading-tight">
+              <span className="text-slate-900">Master Complex Cases with </span>
+              <span className="text-[#125691]">AI-Powered Learning</span>
             </h1>
             <p className="text-xl text-gray-700 leading-relaxed">
               Upload a case, choose guided walkthrough or free Q&A, and get evidence-grounded
@@ -28,10 +23,7 @@ export function Hero() {
             </p>
             <div className="flex items-center gap-4">
               <Link to="/login">
-                <Button
-                  size="lg"
-                  className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/25"
-                >
+                <Button size="lg" className="shadow-lg">
                   Sign In
                 </Button>
               </Link>
@@ -39,7 +31,7 @@ export function Hero() {
                 <Button
                   size="lg"
                   variant="outline"
-                  className="border-blue-300 text-blue-700 hover:bg-blue-50 shadow-lg shadow-blue-500/10"
+                  className="border-[#125691] text-[#125691] hover:bg-[#125691]/10 shadow-lg"
                 >
                   Try Demo
                 </Button>

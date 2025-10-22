@@ -13,7 +13,7 @@ export function Hero() {
       </p>
       <div className="flex items-center gap-4">
         <Link to="/login">
-          <Button size="lg" className="bg-blue-600 hover:bg-blue-700">
+          <Button size="lg" className="bg-[#125691] hover:bg-[#0f4f74]">
             Sign In
           </Button>
         </Link>

@@ -8,7 +8,7 @@ export function Footer() {
         <div className="grid md:grid-cols-4 gap-8 mb-8">
           <div className="space-y-4">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-[#125691] rounded-lg flex items-center justify-center">
                 <FileText className="w-5 h-5 text-white" />
               </div>
               <span className="font-semibold text-lg text-slate-900">AI Case Assistant</span>

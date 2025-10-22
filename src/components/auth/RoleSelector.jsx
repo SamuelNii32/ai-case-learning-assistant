@@ -17,7 +17,7 @@ const RoleSelector = ({ role, onRoleChange, className = '' }) => {
             value="student"
             checked={role === 'student'}
             onChange={handleRoleChange}
-            className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+            className="h-4 w-4 text-[#125691] border-gray-300 focus:ring-[#125691]"
           />
           <Label htmlFor="student" className="ml-2 text-sm text-gray-700 cursor-pointer">
             Student
@@ -31,7 +31,7 @@ const RoleSelector = ({ role, onRoleChange, className = '' }) => {
             value="instructor"
             checked={role === 'instructor'}
             onChange={handleRoleChange}
-            className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+            className="h-4 w-4 text-[#125691] border-gray-300 focus:ring-[#125691]"
           />
           <Label htmlFor="instructor" className="ml-2 text-sm text-gray-700 cursor-pointer">
             Instructor
