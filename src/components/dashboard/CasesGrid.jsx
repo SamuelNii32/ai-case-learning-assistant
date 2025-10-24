@@ -52,14 +52,16 @@ export default function CasesGrid({ items = [], loading = false }) {
     )
   }
 
-  const handleRename = async (c) => {
+  const handleRename = async c => {
     const newTitle = window.prompt('Rename PDF', (c.title || '').replace(/\.pdf$/i, ''))
     if (!newTitle) return
     try {
       const res = await fetch(`${API_BASE}/cases/${c.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: newTitle + (c.title && c.title.match(/\.pdf$/i) ? '.pdf' : '') }),
+        body: JSON.stringify({
+          title: newTitle + (c.title && c.title.match(/\.pdf$/i) ? '.pdf' : ''),
+        }),
       })
       if (!res.ok) throw new Error('Rename failed')
       toast.success('Renamed')
@@ -70,7 +72,7 @@ export default function CasesGrid({ items = [], loading = false }) {
     }
   }
 
-  const handleShare = async (c) => {
+  const handleShare = async c => {
     const url = `${window.location.origin}${window.location.pathname}workspace/${c.id}`
     try {
       await navigator.clipboard.writeText(url)
@@ -82,7 +84,7 @@ export default function CasesGrid({ items = [], loading = false }) {
     }
   }
 
-  const handleDownload = (c) => {
+  const handleDownload = c => {
     const href = `${API_BASE}/cases/${c.id}/download`
     const a = document.createElement('a')
     a.href = href
@@ -94,7 +96,7 @@ export default function CasesGrid({ items = [], loading = false }) {
     setOpenId(null)
   }
 
-  const handleDelete = async (c) => {
+  const handleDelete = async c => {
     if (!window.confirm('Delete this case? This cannot be undone.')) return
     try {
       const res = await fetch(`${API_BASE}/cases/${c.id}`, { method: 'DELETE' })
@@ -151,17 +153,27 @@ export default function CasesGrid({ items = [], loading = false }) {
                 )}
 
                 {/* Status badge placed on the cover image (top-right) */}
-                <span className={`absolute top-3 right-3 z-40 px-3 py-1 rounded-full text-xs font-medium ${statusClasses(c.status)}`}>
+                <span
+                  className={`absolute top-3 right-3 z-40 px-3 py-1 rounded-full text-xs font-medium ${statusClasses(c.status)}`}
+                >
                   {c.status === 'completed' ? 'Completed' : 'In Progress'}
                 </span>
               </div>
 
               <div className="p-5 space-y-2 relative z-0">
-
                 {(() => {
-                  const fullTitle = (c.title || c.name || c.fileName || c.filename || 'Untitled PDF').replace(/\.pdf$/i, '')
+                  const fullTitle = (
+                    c.title ||
+                    c.name ||
+                    c.fileName ||
+                    c.filename ||
+                    'Untitled PDF'
+                  ).replace(/\.pdf$/i, '')
                   return (
-                    <h3 title={fullTitle} className="font-semibold text-lg text-slate-900 group-hover:text-[#125691] transition-colors truncate">
+                    <h3
+                      title={fullTitle}
+                      className="font-semibold text-lg text-slate-900 group-hover:text-[#125691] transition-colors truncate"
+                    >
                       {toTitleCase(fullTitle)}
                     </h3>
                   )
@@ -179,7 +191,9 @@ export default function CasesGrid({ items = [], loading = false }) {
                 <p className="text-sm text-slate-600 leading-relaxed">{c.description}</p>
 
                 <div className="pt-2">
-                  <div className="text-xs text-slate-400">{formatDate(c.createdAt || c.uploadedAt || c.uploaded_at)}</div>
+                  <div className="text-xs text-slate-400">
+                    {formatDate(c.createdAt || c.uploadedAt || c.uploaded_at)}
+                  </div>
                 </div>
                 <div className="pt-2" />
               </div>
@@ -188,7 +202,7 @@ export default function CasesGrid({ items = [], loading = false }) {
             {/* Move actions button down to bottom-right of card; menu is absolutely positioned so it won't shift the button */}
             <div className="absolute bottom-3 right-3 z-50">
               <button
-                onClick={(e) => {
+                onClick={e => {
                   e.stopPropagation()
                   setOpenId(openId === c.id ? null : c.id)
                 }}

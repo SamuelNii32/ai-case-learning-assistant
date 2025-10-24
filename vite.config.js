@@ -20,6 +20,15 @@ export default defineConfig(() => ({
   server: {
     port: 5174,
     strictPort: true,
+    proxy: {
+      // Dev-only: proxy uploads to backend to avoid CORS during local development
+      '/uploads': {
+        target: 'http://localhost:5259',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/api': { target: 'http://localhost:5259', changeOrigin: true }, // ← add this line
+    },
   },
   test: {
     globals: true,

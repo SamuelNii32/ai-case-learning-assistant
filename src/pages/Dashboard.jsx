@@ -39,7 +39,10 @@ export default function Dashboard() {
       .then(data => {
         console.log('fetched cases:', data)
         // normalize: prefer title, fallback to name or fileName
-        const normalized = data.map(c => ({ ...c, title: c.title || c.name || c.fileName || c.filename }))
+        const normalized = data.map(c => ({
+          ...c,
+          title: c.title || c.name || c.fileName || c.filename,
+        }))
         setCases(normalized)
         setLoading(false)
       })

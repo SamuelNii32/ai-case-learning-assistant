@@ -46,7 +46,8 @@ export default function UploadPage() {
     try {
       // runtime check: ensure API base is present
       if (!API_BASE) {
-        const msg = 'VITE_API_BASE is not set. Did you restart the dev server after creating .env/local?'
+        const msg =
+          'VITE_API_BASE is not set. Did you restart the dev server after creating .env/local?'
         console.error(msg)
         alert(msg)
         setUploadState('idle')
@@ -57,23 +58,23 @@ export default function UploadPage() {
       console.log('File:', { name: file.name, size: file.size })
       const fd = new FormData()
       fd.append('file', file)
-  const up = await fetch(`${API_BASE}/uploads`, { method: 'POST', body: fd })
+      const up = await fetch(`${API_BASE}/uploads`, { method: 'POST', body: fd })
       if (!up.ok) {
         const text = await up.text().catch(() => '<no body>')
-  const msg = `Upload failed (${up.status}): ${text}`
-  console.error(msg, { url: `${API_BASE}/uploads`, status: up.status, body: text })
+        const msg = `Upload failed (${up.status}): ${text}`
+        console.error(msg, { url: `${API_BASE}/uploads`, status: up.status, body: text })
         throw new Error(msg)
       }
 
-  const data = await up.json()
+      const data = await up.json()
       setUploadId(data.uploadId)
 
       setUploadState('processing')
       setUploadProgress(60)
 
-  const sumUrl = `${API_BASE}/uploads/${data.uploadId}/summary`
-  console.log('Fetching summary from', sumUrl)
-  const sumRes = await fetch(sumUrl)
+      const sumUrl = `${API_BASE}/uploads/${data.uploadId}/summary`
+      console.log('Fetching summary from', sumUrl)
+      const sumRes = await fetch(sumUrl)
       if (!sumRes.ok) {
         const text = await sumRes.text().catch(() => '<no body>')
         const msg = `Summary failed (${sumRes.status}): ${text}`
