@@ -7,6 +7,7 @@ import { FileText } from 'lucide-react'
 import AuthCard from '../components/auth/AuthCard'
 import RoleSelector from '../components/auth/RoleSelector'
 import AuthFormFooter from '../components/auth/AuthFormFooter'
+import { API_BASE } from '@/config'
 
 export default function SignUpPage() {
   const navigate = useNavigate()
@@ -14,15 +15,49 @@ export default function SignUpPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState('student')
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState(null)
 
-  const handleSignUp = e => {
+  const handleSignUp = async e => {
     e.preventDefault()
-    localStorage.setItem('userRole', role)
-
-    if (role === 'instructor') {
-      navigate('/instructor-dashboard')
-    } else {
-      navigate('/dashboard')
+    setErr(null)
+    setLoading(true)
+    const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
+    const url = base ? `${base}/auth/signup` : '/auth/signup'
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fullName: name, email, password }),
+      })
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '')
+        throw new Error(txt || `Signup failed (${res.status})`)
+      }
+      const j = await res.json()
+      const user = {
+        userId: j.userId || j.id,
+        email: j.email || j.emailAddress,
+        fullName: j.fullName || j.name,
+      }
+      // signup typically returns user info but not token per backend spec; persist user so SignIn/Auth can show context
+      try {
+        localStorage.setItem('authUser', JSON.stringify(user))
+      } catch {
+        try {
+          localStorage.setItem('user', JSON.stringify(user))
+        } catch {
+          /* ignore */
+        }
+      }
+      localStorage.setItem('userRole', role)
+      // auto-redirect to login page with a success flag so the sign-in page can show confirmation
+      navigate('signin', { state: { signupSuccess: true } })
+    } catch (e) {
+      console.error('Signup error', e)
+      setErr(String(e.message || e))
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -78,9 +113,10 @@ export default function SignUpPage() {
 
         <RoleSelector role={role} onRoleChange={setRole} />
 
-        <Button type="submit" className="w-full bg-[#125691] hover:bg-[#0f4f74]">
-          Create Account
+        <Button type="submit" className="w-full bg-[#125691] hover:bg-[#0f4f74]" disabled={loading}>
+          {loading ? 'Creating…' : 'Create Account'}
         </Button>
+        {err && <div className="text-sm text-red-600 mt-2">{err}</div>}
       </form>
 
       <AuthFormFooter mode="signup" />

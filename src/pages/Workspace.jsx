@@ -1,13 +1,25 @@
-import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { useState, useEffect, useRef } from 'react'
+import { Link, useParams, useSearchParams, useNavigate } from 'react-router-dom'
+import React, { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import Badge from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import WorkspaceNotesPanel from '@/components/WorkspaceNotesPanel.clean'
-import GuidedModePanel from '@/components/GuidedModePanel.clean'
+// Use the working implementation while original file is being cleaned
+// Guided mode removed per request
 import { PdfControllerProvider } from '@/contexts/pdf-controller'
 
+import { API_BASE } from '@/config'
+import {
+  buildIndex,
+  getAuthToken,
+  getUploadSummary,
+  createSession,
+  getSession,
+  listSessionsMine,
+} from '@/lib/api'
+
+import toast from 'react-hot-toast'
 import {
   Sparkles,
   ArrowLeft,
@@ -21,17 +33,31 @@ import {
   X,
   Clock,
 } from 'lucide-react'
-import { API_BASE } from '@/config'
-// Explicitly import the JSX viewer implementation (prefer stable JS build)
-import PdfViewer from '@/components/PdfViewer.jsx'
+// Lazy-load the PDF viewer so heavy pdf.js code is deferred until needed
+const PdfViewer = React.lazy(() => import('@/components/PdfViewer.jsx'))
+// put this near the top of the file
+
+function appendSmart(prev = '', next = '') {
+  if (!next) return prev
+  if (!prev) return next
+
+  // Follow tokenizer semantics: tokens that begin with whitespace indicate a
+  // separation; tokens that do not begin with whitespace are continuations of
+  // the previous token. Therefore, prefer appending the token exactly as
+  // emitted and avoid injecting extra spaces which can create artifacts like
+  // "sam uel". This keeps punctuation and email joins intact.
+  return prev + next
+}
 
 export default function Workspace() {
   const { uploadId } = useParams()
+  const navigate = useNavigate()
 
   const [searchParams] = useSearchParams()
   const caseType = searchParams.get('type') || 'personal'
 
-  const [mode, setMode] = useState('chat')
+  // Chat-only mode: guided mode has been removed. The workspace always renders chat.
+
   const [showNotes, setShowNotes] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [showFigures, setShowFigures] = useState(false)
@@ -45,41 +71,50 @@ export default function Workspace() {
   // Use the local pdf controller state (`pdfCtrl`) which is provided below via PdfControllerProvider.
   // We avoid calling the context consumer here because the Provider is created later in this component.
 
-  const conversationHistory = [
-    {
-      id: 1,
-      title: 'Healthcare Innovation Case',
-      date: '2 hours ago',
-      preview: 'Discussed triage processes and bed availability…',
-      messageCount: 12,
-    },
-    {
-      id: 2,
-      title: 'Supply Chain Analysis',
-      date: 'Yesterday',
-      preview: 'Analyzed inventory management and vendor relations…',
-      messageCount: 8,
-    },
-    {
-      id: 3,
-      title: 'Marketing Strategy Case',
-      date: '2 days ago',
-      preview: 'Explored digital transformation and engagement…',
-      messageCount: 15,
-    },
-    {
-      id: 4,
-      title: 'Financial Performance Review',
-      date: '3 days ago',
-      preview: 'Revenue streams and cost optimization…',
-      messageCount: 10,
-    },
-  ]
+  // Real conversation history from /sessions/mine
+  const [conversationHistory, setConversationHistory] = useState([])
+  const [conversationLoading, setConversationLoading] = useState(false)
 
-  function handleSendMessage() {
+  // Active session (for this workspace)
+  const [sessionId, setSessionId] = useState(() => {
+    return searchParams.get('sessionId') || null
+  })
+  const [sessionLoading, setSessionLoading] = useState(false)
+
+  async function handleSendMessage() {
     const text = message.trim()
     if (!text) return
 
+    if (uploadId && indexState === 'ready') {
+      const q = text
+
+      // Ensure we have a sessionId for this upload
+      let sid = sessionId
+      if (!sid) {
+        try {
+          const created = await createSession(uploadId)
+          sid = created?.sessionId || created?.id || null
+          if (sid) setSessionId(sid)
+        } catch (err) {
+          console.error('[Workspace] failed to create session', err)
+        }
+      }
+
+      // push user message and placeholder assistant
+      setMessages(prev => [...prev, { role: 'user', content: q }])
+      setMessage('')
+      const assistantId = `asst-${Date.now()}`
+      setMessages(prev => [
+        ...prev,
+        { id: assistantId, role: 'assistant', content: '', streaming: true, sources: [] },
+      ])
+
+      // use streaming ask endpoint with sessionId (if we have one)
+      startAskStream(uploadId, q, assistantId, sid)
+      return
+    }
+
+    // otherwise fall back to the streaming SSE chat (dev/mock)
     // 1) push the user message
     setMessages(prev => [...prev, { role: 'user', content: text }])
     setMessage('')
@@ -112,8 +147,10 @@ export default function Workspace() {
       const { text } = JSON.parse(e.data)
       updateAssistant(m => ({
         ...m,
-        content: m.content ? `${m.content} ${text}` : text,
+        content: appendSmart(m.content || '', text),
       }))
+      // keep chat scrolled to bottom while streaming
+      requestAnimationFrame(() => scrollToBottom(false))
     })
 
     es.addEventListener('source', e => {
@@ -126,6 +163,8 @@ export default function Workspace() {
 
     const finish = () => {
       updateAssistant(m => ({ ...m, streaming: false }))
+      // smooth settle to bottom when stream completes
+      requestAnimationFrame(() => scrollToBottom(true))
       try {
         es.close()
       } catch {
@@ -137,6 +176,346 @@ export default function Workspace() {
     es.addEventListener('done', finish)
     es.addEventListener('error', finish)
   }
+
+  async function handleStartIndex() {
+    if (!uploadId) return
+    try {
+      setIndexState('indexing')
+      const summary = await buildIndex(uploadId)
+      setIndexSummary(summary)
+      setIndexState('ready')
+    } catch (err) {
+      console.error('Index build failed', err)
+      setIndexState('error')
+    }
+  }
+
+  // Check index status on server: inMemory | onDisk | none
+  async function checkIndexStatus(uploadIdParam) {
+    if (!uploadIdParam) return
+    setIndexState('checking')
+    const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
+    const url = API_BASE
+      ? `${base}/index/status/${encodeURIComponent(uploadIdParam)}`
+      : `/index/status/${encodeURIComponent(uploadIdParam)}`
+
+    try {
+      const token = getAuthToken()
+      const headers = token ? { Authorization: `Bearer ${token}` } : {}
+      const res = await fetch(url, { headers })
+      if (!res.ok) throw new Error(`Status ${res.status}`)
+      const js = await res.json()
+
+      // if index in memory or on disk -> consider it ready (lazy-load from disk)
+      if (js?.inMemory === true || js?.onDisk === true) {
+        setIndexSummary(prev => prev || { pagesIndexed: js?.chunks ?? null })
+        setIndexState('ready')
+        return
+      }
+
+      // otherwise build index automatically
+      setIndexState('indexing')
+      try {
+        const summary = await buildIndex(uploadIdParam)
+        setIndexSummary(summary)
+        setIndexState('ready')
+      } catch (err) {
+        console.error('Auto-build index failed', err)
+        setIndexState('error')
+      }
+    } catch (err) {
+      console.error('Failed to fetch index status', err)
+      // do not show toast; surface retry via button
+      setIndexState('error')
+    }
+  }
+
+  // docType/classification removed along with guided-mode behavior
+
+  // Start an EventSource stream to the server ask stream endpoint and wire events to the assistant message.
+  function startAskStream(uploadIdParam, q, assistantId, sessionIdParam) {
+    // close any existing stream/abort controller
+    try {
+      if (sseRef.current?.abort) sseRef.current.abort()
+    } catch {
+      /* empty */
+    }
+    sseRef.current = null
+
+    const enc = encodeURIComponent(q || '')
+    const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
+    const extra = sessionIdParam ? `&sessionId=${encodeURIComponent(sessionIdParam)}` : ''
+    const url = API_BASE
+      ? `${base}/ask/stream/${encodeURIComponent(uploadIdParam)}?q=${enc}${extra}`
+      : `/ask/stream/${encodeURIComponent(uploadIdParam)}?q=${enc}${extra}`
+
+    const controller = new AbortController()
+    sseRef.current = controller
+
+    const token = getAuthToken()
+    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+
+    let gotFirstToken = false
+    const updateAssistant = updater => {
+      setMessages(prev => prev.map(m => (m.id === assistantId ? updater(m) : m)))
+    }
+
+    fetch(url, { method: 'GET', headers, signal: controller.signal })
+      .then(res => {
+        if (!res.ok) throw new Error(`Stream failed: ${res.status}`)
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        function handleSseBlock(block) {
+          // SSE block parser: lines like "event: token" and "data: {...}"
+          const lines = block.split('\n').map(l => l.trim())
+          let event = null
+          let data = ''
+          for (const line of lines) {
+            if (line.startsWith('event:')) event = line.slice(6).trim()
+            else if (line.startsWith('data:')) data += line.slice(5).trim()
+            else data += line
+          }
+          if (!event && data) {
+            // try to parse as JSON or fallback to token
+            try {
+              const j = JSON.parse(data)
+              if (j.citations || j.event === 'citations') {
+                event = 'citations'
+              } else if (j.done || j.event === 'done') {
+                event = 'done'
+              } else {
+                event = 'token'
+              }
+            } catch {
+              event = 'token'
+            }
+          }
+          if (event === 'token') {
+            let parsed = null
+            try {
+              parsed = JSON.parse(data)
+            } catch {
+              parsed = { text: data }
+            }
+            const piece = parsed?.text ?? ''
+            if (!gotFirstToken) {
+              gotFirstToken = true
+              updateAssistant(m => ({ ...m, content: '', streaming: true }))
+            }
+            updateAssistant(m => ({ ...m, content: appendSmart(m.content || '', piece) }))
+            requestAnimationFrame(() => scrollToBottom(false))
+          } else if (event === 'citations') {
+            let arr = []
+            try {
+              arr = JSON.parse(data)
+            } catch {
+              arr = []
+            }
+            updateAssistant(m => ({
+              ...m,
+              sources: (arr || []).map(p => ({ page: p, label: `p:${p}` })),
+            }))
+            requestAnimationFrame(() => scrollToBottom(false))
+          } else if (event === 'done') {
+            updateAssistant(m => {
+              const cleaned = (m.content || '')
+                .replace(
+                  /\b([A-Za-z0-9._%+-]+)\s*@\s*([A-Za-z0-9.-]+)\s*\\.\s*([A-Za-z]{2,})\b/g,
+                  '$1@$2.$3'
+                )
+                .trim()
+              return { ...m, content: cleaned, streaming: false }
+            })
+            try {
+              controller.abort()
+            } catch {
+              /* empty */
+            }
+            if (sseRef.current === controller) sseRef.current = null
+            requestAnimationFrame(() => scrollToBottom(true))
+          }
+        }
+
+        function readChunk() {
+          return reader.read().then(({ done, value }) => {
+            if (done) {
+              // process any remaining buffer
+              if (buffer.trim()) handleSseBlock(buffer)
+              return
+            }
+            buffer += decoder.decode(value, { stream: true })
+            // handle SSE-style blocks separated by double-newline
+            let idx
+            while ((idx = buffer.indexOf('\n\n')) !== -1) {
+              const block = buffer.slice(0, idx)
+              buffer = buffer.slice(idx + 2)
+              handleSseBlock(block)
+            }
+            // also handle newline-delimited JSON tokens
+            const lines = buffer.split('\n')
+            for (let i = 0; i < lines.length - 1; i++) {
+              const line = lines[i].trim()
+              if (!line) continue
+              handleSseBlock(line)
+            }
+            buffer = lines[lines.length - 1]
+            return readChunk()
+          })
+        }
+
+        return readChunk()
+      })
+      .catch(err => {
+        const msg = err?.message || 'Stream error'
+        // If server indicates index missing, try to build it once and retry
+        if (/index/i.test(String(msg)) && !retriedRef.current) {
+          retriedRef.current = true
+          ;(async () => {
+            try {
+              await buildIndex(uploadIdParam)
+              // restart stream after successful reindex
+              try {
+                controller.abort()
+              } catch {
+                /* empty */
+              }
+              if (sseRef.current === controller) sseRef.current = null
+              startAskStream(uploadIdParam, q, assistantId)
+              return
+            } catch (err2) {
+              console.error('Reindex retry failed', err2)
+              toast.error('Re-index failed; please try again')
+            }
+          })()
+          return
+        }
+
+        updateAssistant(m => ({
+          ...m,
+          streaming: false,
+          content: m.content ? `${m.content}\n\nError: ${msg}` : `Error: ${msg}`,
+        }))
+        toast.error(String(msg))
+        try {
+          controller.abort()
+        } catch {
+          /* empty */
+        }
+        if (sseRef.current === controller) sseRef.current = null
+      })
+  }
+
+  function normalizePreview(raw) {
+    if (!raw) return 'Conversation started'
+
+    const trimmed = String(raw).trim()
+
+    if (!trimmed || trimmed === '[streamed response]') {
+      return 'Conversation started'
+    }
+
+    return trimmed
+  }
+
+  // Load conversation list for the left "Conversation History" panel
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadConversations() {
+      try {
+        setConversationLoading(true)
+        const sessions = await listSessionsMine()
+
+        if (cancelled) return
+
+        const mapped = Array.isArray(sessions)
+          ? sessions.map(s => {
+              const last = s.lastActivityAt || s.createdAt
+              const dateLabel = last
+                ? new Date(last).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                  })
+                : '—'
+
+              return {
+                id: s.sessionId,
+                caseId: s.uploadId,
+                title: s.caseName || 'Untitled case',
+                date: dateLabel,
+                preview: normalizePreview(s.lastMessagePreview),
+                messageCount: s.messageCount ?? 0,
+              }
+            })
+          : []
+
+        setConversationHistory(mapped)
+      } catch (err) {
+        console.error('[Workspace] failed to load conversation history', err)
+      } finally {
+        if (!cancelled) setConversationLoading(false)
+      }
+    }
+
+    loadConversations()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // If a sessionId is present in the URL, load its message history
+  useEffect(() => {
+    const fromUrl = searchParams.get('sessionId')
+    if (!uploadId || !fromUrl) {
+      // No explicit session – keep greeting and create on first question
+      return
+    }
+
+    let cancelled = false
+
+    async function initSessionFromUrl() {
+      try {
+        setSessionLoading(true)
+        setSessionId(fromUrl)
+
+        const history = await getSession(fromUrl)
+        if (cancelled) return
+
+        if (Array.isArray(history) && history.length > 0) {
+          setMessages(
+            history.map(m => ({
+              role: m.role === 'user' ? 'user' : 'assistant',
+              content: m.content || '',
+              sources: Array.isArray(m.pagesUsed)
+                ? m.pagesUsed.map(p => ({ page: p, label: `p:${p}` }))
+                : [],
+              createdAt: m.createdAt,
+            }))
+          )
+        } else {
+          // No prior messages -> keep friendly greeting
+          setMessages([
+            {
+              role: 'assistant',
+              content:
+                "Hello! I've analyzed your case study. What would you like to explore first?",
+            },
+          ])
+        }
+      } catch (err) {
+        console.error('[Workspace] failed to load session messages', err)
+      } finally {
+        if (!cancelled) setSessionLoading(false)
+      }
+    }
+
+    initSessionFromUrl()
+    return () => {
+      cancelled = true
+    }
+  }, [uploadId, searchParams])
 
   useEffect(() => {
     return () => {
@@ -156,13 +535,83 @@ export default function Workspace() {
 
   const pdfCtrlRef = useRef(null)
   const [pdfCtrl, setPdfCtrl] = useState(null)
-  const [pdfReady, setPdfReady] = useState(false)
+  const [caseTitle, setCaseTitle] = useState(null)
+  const [uploadDate, setUploadDate] = useState(null)
+  const [indexState, setIndexState] = useState('not-indexed') // 'not-indexed' | 'indexing' | 'ready' | 'error'
+  const [indexSummary, setIndexSummary] = useState(null)
   const sseRef = useRef(null)
+  const retriedRef = useRef(false)
+
+  const chatRef = useRef(null)
+
+  const scrollToBottom = (smooth = false) => {
+    const el = chatRef.current
+    if (!el) return
+    try {
+      el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+    } catch {
+      el.scrollTop = el.scrollHeight
+    }
+  }
 
   useEffect(() => {
-    setPdfReady(false)
+    // pdfReady flag removed; PDF controller reset
     pdfCtrlRef.current = null
+    // reset index state when switching uploads
+    setIndexSummary(null)
+    retriedRef.current = false
+    if (uploadId) {
+      checkIndexStatus(uploadId)
+    } else {
+      setIndexState('not-indexed')
+    }
+    // tutor/guided state removed
+    // fetch upload metadata (title) for header display
+    if (uploadId) {
+      ;(async () => {
+        try {
+          const meta = await getUploadSummary(uploadId)
+          // prefer explicit title, fall back to originalFileName or filename
+          const t =
+            meta?.title || meta?.originalFileName || meta?.fileName || meta?.filename || null
+          setCaseTitle(t)
+
+          // extract an upload date from common server fields and format it for display
+          const rawDate =
+            meta?.uploadedAt ?? meta?.createdAt ?? meta?.uploaded_at ?? meta?.uploaded_at_ms ?? null
+          let formatted = null
+          if (rawDate) {
+            let dt = null
+            try {
+              // handle number-like strings and numeric timestamps (seconds vs ms)
+              if (typeof rawDate === 'number') {
+                dt = rawDate < 1e12 ? new Date(rawDate * 1000) : new Date(rawDate)
+              } else {
+                const asNum = Number(rawDate)
+                if (!Number.isNaN(asNum)) {
+                  dt = String(rawDate).length <= 10 ? new Date(asNum * 1000) : new Date(asNum)
+                } else {
+                  dt = new Date(rawDate)
+                }
+              }
+              if (!isNaN(dt.getTime())) formatted = dt.toLocaleString()
+            } catch {
+              formatted = null
+            }
+          }
+          setUploadDate(formatted)
+        } catch (err) {
+          console.debug('[Workspace] failed to fetch upload summary', err)
+          setCaseTitle(null)
+          setUploadDate(null)
+        }
+      })()
+    } else {
+      setCaseTitle(null)
+    }
   }, [uploadId])
+
+  // Guided mode removed; no mode gating required.
 
   useEffect(() => {
     return () => {
@@ -196,7 +645,7 @@ export default function Workspace() {
     <PdfControllerProvider value={pdfCtrl}>
       <div
         className="h-screen bg-white flex flex-col"
-        data-mode={mode}
+        data-mode="chat"
         data-shownotes={String(showNotes)}
         data-showhistory={String(showHistory)}
         data-showfigures={String(showFigures)}
@@ -233,9 +682,16 @@ export default function Workspace() {
 
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                <span className="text-sm font-medium text-foreground truncate">
-                  Healthcare Innovation Case
-                </span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-sm font-medium text-foreground truncate">
+                    {caseTitle || 'Healthcare Innovation Case'}
+                  </span>
+                  {uploadDate && (
+                    <span className="text-xs text-muted-foreground ml-2 whitespace-nowrap">
+                      {uploadDate}
+                    </span>
+                  )}
+                </div>
                 {(searchParams.get('type') || 'personal') === 'assigned' && (
                   <Badge variant="secondary" className="ml-2">
                     Assigned
@@ -246,24 +702,11 @@ export default function Workspace() {
 
             <div className="flex items-center gap-2 flex-shrink-0">
               <div className="hidden md:flex items-center gap-1 bg-muted rounded-lg p-1">
-                <Button
-                  variant={mode === 'chat' ? 'secondary' : 'ghost'}
-                  size="sm"
-                  onClick={() => setMode('chat')}
-                  className="text-xs"
-                >
+                <Button variant="secondary" size="sm" className="text-xs">
                   <MessageSquare className="w-3 h-3 mr-1" />
                   Chat
                 </Button>
-                <Button
-                  variant={mode === 'guided' ? 'secondary' : 'ghost'}
-                  size="sm"
-                  onClick={() => setMode('guided')}
-                  className="text-xs"
-                >
-                  <Sparkles className="w-3 h-3 mr-1" />
-                  Guided
-                </Button>
+                {/* Guided mode removed — button intentionally omitted */}
               </div>
 
               <Button
@@ -276,26 +719,7 @@ export default function Workspace() {
                 <span className="hidden sm:inline">Notes</span>
               </Button>
 
-              {import.meta.env.DEV && (
-                <div className="hidden md:flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!pdfReady}
-                    onClick={() => pdfCtrlRef.current?.scrollToPage(5)}
-                  >
-                    Jump to 5
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!pdfReady}
-                    onClick={() => pdfCtrlRef.current?.showHighlight({ page: 5 })}
-                  >
-                    Flash 5
-                  </Button>
-                </div>
-              )}
+              {/* DEV helpers removed: jump/flash buttons were for local debugging */}
             </div>
           </div>
         </header>
@@ -315,7 +739,17 @@ export default function Workspace() {
                     <Card
                       key={c.id}
                       className="p-3 cursor-pointer hover:border-primary/50 transition-colors"
-                      onClick={() => setShowHistory(false)}
+                      onClick={() => {
+                        // uploadId for this conversation (PDF case). Fallback to sessionId if ever needed.
+                        const uploadIdForNav = c.caseId || c.id
+
+                        const url = `/workspace/${encodeURIComponent(
+                          uploadIdForNav
+                        )}?sessionId=${encodeURIComponent(c.id)}`
+
+                        navigate(url)
+                        setShowHistory(false)
+                      }}
                     >
                       <div className="space-y-2">
                         <div className="flex items-start justify-between gap-2">
@@ -344,20 +778,31 @@ export default function Workspace() {
                   <div className="p-4">
                     {uploadId ? (
                       <div className="w-full h-[70vh] bg-white rounded overflow-hidden border border-border relative">
-                        <PdfViewer
-                          src={`${API_BASE}/uploads/${uploadId}.pdf`}
-                          unmirror
-                          fitToWidth
-                          onReady={ctrl => {
-                            pdfCtrlRef.current = ctrl
-                            setPdfCtrl(ctrl) // <-- context value
-                            setPdfReady(true)
-                            if (import.meta.env.DEV) {
-                              window.pdfCtrl = ctrl
-                              console.log('[Workspace] pdfCtrl ready:', ctrl)
+                        <React.Suspense
+                          fallback={
+                            <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+                              Loading preview…
+                            </div>
+                          }
+                        >
+                          <PdfViewer
+                            src={
+                              API_BASE
+                                ? `${String(API_BASE).replace(/\/$/, '')}/uploads/${uploadId}.pdf`
+                                : `/uploads/${uploadId}.pdf`
                             }
-                          }}
-                        />
+                            unmirror
+                            fitToWidth
+                            onReady={ctrl => {
+                              pdfCtrlRef.current = ctrl
+                              setPdfCtrl(ctrl) // <-- context value
+                              if (import.meta.env.DEV) {
+                                window.pdfCtrl = ctrl
+                                console.log('[Workspace] pdfCtrl ready:', ctrl)
+                              }
+                            }}
+                          />
+                        </React.Suspense>
                         {/* small toolbar (top-right) so users can open Figures & Charts while viewing a PDF */}
                         <div className="absolute top-2 right-2 z-20">
                           <Button
@@ -387,7 +832,7 @@ export default function Workspace() {
 
                         <div className="space-y-4 text-sm leading-relaxed">
                           <h2 className="text-2xl font-bold text-foreground">
-                            Healthcare Innovation Case Study
+                            {caseTitle ? caseTitle : 'Healthcare Innovation Case Study'}
                           </h2>
 
                           <p className="text-foreground">
@@ -445,115 +890,162 @@ export default function Workspace() {
             </div>
 
             <div className="w-full md:flex-1 lg:w-[480px] flex-shrink-0 flex flex-col bg-card">
-              {mode === 'chat' ? (
-                <>
-                  {/* Messages */}
-                  <div
-                    className={`flex-1 overflow-auto p-4 space-y-4 ${showFigures ? 'pr-64' : ''}`}
-                  >
-                    {messages.map((msg, idx) => {
-                      const isUser = msg.role === 'user'
-                      return (
+              <>
+                {/* Messages */}
+                <div
+                  ref={chatRef}
+                  className={`flex-1 overflow-auto p-4 space-y-4 ${showFigures ? 'pr-64' : ''}`}
+                >
+                  {/* tutor gating removed: guided mode intentionally disabled for now */}
+
+                  {messages.map((msg, idx) => {
+                    const isUser = msg.role === 'user'
+                    return (
+                      <div
+                        key={msg.id ?? idx}
+                        className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+                      >
                         <div
-                          key={msg.id ?? idx}
-                          className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+                          className={`max-w-[85%] rounded-lg p-3 ${
+                            isUser
+                              ? 'bg-primary text-primary-foreground'
+                              : 'bg-muted text-foreground'
+                          }`}
                         >
-                          <div
-                            className={`max-w-[85%] rounded-lg p-3 ${
-                              isUser
-                                ? 'bg-primary text-primary-foreground'
-                                : 'bg-muted text-foreground'
-                            }`}
-                          >
-                            <p className="text-sm leading-relaxed">
-                              {msg.content}
-                              {msg.streaming && <span className="animate-pulse ml-1">▎</span>}
-                            </p>
-
-                            {/* ↓ Source chip(s) */}
-                            {!isUser && msg.sources && msg.sources.length > 0 && (
-                              <div className="mt-2 flex gap-2">
-                                {msg.sources.map((s, i) => (
-                                  <button
-                                    key={i}
-                                    type="button"
-                                    disabled={!pdfCtrl}
-                                    onClick={() => pdfCtrl?.showHighlight({ page: s.page })}
-                                    className="text-xs px-2 py-1 rounded-full border border-border bg-white hover:bg-muted disabled:opacity-50"
-                                    title={`Open ${s.label}`}
-                                  >
-                                    {s.label}
-                                  </button>
-                                ))}
-                              </div>
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                            {msg.content}
+                            {msg.streaming && (
+                              <svg
+                                className="w-4 h-4 inline-block ml-2 text-muted-foreground animate-spin"
+                                viewBox="0 0 24 24"
+                                aria-hidden="true"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                  fill="none"
+                                />
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                                />
+                              </svg>
                             )}
-                          </div>
-                        </div>
-                      )
-                    })}
+                          </p>
 
-                    {/* Suggested Questions - hidden on mobile, visible md+ */}
-                    <div className="pt-4 space-y-2 hidden md:block">
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Lightbulb className="w-3 h-3" />
-                        Suggested Questions
-                      </p>
-                      <div className="space-y-2">
-                        {[
-                          'What is the main problem?',
-                          'What evidence supports this?',
-                          'What are potential solutions?',
-                        ].map((q, i) => (
-                          <Button
-                            key={i}
-                            variant="outline"
-                            size="sm"
-                            className="w-full justify-start items-start text-left h-auto py-2 px-3 bg-transparent"
-                            onClick={() => setMessage(q)}
-                          >
-                            <div className="w-full flex items-start justify-start">
-                              <span className="text-xs font-normal">{q}</span>
+                          {/* ↓ Source chip(s) */}
+                          {!isUser && msg.sources && msg.sources.length > 0 && (
+                            <div className="mt-2 flex gap-2">
+                              {msg.sources.map((s, i) => (
+                                <button
+                                  key={i}
+                                  type="button"
+                                  disabled={!pdfCtrl}
+                                  onClick={() => pdfCtrl?.showHighlight({ page: s.page })}
+                                  className="text-xs px-2 py-1 rounded-full border border-border bg-white hover:bg-muted disabled:opacity-50"
+                                  title={`Open ${s.label}`}
+                                >
+                                  {s.label}
+                                </button>
+                              ))}
                             </div>
-                          </Button>
-                        ))}
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </div>
+                    )
+                  })}
 
-                  {/* Input */}
-                  <div className="border-t border-border p-4">
-                    <div className="flex gap-2 items-start">
-                      <div className="flex-1">
-                        <Textarea
-                          placeholder="Ask about the case..."
-                          value={message}
-                          onChange={e => setMessage(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault()
-                              handleSendMessage()
-                            }
-                          }}
-                          className="w-full min-h-[40px] max-h-[96px] resize-none"
-                        />
-                      </div>
-
-                      <div className="flex-shrink-0 self-start -translate-y-1">
+                  {/* Suggested Questions - hidden on mobile, visible md+ */}
+                  <div className="pt-4 space-y-2 hidden md:block">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Lightbulb className="w-3 h-3" />
+                      Suggested Questions
+                    </p>
+                    <div className="space-y-2">
+                      {[
+                        'What is the main problem?',
+                        'What evidence supports this?',
+                        'What are potential solutions?',
+                      ].map((q, i) => (
                         <Button
-                          size="icon"
-                          onClick={handleSendMessage}
-                          aria-label="Send message"
-                          className="h-10 w-10"
+                          key={i}
+                          variant="outline"
+                          size="sm"
+                          className="w-full justify-start items-start text-left h-auto py-2 px-3 bg-transparent"
+                          onClick={() => setMessage(q)}
                         >
-                          <Send className="w-4 h-4" />
+                          <div className="w-full flex items-start justify-start">
+                            <span className="text-xs font-normal">{q}</span>
+                          </div>
                         </Button>
-                      </div>
+                      ))}
                     </div>
                   </div>
-                </>
-              ) : (
-                <GuidedModePanel />
-              )}
+                </div>
+
+                {/* Input */}
+                <div className="border-t border-border p-4">
+                  {/* Indexing control */}
+                  {uploadId && indexState !== 'ready' && (
+                    <div className="mb-3 flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant={
+                          indexState === 'indexing' || indexState === 'checking'
+                            ? 'secondary'
+                            : 'outline'
+                        }
+                        onClick={handleStartIndex}
+                        disabled={indexState === 'indexing' || indexState === 'checking'}
+                      >
+                        {indexState === 'not-indexed' && 'Start Q&A'}
+                        {indexState === 'checking' && 'Checking…'}
+                        {indexState === 'indexing' && 'Indexing…'}
+                        {indexState === 'error' && 'Rebuild index'}
+                      </Button>
+                    </div>
+                  )}
+                  {indexState === 'ready' && indexSummary && (
+                    <div className="mb-3 text-xs text-muted-foreground">
+                      {indexSummary.pagesIndexed || indexSummary.indexed || indexSummary.count
+                        ? `${indexSummary.pagesIndexed || indexSummary.indexed || indexSummary.count} pages indexed`
+                        : 'Index ready'}
+                    </div>
+                  )}
+                  <div className="flex gap-2 items-start">
+                    <div className="flex-1">
+                      <Textarea
+                        placeholder="Ask about the case..."
+                        value={message}
+                        onChange={e => setMessage(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault()
+                            handleSendMessage()
+                          }
+                        }}
+                        className="w-full min-h-[40px] max-h-[96px] resize-none"
+                      />
+                    </div>
+
+                    <div className="flex-shrink-0 self-start -translate-y-1">
+                      <Button
+                        size="icon"
+                        onClick={handleSendMessage}
+                        aria-label="Send message"
+                        className="h-10 w-10"
+                      >
+                        <Send className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </>
             </div>
           </div>
         </div>
@@ -592,7 +1084,16 @@ export default function Workspace() {
                     <Card
                       key={c.id}
                       className="p-3 cursor-pointer hover:border-primary/50 transition-colors"
-                      onClick={() => setShowHistory(false)}
+                      onClick={() => {
+                        const uploadIdForNav = c.caseId || c.id
+
+                        const url = `/workspace/${encodeURIComponent(
+                          uploadIdForNav
+                        )}?sessionId=${encodeURIComponent(c.id)}`
+
+                        navigate(url)
+                        setShowHistory(false)
+                      }}
                     >
                       <div className="space-y-2">
                         <div className="flex items-start justify-between gap-2">
@@ -661,12 +1162,11 @@ export default function Workspace() {
             </div>
           </div>
         )}
-
         <WorkspaceNotesPanel
           open={showNotes}
           onOpenChange={setShowNotes}
           currentCaseId={uploadId}
-          currentSessionId="session-current"
+          currentSessionId={sessionId || 'session-current'}
           panelRef={notesPanelRef}
         />
       </div>

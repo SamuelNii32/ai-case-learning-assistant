@@ -43,7 +43,7 @@ export function HowItWorks() {
             </div>
           </div>
 
-          {/* Step 2: Choose Mode */}
+          {/* Step 2: Notes & Highlights (replaced Choose Your Mode) */}
           <div className="space-y-6">
             <div className="relative rounded-xl overflow-hidden shadow-lg border border-slate-200 bg-white">
               <div className="h-60 bg-white p-4 flex flex-col">
@@ -55,23 +55,22 @@ export function HowItWorks() {
                       <div className="h-1 bg-slate-300 rounded w-5/6"></div>
                       <div className="h-1 bg-slate-300 rounded w-full"></div>
                       <div className="h-1 bg-slate-300 rounded w-4/5"></div>
+                      <div className="h-1 bg-slate-300 rounded w-3/4"></div>
                     </div>
                   </div>
                   <div className="w-1/2 bg-white rounded border border-slate-200 p-2 flex flex-col">
-                    <div className="flex gap-1 mb-2">
-                      <div className="flex-1 bg-[#125691] text-white rounded px-2 py-1 text-[8px] font-medium text-center">
-                        Guided
+                    <div className="font-semibold text-slate-900 mb-2 text-[10px]">Notes</div>
+                    <div className="flex-1 overflow-auto space-y-2">
+                      <div className="p-2 bg-slate-50 rounded border border-slate-100 text-sm">
+                        <div className="text-xs text-slate-700 font-medium">Triage delay impact</div>
+                        <div className="text-xs text-slate-500">Key metrics show a 40% increase in wait time.</div>
                       </div>
-                      <div className="flex-1 bg-slate-100 text-slate-600 rounded px-2 py-1 text-[8px] font-medium text-center">
-                        Chat
-                      </div>
-                    </div>
-                    <div className="flex-1 space-y-2">
-                      <div className="bg-slate-50 rounded p-1.5 text-[7px] text-slate-700">
-                        <div className="font-semibold mb-0.5">Problem Identification</div>
-                        <div className="text-slate-600">What is the main challenge?</div>
+                      <div className="p-2 bg-slate-50 rounded border border-slate-100 text-sm">
+                        <div className="text-xs text-slate-700 font-medium">Data gaps</div>
+                        <div className="text-xs text-slate-500">Missing bed availability logs on pages 4–6.</div>
                       </div>
                     </div>
+                    <div className="mt-2 text-[11px] text-slate-500">Highlights sync with sessions and can be exported.</div>
                   </div>
                 </div>
               </div>
@@ -83,10 +82,10 @@ export function HowItWorks() {
               <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto">
                 <MessageSquare className="w-6 h-6 text-indigo-600" />
               </div>
-              <h3 className="text-xl font-semibold text-slate-900">Choose Your Mode</h3>
+              <h3 className="text-xl font-semibold text-slate-900">Notes & Highlights</h3>
               <p className="text-slate-600">
-                Select guided walkthrough for structured learning or free Q&A mode for flexible
-                exploration of the case.
+                Capture highlights and structured notes tied to exact passages — review them alongside
+                your session history for faster learning.
               </p>
             </div>
           </div>

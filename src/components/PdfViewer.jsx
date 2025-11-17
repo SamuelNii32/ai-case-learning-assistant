@@ -1,7 +1,5 @@
 // src/components/PdfViewer.jsx
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import '../lib/pdfjs-setup' // must set GlobalWorkerOptions.workerPort
-import { getDocument } from 'pdfjs-dist'
 
 export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth = true }) {
   const scrollHostRef = useRef(null)
@@ -12,6 +10,8 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const bodyAbortRetryRef = useRef(false)
+  const [loadToggle, setLoadToggle] = useState(0)
 
   // keep onReady stable
   const onReadyRef = useRef(onReady)
@@ -102,7 +102,18 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
       await renderTask.promise
       renderTaskMapRef.current.delete(n)
     } catch (err) {
-      console.error('[PdfViewer] page.render failed for page', n, err)
+      // RenderingCancelledException is expected when a render task is
+      // cancelled due to a document reload or user navigation. Treat it as
+      // debug-level noise rather than an error to avoid alarming logs.
+      try {
+        if (err && err.name === 'RenderingCancelledException') {
+          console.debug('[PdfViewer] page.render cancelled for page', n)
+        } else {
+          console.error('[PdfViewer] page.render failed for page', n, err)
+        }
+      } catch (logErr) {
+        console.error('[PdfViewer] page.render unexpected error', n, err, logErr)
+      }
     }
 
     rec.rendered = true
@@ -137,27 +148,33 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
     async ({ page /*, bbox */ }) => {
       await scrollToPage(page)
       const rec = pageMapRef.current.get(page)
-      const el = rec?.overlay
-      if (!el) return
+      if (!rec) return
 
-      // make sure it’s above the canvas and will animate
-      el.style.zIndex = '1'
-      el.style.transition = el.style.transition || 'opacity 700ms ease'
+      // Instead of filling the whole page with a colored overlay, briefly add
+      // a subtle focus class to the page container so it gets a soft border /
+      // shadow. This communicates "this is the page you jumped to" without
+      // coloring every pixel.
+      const container = rec.container
+      if (!container) return
 
-      // fade in
-      el.style.opacity = '1'
+      container.classList.add('pdf-page-focus')
 
-      // fade back out after a short delay
+      // remove after the focus animation completes
       setTimeout(() => {
-        el.style.opacity = '0'
-      }, 900)
+        try {
+          container.classList.remove('pdf-page-focus')
+        } catch {
+          /* ignore */
+        }
+      }, 1200)
     },
     [scrollToPage]
   )
 
   // --- load document (serialized) ---
   useEffect(() => {
-    let cancelled = false
+  let cancelled = false
+  let pdfjsVersion = 'unknown'
     let task
     ;(async () => {
       try {
@@ -179,18 +196,88 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
       }
 
       try {
-        task = getDocument({ url: src })
+        // Dynamically load pdf.js and the worker setup so heavy code is only
+        // downloaded when the PDF viewer is actually used.
+        const [pdfjsModule] = await Promise.all([import('pdfjs-dist'), import('../lib/pdfjs-setup')])
+        const { getDocument, version: pdfjsVersion } = pdfjsModule
+
+        // If the PDF source is protected by Authorization, fetch it with the
+        // bearer token and pass the ArrayBuffer to pdf.js via `data`. That lets
+        // us include headers (pdf.js cannot add custom headers to its internal
+        // URL fetches).
+        try {
+          // Use centralized getter so tests or AuthContext can provide the
+          // token. This avoids ad-hoc localStorage reads across the codebase.
+          const { getAuthToken } = await import('@/lib/api')
+          const token = getAuthToken()
+          if (token) {
+            const res = await fetch(src, { headers: { Authorization: `Bearer ${token}` } })
+            // Log helpful diagnostics for aborted/403/401 responses
+            console.debug('[PdfViewer] fetched PDF', { url: src, status: res.status, contentType: res.headers.get('content-type'), pdfjsVersion })
+            if (!res.ok) {
+              const text = await res.text().catch(() => '')
+              console.error('[PdfViewer] PDF fetch returned non-ok status', res.status, text)
+              throw new Error(`PDF fetch failed: ${res.status}`)
+            }
+            const buf = await res.arrayBuffer()
+            console.debug('[PdfViewer] fetched buffer length', buf?.byteLength)
+            task = getDocument({ data: buf })
+          } else {
+            console.debug('[PdfViewer] no auth token; loading PDF by URL', src)
+            task = getDocument({ url: src })
+          }
+        } catch (fetchErr) {
+          // fallback to url-based load if the authenticated fetch fails for any reason
+          console.warn('[PdfViewer] authenticated fetch failed, falling back to URL load', fetchErr)
+          task = getDocument({ url: src })
+        }
         const pdf = await task.promise
         if (cancelled) return
 
-        pdfRef.current = pdf
-        setNumPages(pdf.numPages)
-        numPagesRef.current = pdf.numPages
+  pdfRef.current = pdf
+  setNumPages(pdf.numPages)
+  numPagesRef.current = pdf.numPages
+  console.debug('[PdfViewer] PDF loaded', { numPages: pdf.numPages })
 
         onReadyRef.current && onReadyRef.current({ scrollToPage, showHighlight })
       } catch (e) {
         if (cancelled) return
-        console.error('[PdfViewer] load failed:', e)
+        // Add more diagnostics for aborted BodyStreamBuffer errors
+        try {
+          console.error('[PdfViewer] load failed:', {
+            message: e?.message,
+            name: e?.name,
+            stack: e?.stack,
+            src,
+            pdfjsVersion: typeof pdfjsVersion !== 'undefined' ? pdfjsVersion : 'unknown',
+            numPages: numPagesRef.current || 0,
+          })
+        } catch (logErr) {
+          console.error('[PdfViewer] error logging failed', logErr)
+        }
+
+        // Retry once for transient BodyStreamBuffer aborts (pdf.js internal stream abort)
+        const msg = String(e?.message || '')
+        if (!bodyAbortRetryRef.current && /BodyStreamBuffer was aborted/i.test(msg)) {
+          bodyAbortRetryRef.current = true
+          console.debug('[PdfViewer] detected BodyStreamBuffer abort — retrying load once')
+          // small delay before retrying
+          setTimeout(() => {
+            try {
+              // Trigger a non-destructive retry by toggling `loadToggle`. This
+              // re-runs the PDF loading effect without reloading the whole page.
+              setLoading(false)
+              setError(null)
+              setLoadToggle(prev => prev + 1)
+              console.debug('[PdfViewer] scheduled non-reload retry (loadToggle incremented)')
+            } catch (retryErr) {
+              console.error('[PdfViewer] retry attempt failed', retryErr)
+              setError(e?.message || 'Failed to load PDF.')
+            }
+          }, 300)
+          return
+        }
+
         setError(e?.message || 'Failed to load PDF.')
       } finally {
         if (!cancelled) setLoading(false)
@@ -207,7 +294,7 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
       // the shared worker to live for the lifetime of the page.
       destroyChainRef.current = Promise.resolve()
     }
-  }, [src, scrollToPage, showHighlight])
+  }, [src, scrollToPage, showHighlight, loadToggle])
 
   // --- lazy render when visible ---
   useEffect(() => {
@@ -286,7 +373,9 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
             position: 'absolute',
             inset: 0,
             pointerEvents: 'none',
-            background: 'rgba(255, 213, 0, 0.45)',
+            // Keep overlay present for future bbox highlights, but don't fill the
+            // whole page. Use transparent background by default.
+            background: 'transparent',
             opacity: 0,
             transition: 'opacity 700ms ease',
             borderRadius: 4,
@@ -321,7 +410,17 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
           {loading ? 'Loading PDF…' : 'No pages to display.'}
         </div>
       )}
-      <style>{`.pdf-flash.pdf-flash-show{ opacity: 1; }`}</style>
+      <style>{`
+        .pdf-flash.pdf-flash-show{ opacity: 1; }
+        /* subtle focus style applied to the page container when jumping */
+        .pdf-page-focus{
+          transition: box-shadow 220ms ease, border-color 220ms ease, transform 220ms ease;
+          box-shadow: 0 8px 20px rgba(2,6,23,0.06), 0 2px 6px rgba(2,6,23,0.04);
+          border: 1px solid rgba(2,6,23,0.06);
+          transform: translateY(-2px);
+          border-radius: 6px;
+        }
+      `}</style>
     </div>
   )
 }

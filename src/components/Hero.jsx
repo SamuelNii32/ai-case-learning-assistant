@@ -1,11 +1,14 @@
-import React from 'react'
+import React, { useContext } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from './ui/button'
 import { PreviewMock } from './PreviewMock'
 import { HowItWorks } from './HowItWorks'
 import { ValueProps } from './ValueProps'
+import { AuthContext } from '@/contexts/AuthContext'
 
 export function Hero() {
+  const auth = useContext(AuthContext)
+
   return (
     <div className="space-y-16">
       {/* Hero Section - Side by Side Layout */}
@@ -18,16 +21,25 @@ export function Hero() {
               <span className="text-[#125691]">AI-Powered Learning</span>
             </h1>
             <p className="text-xl text-gray-700 leading-relaxed">
-              Upload a case, choose guided walkthrough or free Q&A, and get evidence-grounded
+              Upload a case, choose a structured walkthrough or free Q&A, and get evidence-grounded
               answers with citations.
             </p>
             <div className="flex items-center gap-4">
-              <Link to="/login">
-                <Button size="lg" className="shadow-lg">
-                  Sign In
-                </Button>
-              </Link>
-              <Link to="/dashboard">
+              {auth?.loggedIn ? (
+                <Link to="dashboard">
+                  <Button size="lg" className="shadow-lg">
+                    Open Dashboard
+                  </Button>
+                </Link>
+              ) : (
+                <Link to="login">
+                  <Button size="lg" className="shadow-lg">
+                    Sign In
+                  </Button>
+                </Link>
+              )}
+
+              <Link to="dashboard">
                 <Button
                   size="lg"
                   variant="outline"

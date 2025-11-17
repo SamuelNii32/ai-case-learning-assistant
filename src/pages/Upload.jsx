@@ -58,30 +58,53 @@ export default function UploadPage() {
       console.log('File:', { name: file.name, size: file.size })
       const fd = new FormData()
       fd.append('file', file)
-      const up = await fetch(`${API_BASE}/uploads`, { method: 'POST', body: fd })
-      if (!up.ok) {
-        const text = await up.text().catch(() => '<no body>')
-        const msg = `Upload failed (${up.status}): ${text}`
-        console.error(msg, { url: `${API_BASE}/uploads`, status: up.status, body: text })
-        throw new Error(msg)
-      }
-
-      const data = await up.json()
+      // use centralized API helper
+      const { uploadFile, getUploadSummary, buildIndex } = await import('../lib/api')
+      const data = await uploadFile(fd)
       setUploadId(data.uploadId)
 
       setUploadState('processing')
       setUploadProgress(60)
 
-      const sumUrl = `${API_BASE}/uploads/${data.uploadId}/summary`
-      console.log('Fetching summary from', sumUrl)
-      const sumRes = await fetch(sumUrl)
-      if (!sumRes.ok) {
-        const text = await sumRes.text().catch(() => '<no body>')
-        const msg = `Summary failed (${sumRes.status}): ${text}`
-        console.error(msg, { url: sumUrl, status: sumRes.status, body: text })
-        throw new Error(msg)
+      // Kick off indexing (non-blocking): fire-and-forget so the UI isn't blocked by
+      // potentially long-running indexing on the server. We still try to fetch the
+      // summary a few times (short polling) to populate pages/figures when it's ready.
+      try {
+        buildIndex(data.uploadId).catch(idxErr => {
+          console.error('Index build kicked off failed', idxErr)
+        })
+      } catch (err) {
+        console.error('Failed to call buildIndex', err)
       }
-      const summary = await sumRes.json()
+
+      // Fetch summary with short retry/poll loop so the UI can proceed quickly but
+      // still pick up summary info as soon as the backend produces it.
+      let summary = null
+      const maxAttempts = 6
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const js = await getUploadSummary(data.uploadId)
+          summary = js.summary ?? js
+          // If we have pages or a fileSize, assume summary is ready
+          if (summary && (summary.pages || summary.pages === 0 || summary.fileSizeBytes)) {
+            break
+          }
+        } catch {
+          // swallow and retry shortly
+        }
+        // small backoff
+        await new Promise(r => setTimeout(r, 1000))
+      }
+      // final attempt (best-effort)
+      if (!summary) {
+        try {
+          const js = await getUploadSummary(data.uploadId)
+          summary = js.summary ?? js
+        } catch (e) {
+          console.debug('Summary still unavailable after retries', e)
+          summary = {}
+        }
+      }
       const s = summary.summary ?? summary
 
       setPageCount(s.pages ?? 0)
@@ -93,10 +116,29 @@ export default function UploadPage() {
       setUploadDate(new Date(s.uploadedAt ?? Date.now()).toLocaleString())
 
       setUploadProgress(100)
+      // Notify other parts of the app (Dashboard) that a new case uploaded so they can refresh
+      try {
+        window.dispatchEvent(
+          new CustomEvent('case:uploaded', { detail: { uploadId: data.uploadId } })
+        )
+      } catch (e) {
+        console.debug('Failed to dispatch case:uploaded event', e)
+      }
+
       setTimeout(() => setUploadState('complete'), 400)
     } catch (err) {
-      console.error(err)
-      toast.error(err.message || 'Upload failed')
+      // Developer-facing details in console
+      console.error('Upload error:', err)
+
+      // Friendly message for end users
+      const userMessage =
+        typeof err === 'string'
+          ? err
+          : err && err.message
+            ? 'Upload failed. Please try again.'
+            : 'Upload failed. Please try again.'
+
+      toast.error(userMessage)
 
       setUploadState('idle')
       setUploadProgress(0)

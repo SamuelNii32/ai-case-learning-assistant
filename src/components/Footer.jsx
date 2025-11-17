@@ -27,7 +27,7 @@ export function Footer() {
                 </a>
               </li>
               <li>
-                <Link to="/dashboard" className="text-sm text-slate-600 hover:text-slate-900">
+                <Link to="dashboard" className="text-sm text-slate-600 hover:text-slate-900">
                   Try Demo
                 </Link>
               </li>
@@ -43,17 +43,17 @@ export function Footer() {
             <h4 className="font-semibold text-slate-900 mb-4">Company</h4>
             <ul className="space-y-2">
               <li>
-                <Link to="/about" className="text-sm text-slate-600 hover:text-slate-900">
+                <Link to="about" className="text-sm text-slate-600 hover:text-slate-900">
                   About
                 </Link>
               </li>
               <li>
-                <Link to="/privacy" className="text-sm text-slate-600 hover:text-slate-900">
+                <Link to="privacy" className="text-sm text-slate-600 hover:text-slate-900">
                   Privacy
                 </Link>
               </li>
               <li>
-                <Link to="/contact" className="text-sm text-slate-600 hover:text-slate-900">
+                <Link to="contact" className="text-sm text-slate-600 hover:text-slate-900">
                   Contact
                 </Link>
               </li>
@@ -90,7 +90,7 @@ export function Footer() {
             <a href="#terms" className="text-sm text-slate-600 hover:text-slate-900">
               Terms
             </a>
-            <Link to="/privacy" className="text-sm text-slate-600 hover:text-slate-900">
+            <Link to="privacy" className="text-sm text-slate-600 hover:text-slate-900">
               Privacy Policy
             </Link>
             <a href="#cookies" className="text-sm text-slate-600 hover:text-slate-900">

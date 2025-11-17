@@ -1,13 +1,20 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter as Router } from 'react-router-dom'
+import { BrowserRouter } from 'react-router-dom'
 import App from './App.jsx'
 import './index.css'
+import AuthProvider from '@/contexts/AuthContext'
+
+// Use the configured BASE_URL in production but default to '/' during
+// development so the dev server is reachable at http://localhost:5174/
+const routerBase = import.meta.env.DEV ? '/' : import.meta.env.BASE_URL
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <Router basename={import.meta.env.BASE_URL}>
-      <App />
-    </Router>
+    <BrowserRouter basename={routerBase}>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </BrowserRouter>
   </StrictMode>
 )

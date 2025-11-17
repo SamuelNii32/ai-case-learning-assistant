@@ -12,12 +12,12 @@ export function Hero() {
         citations.
       </p>
       <div className="flex items-center gap-4">
-        <Link to="/login">
+        <Link to="login">
           <Button size="lg" className="bg-[#125691] hover:bg-[#0f4f74]">
             Sign In
           </Button>
         </Link>
-        <Link to="/dashboard">
+        <Link to="dashboard">
           <Button size="lg" variant="outline">
             Try Demo
           </Button>

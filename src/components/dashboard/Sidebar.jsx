@@ -3,8 +3,8 @@ import { FolderOpen, Clock, X, FileText, Settings } from 'lucide-react' // ← i
 
 export default function Sidebar({ isOpen = false, onClose = () => {} }) {
   const items = [
-    { to: '/dashboard', label: 'My Cases', icon: FolderOpen },
-    { to: '/session-history', label: 'Session History', icon: Clock },
+    { to: 'dashboard', label: 'My Cases', icon: FolderOpen },
+    { to: 'session-history', label: 'Session History', icon: Clock },
   ]
 
   const base =
@@ -57,7 +57,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
                   style={({ isActive }) =>
                     isActive ? { backgroundColor: '#003c71', borderLeft: `4px solid #deb406` } : {}
                   }
-                  end={to !== '/dashboard'}
+                  end={to !== 'dashboard'}
                   onClick={onClose}
                 >
                   <Icon className="w-5 h-5" aria-hidden="true" />
@@ -72,7 +72,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
       {/* Settings - bottom pinned */}
       <div className="mt-auto p-3 border-t border-slate-200">
         <NavLink
-          to="/settings"
+          to="settings"
           end
           className={({ isActive }) =>
             `flex items-center gap-2 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-offset-2 ${

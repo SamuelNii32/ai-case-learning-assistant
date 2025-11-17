@@ -68,3 +68,13 @@
   --chart-4: #d5ad36; /* American Gold */
   --chart-5: #4a74b8; /* medium blue */
 }
+
+/* Ensure clickable controls show a pointer cursor for consistent UX */
+button,
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+label[role="button"],
+[role="button"] {
+  cursor: pointer;
+}
