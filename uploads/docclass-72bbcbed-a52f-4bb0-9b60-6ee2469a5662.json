@@ -1,0 +1,13 @@
+{
+  "DocType": 0,
+  "Confidence": 0.9971937,
+  "Signals": [
+    "Academic:8",
+    "Legal:2"
+  ],
+  "Reason": "Top=academic_research (score 8) over legal_case (score 2); conf=1.00.",
+  "Top2": [
+    {},
+    {}
+  ]
+}

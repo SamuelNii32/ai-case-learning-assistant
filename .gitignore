@@ -1,0 +1,17 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Build output
+bin/
+obj/
+
+# Local SQLite DBs (keep DB out of repo)
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Logs
+*.log
