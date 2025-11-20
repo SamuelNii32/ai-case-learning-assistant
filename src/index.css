@@ -87,13 +87,13 @@ label[role='button'],
 }
 .typing-dots span {
   display: inline-block;
-  width: 6px;
-  height: 6px;
-  background: currentColor;
+  width: 8px;
+  height: 8px;
+  background: var(--primary);
   border-radius: 9999px;
-  opacity: 0.9;
+  opacity: 1;
   transform: translateY(0);
-  animation: td-bounce 1s infinite ease-in-out;
+  animation: td-bounce 0.9s infinite ease-in-out;
 }
 .typing-dots span:nth-child(1) { animation-delay: 0s }
 .typing-dots span:nth-child(2) { animation-delay: 0.12s }
@@ -161,6 +161,23 @@ label[role='button'],
   width: 0%;
   background: linear-gradient(90deg,var(--primary), var(--chart-3));
   transition: width 200ms linear;
+}
+
+/* Visible typing indicator container */
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 6px;
+  padding: 4px 8px;
+  background: rgba(38,89,153,0.08); /* subtle primary tint for contrast */
+  border-radius: 9999px;
+  color: var(--primary);
+  font-size: 12px;
+}
+.typing-indicator .typing-label {
+  color: var(--primary);
+  font-weight: 500;
 }
 
 @media (prefers-reduced-motion: reduce) {

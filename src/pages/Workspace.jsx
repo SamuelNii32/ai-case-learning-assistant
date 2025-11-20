@@ -978,12 +978,15 @@ export default function Workspace() {
                                   <span className="message-text">{msg.content}</span>
                                 )}
 
-                                {msg.streaming && (msg.content || '').trim() && (
-                                  <span className="ml-2 text-muted-foreground" aria-hidden="true">
-                                    <span className="typing-dots" aria-hidden="true">
-                                      <span />
-                                      <span />
-                                      <span />
+                                {msg.streaming && (
+                                  <span className="ml-2" aria-hidden="true">
+                                    <span className="typing-indicator" aria-hidden="true">
+                                      <span className="typing-dots" aria-hidden="true">
+                                        <span />
+                                        <span />
+                                        <span />
+                                      </span>
+                                      <span className="typing-label">Assistant is typing…</span>
                                     </span>
                                   </span>
                                 )}
@@ -1007,13 +1010,8 @@ export default function Workspace() {
                                 </div>
                               )}
 
-                              {/* message meta: timestamp + small progress (words) */}
+                              {/* message meta: small progress (words) */}
                               <div className="message-meta">
-                                <div>
-                                  {msg.createdAt
-                                    ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                                    : ''}
-                                </div>
                                 {msg.streaming && (
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
