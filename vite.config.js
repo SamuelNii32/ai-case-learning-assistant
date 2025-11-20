@@ -8,16 +8,18 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 // https://vite.dev/config/
-export default defineConfig(({ mode }) => ({
+export default defineConfig(() => ({
   plugins: [react()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
     },
   },
-  // During development serve at root so localhost:5174/ works. For production builds
-  // use the configured subpath where the app will be hosted.
-  base: mode === 'development' ? '/' : '/ai-case-learning-assistant/',
+  // Use root base path for both development and production so the app
+  // is portable when deployed to the site root (e.g., Vercel).
+  // If you need to host under a subpath, set a custom value here or
+  // use an environment-specific override.
+  base: '/',
   server: {
     port: 5174,
     strictPort: true,
