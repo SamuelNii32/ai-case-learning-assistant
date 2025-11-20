@@ -181,6 +181,11 @@ export default function CasesGrid({ items = [], loading = false }) {
             return bTime - aTime
           })
           const recent = matches[0]
+          try {
+            toast.success('Resuming previous workspace')
+          } catch {
+            /* ignore */
+          }
           navigate(`/workspace/${encodeURIComponent(c.id)}?sessionId=${encodeURIComponent(recent.sessionId || recent.id)}`)
           return
         }

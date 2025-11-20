@@ -17,6 +17,7 @@ import {
   createSession,
   getSession,
   listSessionsMine,
+  ensureFreshToken,
 } from '@/lib/api'
 
 import toast from 'react-hot-toast'
@@ -254,7 +255,7 @@ export default function Workspace() {
   // docType/classification removed along with guided-mode behavior
 
   // Start an EventSource stream to the server ask stream endpoint and wire events to the assistant message.
-  function startAskStream(uploadIdParam, q, assistantId, sessionIdParam) {
+  async function startAskStream(uploadIdParam, q, assistantId, sessionIdParam) {
     // close any existing stream/abort controller
     try {
       if (sseRef.current?.abort) sseRef.current.abort()
@@ -279,6 +280,31 @@ export default function Workspace() {
     let gotFirstToken = false
     const updateAssistant = updater => {
       setMessages(prev => prev.map(m => (m.id === assistantId ? updater(m) : m)))
+    }
+
+    // Prevent starting a long-lived stream with an expired token. If the
+    // token is expired, show a concise in-chat message prompting the user
+    // to sign in rather than attempting the request which will 401.
+    try {
+      const fresh = ensureFreshToken()
+      if (!fresh) {
+        updateAssistant(m => ({
+          ...m,
+          streaming: false,
+          content: m.content
+            ? `${m.content}\n\nSession expired — please sign in to continue.`
+            : 'Session expired — please sign in to continue.',
+        }))
+        toast.error('Session expired — please sign in to continue')
+        if (sseRef.current === controller) sseRef.current = null
+        return
+      }
+    } catch {
+      // If token parsing failed for any reason, fail safe and prompt
+      updateAssistant(m => ({ ...m, streaming: false, content: 'Session expired — please sign in to continue.' }))
+      toast.error('Session expired — please sign in to continue')
+      if (sseRef.current === controller) sseRef.current = null
+      return
     }
 
     fetch(url, { method: 'GET', headers, signal: controller.signal })

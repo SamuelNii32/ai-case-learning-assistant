@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useCallback } from 'react'
-import { setAuthTokenGetter, setOnAuthFailure } from '@/lib/api'
+import { setAuthTokenGetter, setOnAuthFailure, setRefreshTokenFn } from '@/lib/api'
 // at the top of AuthContext.jsx
 import { API_BASE } from '@/config'
 
@@ -58,6 +58,66 @@ function AuthProvider({ children }) {
       // toast.error('Session expired. Please sign in again.')
     })
   }, [token, logout])
+
+  // Register a refresh function with api.js so API helpers can attempt a
+  // refresh when they receive a 401. This implements the queued-refresh
+  // pattern: concurrent callers will await the same in-flight refresh.
+  useEffect(() => {
+    let refreshingRef = { current: null }
+
+    async function refreshAuthToken() {
+      // If a refresh is already running, return the same promise
+      if (refreshingRef.current) return refreshingRef.current
+
+      // Create a refresh promise and store it
+      refreshingRef.current = (async () => {
+        try {
+          const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
+          const url = base ? `${base}/auth/refresh` : '/auth/refresh'
+          const res = await fetch(url, { method: 'POST', credentials: 'include' })
+          if (!res.ok) throw new Error('refresh failed')
+          const js = await res.json().catch(() => ({}))
+          const newToken = js?.accessToken || js?.token || js?.authToken || null
+          if (newToken) {
+            try {
+              if (typeof window !== 'undefined') localStorage.setItem('authToken', newToken)
+            } catch {
+              /* ignore */
+            }
+            setToken(newToken)
+            return newToken
+          }
+          throw new Error('no token in refresh response')
+        } catch (err) {
+          // On refresh failure, logout to force re-auth
+          try {
+            logout()
+          } catch {
+            /* ignore */
+          }
+          throw err
+        } finally {
+          refreshingRef.current = null
+        }
+      })()
+
+      return refreshingRef.current
+    }
+
+    try {
+      setRefreshTokenFn(refreshAuthToken)
+    } catch (err) {
+      console.error('[auth] failed to register refresh function with api helper', err)
+    }
+
+    return () => {
+      try {
+        setRefreshTokenFn(null)
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [logout])
 
   // Keep auth state in sync across tabs/windows, but ONLY on authToken/authUser
   useEffect(() => {
