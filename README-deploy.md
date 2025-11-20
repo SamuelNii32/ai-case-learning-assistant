@@ -32,6 +32,23 @@ Notes & environment
   the same build commands (`npm ci` + `npm run build`) — typically simpler
   for preview environments.
 
+Setting the production API URL (recommended)
+-------------------------------------------
+- Recommended: do NOT commit production URLs or secrets. Instead set the
+  `VITE_API_BASE` environment variable in your hosting provider (Vercel/Netlify/GitHub
+  Actions). This ensures the production build uses the correct API without
+  storing sensitive values in the repo.
+
+- Quick steps for Vercel:
+  1. In the Vercel dashboard open your project → Settings → Environment Variables.
+  2. Add `VITE_API_BASE` with the production API value for both "Production"
+     and "Preview" environments.
+  3. Redeploy the project.
+
+- Alternatively you may keep a file locally named `.env.production.local` on
+  the build machine (this file should be ignored by git). A safe template is
+  provided as `.env.production.example` in the repo.
+
 Rollbacks & cleanup
 -------------------
 - To remove a bad publish, delete the `gh-pages` branch and re-run the
