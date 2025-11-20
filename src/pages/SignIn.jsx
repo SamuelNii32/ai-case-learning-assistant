@@ -81,7 +81,12 @@ export default function SignInPage() {
         console.log('j.data (raw):', j?.data)
 
         const tokenCandidate =
-          j?.token || j?.accessToken || j?.access_token || j?.jwt || j?.authToken || (j.data && (j.data.token || j.data.accessToken))
+          j?.token ||
+          j?.accessToken ||
+          j?.access_token ||
+          j?.jwt ||
+          j?.authToken ||
+          (j.data && (j.data.token || j.data.accessToken))
         console.log('token candidates:', {
           token: j?.token,
           accessToken: j?.accessToken,
@@ -149,7 +154,11 @@ export default function SignInPage() {
         }
       }
 
-      if (role === 'instructor') navigate('/instructor-dashboard')
+      // Prefer server-provided role (isSuperUser) when deciding where to navigate.
+      const isInstructor = role === 'instructor' || (user && user.isSuperUser)
+      // Superusers should go to the supervisor admin view. Use /admin/sessions
+      // as the landing page for supervisors rather than the instructor page.
+      if (isInstructor) navigate('/admin/sessions')
       else navigate('/dashboard')
     } catch (e) {
       console.error('Login error', e)

@@ -5,15 +5,16 @@ import { API_BASE } from '@/config'
 // in-memory token. If not set, we fall back to reading localStorage.
 let tokenGetter = null
 
-let authTokenGetter = null
-let onAuthFailure = null
+// `authFailureHandler` is set by the app so the API helpers can notify the
+// application about 401/403 events and take appropriate action (logout, UI)
+let authFailureHandler = null
 
 export function setAuthTokenGetter(fn) {
-  authTokenGetter = fn
+  tokenGetter = fn
 }
 
 export function setOnAuthFailure(fn) {
-  onAuthFailure = fn
+  authFailureHandler = fn
 }
 
 export function getAuthToken() {
@@ -27,7 +28,7 @@ export function getAuthToken() {
 
 // Optional hook that AuthContext can register so the API helpers can notify
 // the app when the server rejects the token (401 or { error: 'invalid token' }).
-let authFailureHandler = null
+// Note: `authFailureHandler` above is used by `handleAuthFailure`.
 
 function makeUrl(path) {
   if (!API_BASE) return path.startsWith('/') ? path : `/${path}`
@@ -38,9 +39,8 @@ function makeUrl(path) {
 function authHeaders() {
   let token = null
   try {
-    if (tokenGetter) token = tokenGetter()
-    if (!token && typeof window !== 'undefined') {
-      token = localStorage.getItem('authToken')
+    if (tokenGetter) {
+      token = tokenGetter()
     }
   } catch {
     token = null
@@ -250,7 +250,8 @@ export async function renameCase(uploadId, name) {
       ...authHeaders(),
     },
     credentials: 'include',
-    body: JSON.stringify({ name }),
+    // Send both `name` and `title` to be tolerant of backend DTO shape
+    body: JSON.stringify({ name, title: name }),
   })
 
   if (res.status === 401) {
@@ -264,7 +265,13 @@ export async function renameCase(uploadId, name) {
     throw new Error(`Rename failed (${res.status}): ${txt}`)
   }
 
-  return res.json() // { uploadId, name }
+  // Some backends may return 204 No Content. Try to parse JSON, but
+  // fall back to a sensible shape if there's no body.
+  try {
+    return await res.json()
+  } catch {
+    return { uploadId, name }
+  }
 }
 
 export async function deleteCase(uploadId) {
@@ -342,13 +349,13 @@ export async function deleteSession(sessionId) {
   const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
   const url = `${base}/sessions/${encodeURIComponent(sessionId)}`
 
-  const token = authTokenGetter ? authTokenGetter() : null
+  const token = tokenGetter ? tokenGetter() : null
   const headers = token ? { Authorization: `Bearer ${token}` } : {}
 
   const res = await fetch(url, { method: 'DELETE', headers })
 
   if (res.status === 401 || res.status === 403) {
-    onAuthFailure?.({ where: 'deleteSession', status: res.status })
+    authFailureHandler?.({ where: 'deleteSession', status: res.status })
     throw new Error('unauthorized')
   }
 

@@ -73,13 +73,13 @@ export default function Workspace() {
 
   // Real conversation history from /sessions/mine
   const [conversationHistory, setConversationHistory] = useState([])
-  const [conversationLoading, setConversationLoading] = useState(false)
+  const [_conversationLoading, setConversationLoading] = useState(false)
 
   // Active session (for this workspace)
   const [sessionId, setSessionId] = useState(() => {
     return searchParams.get('sessionId') || null
   })
-  const [sessionLoading, setSessionLoading] = useState(false)
+  const [_sessionLoading, setSessionLoading] = useState(false)
 
   async function handleSendMessage() {
     const text = message.trim()
@@ -328,11 +328,8 @@ export default function Workspace() {
                 .trim()
               return { ...m, content: cleaned, streaming: false }
             })
-            try {
-              controller.abort()
-            } catch {
-              /* empty */
-            }
+
+            // No need to abort here; stream will naturally finish.
             if (sseRef.current === controller) sseRef.current = null
             requestAnimationFrame(() => scrollToBottom(true))
           }
@@ -368,9 +365,16 @@ export default function Workspace() {
         return readChunk()
       })
       .catch(err => {
-        const msg = err?.message || 'Stream error'
-        // If server indicates index missing, try to build it once and retry
-        if (/index/i.test(String(msg)) && !retriedRef.current) {
+        const msg = String(err?.message || err || 'Stream error')
+
+        // 1) If this is just an intentional abort / stream closed, ignore it.
+        if (err?.name === 'AbortError' || /aborted/i.test(msg) || /BodyStreamBuffer/i.test(msg)) {
+          if (sseRef.current === controller) sseRef.current = null
+          return
+        }
+
+        // 2) If server indicates index missing, try to build it once and retry
+        if (/index/i.test(msg) && !retriedRef.current) {
           retriedRef.current = true
           ;(async () => {
             try {
@@ -382,7 +386,7 @@ export default function Workspace() {
                 /* empty */
               }
               if (sseRef.current === controller) sseRef.current = null
-              startAskStream(uploadIdParam, q, assistantId)
+              startAskStream(uploadIdParam, q, assistantId, sessionIdParam)
               return
             } catch (err2) {
               console.error('Reindex retry failed', err2)
@@ -392,12 +396,13 @@ export default function Workspace() {
           return
         }
 
+        // 3) Real error: show it in the message and toast
         updateAssistant(m => ({
           ...m,
           streaming: false,
           content: m.content ? `${m.content}\n\nError: ${msg}` : `Error: ${msg}`,
         }))
-        toast.error(String(msg))
+        toast.error(msg)
         try {
           controller.abort()
         } catch {
@@ -614,9 +619,36 @@ export default function Workspace() {
   // Guided mode removed; no mode gating required.
 
   useEffect(() => {
+    // Ensure any open SSE/EventSource is closed promptly:
+    // - when the component unmounts
+    // - when the page is being hidden or unloaded (pagehide/visibilitychange)
+    // Closing early helps the page be eligible for bfcache and avoids
+    // leaving persistent connections open across navigations.
+    const handlePageHide = () => {
+      try {
+        sseRef.current?.close?.()
+      } catch {
+        /* empty */
+      }
+      sseRef.current = null
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') handlePageHide()
+    }
+
+    window.addEventListener('pagehide', handlePageHide, { capture: true })
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
       try {
-        sseRef.current?.close()
+        window.removeEventListener('pagehide', handlePageHide, { capture: true })
+        document.removeEventListener('visibilitychange', handleVisibilityChange)
+      } catch {
+        /* ignore */
+      }
+      try {
+        sseRef.current?.close?.()
       } catch {
         /* empty */
       }

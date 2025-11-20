@@ -1,9 +1,14 @@
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import React, { useState } from 'react'
 import { FileText, MoreVertical, Download, Edit2, Share, Trash2 } from 'lucide-react'
 import { API_BASE } from '../../config'
 import toast from 'react-hot-toast'
-import { renameCase, deleteCase as apiDeleteCase } from '@/lib/api'
+import { renameCase, deleteCase as apiDeleteCase, listSessionsMine, createSession } from '@/lib/api'
+
+// When clicking a case we prefer to open the user's most recent session for that uploadId.
+// Only when the user explicitly chooses "New workspace" do we create a new session.
+// This component implements that behavior: clicking the card opens the most recent session
+// if one exists, otherwise it opens the workspace without selecting a session.
 
 function SkeletonCard() {
   return (
@@ -19,6 +24,7 @@ function SkeletonCard() {
 }
 
 export default function CasesGrid({ items = [], loading = false }) {
+  const navigate = useNavigate()
   const [openId, setOpenId] = useState(null)
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameTarget, setRenameTarget] = useState(null)
@@ -72,7 +78,11 @@ export default function CasesGrid({ items = [], loading = false }) {
       setOpenId(null)
       // Notify other parts of the app to refresh without a full page reload
       try {
-        window.dispatchEvent(new CustomEvent('case:changed', { detail: { uploadId: renameTarget.id, action: 'rename' } }))
+        window.dispatchEvent(
+          new CustomEvent('case:changed', {
+            detail: { uploadId: renameTarget.id, action: 'rename' },
+          })
+        )
       } catch (e) {
         console.debug('Failed to dispatch case:changed', e)
       }
@@ -123,7 +133,11 @@ export default function CasesGrid({ items = [], loading = false }) {
       setOpenId(null)
       // Notify other parts of the app to refresh without a full page reload
       try {
-        window.dispatchEvent(new CustomEvent('case:changed', { detail: { uploadId: deleteTarget.id, action: 'delete' } }))
+        window.dispatchEvent(
+          new CustomEvent('case:changed', {
+            detail: { uploadId: deleteTarget.id, action: 'delete' },
+          })
+        )
       } catch (e) {
         console.debug('Failed to dispatch case:changed', e)
       }
@@ -153,13 +167,56 @@ export default function CasesGrid({ items = [], loading = false }) {
       .trim()
   }
 
+  async function handleOpenCase(c) {
+    try {
+      // Try to find most recent session for this uploadId for the current user
+      const sessions = await listSessionsMine()
+      if (Array.isArray(sessions) && sessions.length > 0) {
+        const matches = sessions.filter(s => String(s.uploadId) === String(c.id))
+        if (matches.length > 0) {
+          // choose the most recent by lastActivityAt or createdAt
+          matches.sort((a, b) => {
+            const aTime = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : new Date(a.createdAt).getTime()
+            const bTime = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : new Date(b.createdAt).getTime()
+            return bTime - aTime
+          })
+          const recent = matches[0]
+          navigate(`/workspace/${encodeURIComponent(c.id)}?sessionId=${encodeURIComponent(recent.sessionId || recent.id)}`)
+          return
+        }
+      }
+      // No existing sessions -> open workspace without a session (do not create session)
+      navigate(`/workspace/${encodeURIComponent(c.id)}`)
+    } catch (err) {
+      console.error('[CasesGrid] failed to open case sessions', err)
+      // fallback to workspace
+      navigate(`/workspace/${encodeURIComponent(c.id)}`)
+    }
+  }
+
+  async function handleNewWorkspace(c) {
+    try {
+      const created = await createSession(c.id)
+      const sid = created?.sessionId || created?.id || null
+      if (sid) {
+        navigate(`/workspace/${encodeURIComponent(c.id)}?sessionId=${encodeURIComponent(sid)}`)
+      } else {
+        // fallback
+        navigate(`/workspace/${encodeURIComponent(c.id)}`)
+      }
+    } catch (err) {
+      console.error('[CasesGrid] failed to create session', err)
+      toast.error('Failed to open new workspace')
+    }
+  }
+
   return (
     <>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {items.map(c => (
           <div key={c.id} className="block group">
             <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow relative">
-              <Link to={`/workspace/${c.id}`} className="block group">
+              <div role="button" tabIndex={0} onClick={() => handleOpenCase(c)} className="block group cursor-pointer">
                 <div className="relative aspect-[5/3] overflow-hidden flex items-center justify-center bg-slate-100">
                   {c.image ? (
                     <img
@@ -215,7 +272,7 @@ export default function CasesGrid({ items = [], loading = false }) {
                   </div>
                   <div className="pt-2" />
                 </div>
-              </Link>
+              </div>
 
               <div className="absolute bottom-3 right-3 z-50">
                 <button
@@ -239,6 +296,15 @@ export default function CasesGrid({ items = [], loading = false }) {
                       className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
                     >
                       <Edit2 className="w-4 h-4" /> Rename
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleNewWorkspace(c)
+                        setOpenId(null)
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                    >
+                      <FileText className="w-4 h-4" /> New workspace
                     </button>
                     <button
                       onClick={() => {

@@ -1,8 +1,13 @@
 // src/lib/pdfjs-setup.js
 // One-time PDF.js worker setup for Vite/React
+// Export an async initializer so the worker chunk is only loaded when explicitly requested.
 
-import { GlobalWorkerOptions } from 'pdfjs-dist'
-import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?worker'
+export async function initPdfWorker() {
+  const { GlobalWorkerOptions } = await import('pdfjs-dist')
+  // Dynamically import the worker module so bundlers keep it separate until needed.
+  const WorkerModule = await import('pdfjs-dist/build/pdf.worker.mjs?worker')
+  const WorkerConstructor = WorkerModule.default || WorkerModule
+  GlobalWorkerOptions.workerPort = new WorkerConstructor()
+}
 
-// Give PDF.js a real Worker instance (best for Vite/Rollup)
-GlobalWorkerOptions.workerPort = new pdfjsWorker()
+export default initPdfWorker

@@ -1,14 +1,24 @@
-import React, { useState, useEffect } from 'react'
-import { useOutletContext, Link } from 'react-router-dom'
-import FiltersBar from '../components/dashboard/FiltersBar'
-import CasesGrid from '../components/dashboard/CasesGrid'
-import SortControl from '../components/dashboard/SortControl'
+import React, { useState, useEffect, Suspense, useContext } from 'react'
+import { useOutletContext, Link, useNavigate } from 'react-router-dom'
+import { AuthContext } from '@/contexts/AuthContext'
+const FiltersBar = React.lazy(() => import('../components/dashboard/FiltersBar'))
+const CasesGrid = React.lazy(() => import('../components/dashboard/CasesGrid'))
+const SortControl = React.lazy(() => import('../components/dashboard/SortControl'))
 import { Upload } from 'lucide-react'
 import { listCases } from '@/lib/api'
 
 export default function Dashboard() {
   // get search from layout
   const { searchQuery } = useOutletContext()
+  const auth = useContext(AuthContext)
+  const navigate = useNavigate()
+
+  // If a superuser visits the regular dashboard, send them to the admin view
+  useEffect(() => {
+    if (auth?.user?.isSuperUser) {
+      navigate('/admin/sessions', { replace: true })
+    }
+  }, [auth?.user?.isSuperUser, navigate])
 
   // API ping removed
   const [cases, setCases] = useState([])
@@ -19,29 +29,32 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // helper: fetch cases and normalize
-    async function fetchCases() {
+    // Defer the initial fetch until after first paint/idle so the header and
+    // LCP text can render immediately. We still listen for case changes and
+    // refresh when signalled.
+    let cancelled = false
+
+    async function fetchCasesAndNormalize() {
+      // avoid calling protected endpoints when not authenticated
+      if (!auth?.loggedIn) {
+        setCases([])
+        setLoading(false)
+        return
+      }
       setLoading(true)
       try {
         const data = await listCases()
         console.log('fetched cases:', data)
 
         const normalized = data.map(c => {
-          // pick a raw title from whatever the backend sent
           const rawTitle =
             c.title || c.name || c.originalFileName || c.fileName || c.filename || c.uploadId
-
-          // clean it up for display:
-          // - strip .pdf
-          // - trim whitespace
           const displayTitle = rawTitle
             ? String(rawTitle)
                 .replace(/\.pdf$/i, '')
                 .trim() || 'Untitled case'
             : 'Untitled case'
-
           return {
-            // normalize server shape -> client shape expected by CasesGrid
             id: c.uploadId || c.id,
             uploadId: c.uploadId || c.id,
             fileName: c.originalFileName || c.fileName || c.filename,
@@ -54,22 +67,23 @@ export default function Dashboard() {
           }
         })
 
-        setCases(normalized)
+        if (!cancelled) setCases(normalized)
       } catch (err) {
         console.warn('Failed to fetch cases:', err)
-        setCases([])
+        if (!cancelled) setCases([])
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
-    fetchCases()
+    const schedule =
+      typeof window !== 'undefined' && 'requestIdleCallback' in window
+        ? window.requestIdleCallback(fetchCasesAndNormalize, { timeout: 500 })
+        : window.setTimeout(fetchCasesAndNormalize, 100)
 
-    // listen for uploads or other case changes and refresh
     const onUploaded = () => {
       try {
-        // Refresh full list when an upload completes or cases change
-        fetchCases()
+        fetchCasesAndNormalize()
       } catch (err) {
         console.warn('Failed to refresh cases on case:uploaded/case:changed', err)
       }
@@ -77,11 +91,20 @@ export default function Dashboard() {
 
     window.addEventListener('case:uploaded', onUploaded)
     window.addEventListener('case:changed', onUploaded)
+
     return () => {
+      cancelled = true
+      try {
+        if (typeof window !== 'undefined' && 'cancelIdleCallback' in window)
+          window.cancelIdleCallback(schedule)
+        else clearTimeout(schedule)
+      } catch (e) {
+        console.debug('[Dashboard] idle/callback cancelled or failed', e)
+      }
       window.removeEventListener('case:uploaded', onUploaded)
       window.removeEventListener('case:changed', onUploaded)
     }
-  }, [])
+  }, [auth?.loggedIn])
 
   const filtered = cases.filter(c => {
     const matchesSearch = c.title?.toLowerCase().includes((searchQuery || '').toLowerCase())
@@ -116,10 +139,16 @@ export default function Dashboard() {
 
       <div className="mt-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <FiltersBar active={activeFilter} onChange={setActiveFilter} />
-          <SortControl dir={sortDir} onToggle={setSortDir} />
+          <Suspense fallback={<div className="h-10 w-full bg-gray-100 rounded" />}>
+            <FiltersBar active={activeFilter} onChange={setActiveFilter} />
+          </Suspense>
+          <Suspense fallback={<div className="h-10 w-32 bg-gray-100 rounded" />}>
+            <SortControl dir={sortDir} onToggle={setSortDir} />
+          </Suspense>
         </div>
-        <CasesGrid items={sorted} loading={loading} />
+        <Suspense fallback={<div className="py-8">Loading cases…</div>}>
+          <CasesGrid items={sorted} loading={loading} />
+        </Suspense>
       </div>
     </>
   )

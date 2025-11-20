@@ -11,7 +11,7 @@ import {
   Trash2,
   FileText,
 } from 'lucide-react'
-import { listSessionsMine, listSessionNotes } from '@/lib/api'
+import { listSessionsMine, listSessionNotes, renameCase } from '@/lib/api'
 import { deleteSession } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { API_BASE } from '@/config'
@@ -169,6 +169,12 @@ export default function SessionHistory() {
   const [notesBySession, setNotesBySession] = useState({})
   const [loadingNotesFor, setLoadingNotesFor] = useState(null)
 
+  const [editingSessionId, setEditingSessionId] = useState(null)
+  const [editingTitle, setEditingTitle] = useState('')
+
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting, setDeleting] = useState(false)
+
   const [params] = useSearchParams()
   const caseIdParam = params.get('caseId')
 
@@ -253,49 +259,12 @@ export default function SessionHistory() {
       }
 
       case 'rename': {
-        // For now: rename the underlying case (upload) if it exists
         if (!session.caseId || session.caseId === session.id) {
           toast.error('Renaming is only supported for case-based sessions right now.')
           return
         }
-        const currentTitle = getSessionTitle(session)
-        const newTitle = window.prompt('Rename case', currentTitle)
-        if (!newTitle || !newTitle.trim()) return
-
-        try {
-          const token = localStorage.getItem('authToken')
-          const headers = {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          }
-
-          const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
-          // caseId is the uploadId we used in /uploads/{id}
-          const res = await fetch(`${base}/uploads/${encodeURIComponent(session.caseId)}`, {
-            method: 'PATCH',
-            headers,
-            body: JSON.stringify({ title: newTitle.trim() }),
-          })
-
-          if (!res.ok) throw new Error('Rename failed')
-
-          // Update local state so the new name shows immediately
-          setSessions(prev =>
-            prev.map(s =>
-              s.id === sessionId
-                ? {
-                    ...s,
-                    caseTitle: newTitle.trim(),
-                  }
-                : s
-            )
-          )
-
-          toast.success('Case renamed')
-        } catch (err) {
-          console.warn(err)
-          toast.error('Rename failed')
-        }
+        setEditingSessionId(sessionId)
+        setEditingTitle(getSessionTitle(session))
         break
       }
 
@@ -306,23 +275,56 @@ export default function SessionHistory() {
       }
 
       case 'delete': {
-        if (!window.confirm('Delete this session and its messages/notes? This cannot be undone.')) {
-          return
-        }
-        try {
-          await deleteSession(sessionId)
-          setSessions(prev => prev.filter(s => s.id !== sessionId))
-          toast.success('Session deleted')
-        } catch (err) {
-          console.warn(err)
-          toast.error('Delete failed')
-        }
+        setDeleteTarget(session)
         break
       }
 
       default:
         break
     }
+  }
+
+  const handleRenameSave = async sessionId => {
+    const newTitle = editingTitle.trim()
+    if (!newTitle) {
+      toast.error('Title cannot be empty')
+      return
+    }
+
+    const session = sessions.find(s => s.id === sessionId)
+    if (!session) return
+
+    if (!session.caseId || session.caseId === session.id) {
+      toast.error('Renaming is only supported for case-based sessions.')
+      return
+    }
+
+    try {
+      await renameCase(session.caseId, newTitle)
+
+      setSessions(prev =>
+        prev.map(s =>
+          s.id === sessionId
+            ? {
+                ...s,
+                caseTitle: newTitle,
+              }
+            : s
+        )
+      )
+
+      toast.success('Case renamed')
+      setEditingSessionId(null)
+      setEditingTitle('')
+    } catch (err) {
+      console.warn(err)
+      toast.error(err?.message || 'Rename failed')
+    }
+  }
+
+  const handleRenameCancel = () => {
+    setEditingSessionId(null)
+    setEditingTitle('')
   }
 
   const handleClose = () => {
@@ -430,8 +432,44 @@ export default function SessionHistory() {
                     </div>
 
                     {/* Case */}
-                    {/* Case */}
-                    <div className="text-sm font-medium text-slate-900">{getSessionTitle(s)}</div>
+                    <div className="min-w-0">
+                      {editingSessionId === s.id ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={editingTitle}
+                            onChange={e => setEditingTitle(e.target.value)}
+                            className="w-full px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-300/60"
+                            autoFocus
+                          />
+                          <button
+                            onClick={e => {
+                              e.stopPropagation()
+                              handleRenameSave(s.id)
+                            }}
+                            className="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={e => {
+                              e.stopPropagation()
+                              handleRenameCancel()
+                            }}
+                            className="px-2 py-1 text-xs rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div
+                          className="text-sm font-medium text-slate-900 truncate"
+                          title={getSessionTitle(s)}
+                        >
+                          {getSessionTitle(s)}
+                        </div>
+                      )}
+                    </div>
 
                     {/* Mode column removed */}
 
@@ -484,7 +522,18 @@ export default function SessionHistory() {
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex-1 min-w-0">
                         <h3 className="text-sm font-medium text-slate-900 truncate">
-                          {getSessionTitle(s)}
+                          {editingSessionId === s.id ? (
+                            <input
+                              type="text"
+                              value={editingTitle}
+                              onChange={e => setEditingTitle(e.target.value)}
+                              className="w-full px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-300/60"
+                              autoFocus
+                              onClick={e => e.stopPropagation()}
+                            />
+                          ) : (
+                            getSessionTitle(s)
+                          )}
                         </h3>
 
                         <div className="flex items-center gap-2 text-xs text-slate-600 mt-1">
@@ -535,6 +584,49 @@ export default function SessionHistory() {
           </>
         )}
       </div>
+
+      {/* Delete confirm dialog */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-lg p-6 max-w-sm w-full">
+            <h2 className="text-sm font-semibold text-slate-900 mb-2">Delete this session?</h2>
+            <p className="text-sm text-slate-600 mb-4">
+              This will permanently delete the session and its messages/notes. This action cannot be
+              undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="px-3 py-1.5 text-sm rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!deleteTarget) return
+                  setDeleting(true)
+                  try {
+                    await deleteSession(deleteTarget.id)
+                    setSessions(prev => prev.filter(s => s.id !== deleteTarget.id))
+                    toast.success('Session deleted')
+                    setDeleteTarget(null)
+                  } catch (err) {
+                    console.warn(err)
+                    toast.error(err?.message || 'Delete failed')
+                  } finally {
+                    setDeleting(false)
+                  }
+                }}
+                className="px-3 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* NotesDrawer */}
       <NotesDrawer
@@ -621,7 +713,7 @@ function NotesDrawer({ open, onClose, session, isClosing, notes, loadingNotes })
           <div className="flex items-start justify-between">
             <div className="min-w-0 flex-1">
               <h2 id="notes-title" className="text-lg font-semibold text-slate-900">
-                Notes • {session.caseTitle}
+                <span className="block truncate max-w-full">Notes • {session.caseTitle}</span>
               </h2>
               <p id="notes-description" className="mt-1 text-sm text-slate-600">
                 {session.date} • {session.time} • {session.duration}

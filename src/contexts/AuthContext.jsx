@@ -8,21 +8,17 @@ export { AuthContext }
 
 function AuthProvider({ children }) {
   const [token, setToken] = useState(() => {
+    if (typeof window === 'undefined') return null
     try {
-      return typeof window !== 'undefined' ? localStorage.getItem('authToken') || null : null
+      return localStorage.getItem('authToken') || null
     } catch {
       return null
     }
   })
 
-  const [user, setUser] = useState(() => {
-    try {
-      const raw = typeof window !== 'undefined' ? localStorage.getItem('authUser') : null
-      return raw ? JSON.parse(raw) : null
-    } catch {
-      return null
-    }
-  })
+  // On startup, we don't trust the stored user; we’ll re-fetch it via /me.
+  // So begin with null and let login()/`/me` fill it.
+  const [user, setUser] = useState(null)
 
   const login = useCallback((newToken, newUser) => {
     try {
@@ -99,8 +95,6 @@ function AuthProvider({ children }) {
     }
   }, [])
 
-  // When a token exists, validate it once against the backend.
-  // If the backend says 401, clear it so the UI doesn't pretend we're logged in.
   useEffect(() => {
     if (!token) return
 
@@ -109,7 +103,7 @@ function AuthProvider({ children }) {
     ;(async () => {
       try {
         const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
-        const url = `${base}/uploads/mine`
+        const url = base ? `${base}/me` : '/me'
 
         const res = await fetch(url, {
           headers: {
@@ -117,17 +111,41 @@ function AuthProvider({ children }) {
           },
         })
 
-        if (!res.ok && res.status === 401 && !cancelled) {
-          console.warn('[auth] startup token check: backend says 401, logging out')
-          logout()
-          // optional: also send them to sign-in page
-          // if (typeof window !== 'undefined') {
-          //   window.location.href = '/signin'
-          // }
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403) {
+            console.warn('[auth] /me says token is invalid; logging out')
+            logout()
+          } else {
+            console.warn('[auth] /me failed with status', res.status)
+          }
+          return
+        }
+
+        const js = await res.json()
+
+        if (cancelled) return
+
+        const normalizedUser = {
+          userId: js.userId || js.id || null,
+          email: js.email || null,
+          fullName: js.fullName || null,
+          isSuperUser: !!js.isSuperUser,
+        }
+
+        setUser(normalizedUser)
+
+        // Keep localStorage in sync (optional, but nice)
+        try {
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('authUser', JSON.stringify(normalizedUser))
+          }
+        } catch {
+          /* ignore */
         }
       } catch (err) {
-        // Network down / backend not running — don't log out, just log it.
-        console.warn('[auth] startup token check failed (network?)', err)
+        if (!cancelled) {
+          console.error('[auth] /me error', err)
+        }
       }
     })()
 
@@ -139,8 +157,7 @@ function AuthProvider({ children }) {
   const value = {
     token,
     user,
-    // 🔑 Only consider the user logged in if we actually have a token.
-    loggedIn: Boolean(token),
+    loggedIn: Boolean(token && user),
     login,
     logout,
   }

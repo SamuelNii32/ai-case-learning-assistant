@@ -71,10 +71,10 @@
 
 /* Ensure clickable controls show a pointer cursor for consistent UX */
 button,
-input[type="button"],
-input[type="submit"],
-input[type="reset"],
-label[role="button"],
-[role="button"] {
+input[type='button'],
+input[type='submit'],
+input[type='reset'],
+label[role='button'],
+[role='button'] {
   cursor: pointer;
 }

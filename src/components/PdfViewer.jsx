@@ -173,8 +173,8 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
 
   // --- load document (serialized) ---
   useEffect(() => {
-  let cancelled = false
-  let pdfjsVersion = 'unknown'
+    let cancelled = false
+    let pdfjsVersion = 'unknown'
     let task
     ;(async () => {
       try {
@@ -196,9 +196,18 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
       }
 
       try {
-        // Dynamically load pdf.js and the worker setup so heavy code is only
-        // downloaded when the PDF viewer is actually used.
-        const [pdfjsModule] = await Promise.all([import('pdfjs-dist'), import('../lib/pdfjs-setup')])
+        // Dynamically load pdf.js and lazily initialize the worker so heavy
+        // code (including the worker chunk) is only downloaded when the
+        // PDF viewer is actually used.
+        const pdfjsModule = await import('pdfjs-dist')
+        // initialize the worker (pdfjs-setup exports an async initializer)
+        try {
+          const setupMod = await import('../lib/pdfjs-setup')
+          const init = setupMod.initPdfWorker || setupMod.default
+          if (typeof init === 'function') await init()
+        } catch (initErr) {
+          console.warn('[PdfViewer] initPdfWorker failed', initErr)
+        }
         const { getDocument, version: pdfjsVersion } = pdfjsModule
 
         // If the PDF source is protected by Authorization, fetch it with the
@@ -213,7 +222,12 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
           if (token) {
             const res = await fetch(src, { headers: { Authorization: `Bearer ${token}` } })
             // Log helpful diagnostics for aborted/403/401 responses
-            console.debug('[PdfViewer] fetched PDF', { url: src, status: res.status, contentType: res.headers.get('content-type'), pdfjsVersion })
+            console.debug('[PdfViewer] fetched PDF', {
+              url: src,
+              status: res.status,
+              contentType: res.headers.get('content-type'),
+              pdfjsVersion,
+            })
             if (!res.ok) {
               const text = await res.text().catch(() => '')
               console.error('[PdfViewer] PDF fetch returned non-ok status', res.status, text)
@@ -224,20 +238,28 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
             task = getDocument({ data: buf })
           } else {
             console.debug('[PdfViewer] no auth token; loading PDF by URL', src)
-            task = getDocument({ url: src })
+            // Some servers don't support range requests or streaming responses
+            // which can cause pdf.js internal "BodyStreamBuffer was aborted" errors.
+            // Force full-document download in the worker (disable range requests)
+            // when loading by URL to avoid streaming/internal aborts.
+            task = getDocument({ url: src, disableRange: true })
           }
         } catch (fetchErr) {
           // fallback to url-based load if the authenticated fetch fails for any reason
-          console.warn('[PdfViewer] authenticated fetch failed, falling back to URL load', fetchErr)
-          task = getDocument({ url: src })
+          // Use disableRange to avoid internal streaming/range-handling in pdf.js
+          console.warn(
+            '[PdfViewer] authenticated fetch failed, falling back to URL load (disableRange=true)',
+            fetchErr
+          )
+          task = getDocument({ url: src, disableRange: true })
         }
         const pdf = await task.promise
         if (cancelled) return
 
-  pdfRef.current = pdf
-  setNumPages(pdf.numPages)
-  numPagesRef.current = pdf.numPages
-  console.debug('[PdfViewer] PDF loaded', { numPages: pdf.numPages })
+        pdfRef.current = pdf
+        setNumPages(pdf.numPages)
+        numPagesRef.current = pdf.numPages
+        console.debug('[PdfViewer] PDF loaded', { numPages: pdf.numPages })
 
         onReadyRef.current && onReadyRef.current({ scrollToPage, showHighlight })
       } catch (e) {

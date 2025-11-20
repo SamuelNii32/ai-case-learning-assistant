@@ -138,9 +138,7 @@ export default function Topbar({
           >
             <div className="px-4 py-3 border-b border-slate-100">
               <p className="font-medium text-slate-900">{getDisplayName()}</p>
-              {getEmail() ? (
-                <p className="text-sm text-slate-500 truncate">{getEmail()}</p>
-              ) : null}
+              {getEmail() ? <p className="text-sm text-slate-500 truncate">{getEmail()}</p> : null}
             </div>
 
             <div className="py-1">

@@ -11,6 +11,8 @@
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "preview": "vite preview",
+    "serve:dist": "npx http-server ./dist -p 5000",
+    "lighthouse:local": "npx lighthouse http://localhost:5000 --output=json --output-path=./lighthouse-report.json --output=html --output-path=./lighthouse-report.html --chrome-flags=\"--headless --no-sandbox\"",
     "test": "vitest",
     "test:run": "vitest run",
     "test:watch": "vitest --watch",

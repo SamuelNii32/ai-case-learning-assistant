@@ -8,7 +8,11 @@ export default function Landing() {
 
   if (import.meta.env.DEV) {
     try {
-      console.debug('[Landing] auth', { loggedIn: auth?.loggedIn, token: auth?.token, ls: typeof window !== 'undefined' ? localStorage.getItem('authToken') : null })
+      console.debug('[Landing] auth', {
+        loggedIn: auth?.loggedIn,
+        token: auth?.token,
+        ls: typeof window !== 'undefined' ? localStorage.getItem('authToken') : null,
+      })
     } catch {
       /* ignore */
     }
@@ -24,9 +28,13 @@ export default function Landing() {
 
         {auth?.loggedIn ? (
           <div className="space-y-3">
-            <p className="text-slate-700">Welcome back{auth.user?.fullName ? `, ${auth.user.fullName}` : ''}.</p>
+            <p className="text-slate-700">
+              Welcome back{auth.user?.fullName ? `, ${auth.user.fullName}` : ''}.
+            </p>
             <Link to="dashboard">
-              <button className="px-6 py-3 rounded-md bg-[#125691] text-white">Open Dashboard</button>
+              <button className="px-6 py-3 rounded-md bg-[#125691] text-white">
+                Open Dashboard
+              </button>
             </Link>
           </div>
         ) : (

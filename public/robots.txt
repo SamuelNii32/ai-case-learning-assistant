@@ -1,0 +1,7 @@
+# robots.txt for ai-case-learning-assistant
+# Allow all crawlers full access. Adjust if you need to block paths.
+User-agent: *
+Disallow:
+
+# Optional: point to sitemap if you have one
+# Sitemap: https://yourdomain.example/sitemap.xml

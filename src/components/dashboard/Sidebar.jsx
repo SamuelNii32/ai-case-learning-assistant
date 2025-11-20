@@ -1,11 +1,18 @@
 import { Link, NavLink } from 'react-router-dom'
+import { useContext } from 'react'
 import { FolderOpen, Clock, X, FileText, Settings } from 'lucide-react' // ← icons
+import { AuthContext } from '@/contexts/AuthContext'
 
 export default function Sidebar({ isOpen = false, onClose = () => {} }) {
-  const items = [
-    { to: 'dashboard', label: 'My Cases', icon: FolderOpen },
-    { to: 'session-history', label: 'Session History', icon: Clock },
-  ]
+  const auth = useContext(AuthContext)
+  const isSuperUser = !!auth?.user?.isSuperUser
+
+  const items = isSuperUser
+    ? [{ to: '/admin/sessions', label: 'Supervisor — Sessions', icon: FolderOpen }]
+    : [
+        { to: '/dashboard', label: 'My Cases', icon: FolderOpen },
+        { to: '/session-history', label: 'Session History', icon: Clock },
+      ]
 
   const base =
     'flex items-center gap-2 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-offset-2'
@@ -57,7 +64,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
                   style={({ isActive }) =>
                     isActive ? { backgroundColor: '#003c71', borderLeft: `4px solid #deb406` } : {}
                   }
-                  end={to !== 'dashboard'}
+                  end={to !== '/dashboard' && to !== 'dashboard'}
                   onClick={onClose}
                 >
                   <Icon className="w-5 h-5" aria-hidden="true" />

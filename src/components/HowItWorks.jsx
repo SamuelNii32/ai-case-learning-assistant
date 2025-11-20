@@ -62,15 +62,23 @@ export function HowItWorks() {
                     <div className="font-semibold text-slate-900 mb-2 text-[10px]">Notes</div>
                     <div className="flex-1 overflow-auto space-y-2">
                       <div className="p-2 bg-slate-50 rounded border border-slate-100 text-sm">
-                        <div className="text-xs text-slate-700 font-medium">Triage delay impact</div>
-                        <div className="text-xs text-slate-500">Key metrics show a 40% increase in wait time.</div>
+                        <div className="text-xs text-slate-700 font-medium">
+                          Triage delay impact
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          Key metrics show a 40% increase in wait time.
+                        </div>
                       </div>
                       <div className="p-2 bg-slate-50 rounded border border-slate-100 text-sm">
                         <div className="text-xs text-slate-700 font-medium">Data gaps</div>
-                        <div className="text-xs text-slate-500">Missing bed availability logs on pages 4–6.</div>
+                        <div className="text-xs text-slate-500">
+                          Missing bed availability logs on pages 4–6.
+                        </div>
                       </div>
                     </div>
-                    <div className="mt-2 text-[11px] text-slate-500">Highlights sync with sessions and can be exported.</div>
+                    <div className="mt-2 text-[11px] text-slate-500">
+                      Highlights sync with sessions and can be exported.
+                    </div>
                   </div>
                 </div>
               </div>
@@ -84,8 +92,8 @@ export function HowItWorks() {
               </div>
               <h3 className="text-xl font-semibold text-slate-900">Notes & Highlights</h3>
               <p className="text-slate-600">
-                Capture highlights and structured notes tied to exact passages — review them alongside
-                your session history for faster learning.
+                Capture highlights and structured notes tied to exact passages — review them
+                alongside your session history for faster learning.
               </p>
             </div>
           </div>
