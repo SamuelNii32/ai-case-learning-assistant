@@ -28,7 +28,7 @@ export default function SignUpPage() {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fullName: name, email, password }),
+        body: JSON.stringify({ fullName: name, email, password, isInstructor: role === 'instructor' }),
       })
       if (!res.ok) {
         const txt = await res.text().catch(() => '')
