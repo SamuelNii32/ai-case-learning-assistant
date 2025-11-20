@@ -65,6 +65,7 @@ export default function Workspace() {
     {
       role: 'assistant',
       content: "Hello! I've analyzed your case study. What would you like to explore first?",
+      createdAt: new Date().toISOString(),
     },
   ])
   const [message, setMessage] = useState('')
@@ -101,12 +102,23 @@ export default function Workspace() {
       }
 
       // push user message and placeholder assistant
-      setMessages(prev => [...prev, { role: 'user', content: q }])
+      setMessages(prev => [
+        ...prev,
+        { role: 'user', content: q, createdAt: new Date().toISOString() },
+      ])
       setMessage('')
       const assistantId = `asst-${Date.now()}`
       setMessages(prev => [
         ...prev,
-        { id: assistantId, role: 'assistant', content: '', streaming: true, sources: [] },
+        {
+          id: assistantId,
+          role: 'assistant',
+          content: '',
+          streaming: true,
+          sources: [],
+          createdAt: new Date().toISOString(),
+          wordsCount: 0,
+        },
       ])
 
       // use streaming ask endpoint with sessionId (if we have one)
@@ -123,7 +135,15 @@ export default function Workspace() {
     const assistantId = `asst-${Date.now()}`
     setMessages(prev => [
       ...prev,
-      { id: assistantId, role: 'assistant', content: '', streaming: true, sources: [] },
+      {
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        streaming: true,
+        sources: [],
+        createdAt: new Date().toISOString(),
+        wordsCount: 0,
+      },
     ])
 
     // 3) close any prior stream
@@ -145,10 +165,11 @@ export default function Workspace() {
 
     es.addEventListener('token', e => {
       const { text } = JSON.parse(e.data)
-      updateAssistant(m => ({
-        ...m,
-        content: appendSmart(m.content || '', text),
-      }))
+      updateAssistant(m => {
+        const next = appendSmart(m.content || '', text)
+        const wc = (next.match(/\S+/g) || []).length
+        return { ...m, content: next, wordsCount: wc }
+      })
       // keep chat scrolled to bottom while streaming
       requestAnimationFrame(() => scrollToBottom(false))
     })
@@ -302,9 +323,13 @@ export default function Workspace() {
             const piece = parsed?.text ?? ''
             if (!gotFirstToken) {
               gotFirstToken = true
-              updateAssistant(m => ({ ...m, content: '', streaming: true }))
+                updateAssistant(m => ({ ...m, content: '', streaming: true }))
             }
-            updateAssistant(m => ({ ...m, content: appendSmart(m.content || '', piece) }))
+              updateAssistant(m => {
+                const next = appendSmart(m.content || '', piece)
+                const wc = (next.match(/\S+/g) || []).length
+                return { ...m, content: next, wordsCount: wc }
+              })
             requestAnimationFrame(() => scrollToBottom(false))
           } else if (event === 'citations') {
             let arr = []
@@ -326,7 +351,8 @@ export default function Workspace() {
                   '$1@$2.$3'
                 )
                 .trim()
-              return { ...m, content: cleaned, streaming: false }
+              const wc = (cleaned.match(/\S+/g) || []).length
+              return { ...m, content: cleaned, streaming: false, wordsCount: wc }
             })
 
             // No need to abort here; stream will naturally finish.
@@ -937,44 +963,69 @@ export default function Workspace() {
                         key={msg.id ?? idx}
                         className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
                       >
-                        <div
-                          className={`max-w-[85%] rounded-lg p-3 ${
-                            isUser
-                              ? 'bg-primary text-primary-foreground'
-                              : 'bg-muted text-foreground'
-                          }`}
-                        >
-                          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-                            {msg.content}
-                            {msg.streaming && (
-                              <span className="ml-2 text-muted-foreground" aria-hidden="true">
-                                <span className="typing-dots" aria-hidden="true">
-                                  <span />
-                                  <span />
-                                  <span />
-                                </span>
-                              </span>
-                            )}
-                          </p>
+                            <div
+                              className={`max-w-[85%] rounded-lg p-3 ${
+                                isUser
+                                  ? 'bg-primary text-primary-foreground'
+                                  : 'bg-muted text-foreground'
+                              }`}
+                            >
+                              <div className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                                {msg.streaming && !(msg.content || '').trim() ? (
+                                  // show skeleton until first token arrives
+                                  <div className="skeleton" style={{ width: '9rem', height: '1.1rem' }} aria-hidden="true" />
+                                ) : (
+                                  <span className="message-text">{msg.content}</span>
+                                )}
 
-                          {/* ↓ Source chip(s) */}
-                          {!isUser && msg.sources && msg.sources.length > 0 && (
-                            <div className="mt-2 flex gap-2">
-                              {msg.sources.map((s, i) => (
-                                <button
-                                  key={i}
-                                  type="button"
-                                  disabled={!pdfCtrl}
-                                  onClick={() => pdfCtrl?.showHighlight({ page: s.page })}
-                                  className="text-xs px-2 py-1 rounded-full border border-border bg-white hover:bg-muted disabled:opacity-50"
-                                  title={`Open ${s.label}`}
-                                >
-                                  {s.label}
-                                </button>
-                              ))}
+                                {msg.streaming && (msg.content || '').trim() && (
+                                  <span className="ml-2 text-muted-foreground" aria-hidden="true">
+                                    <span className="typing-dots" aria-hidden="true">
+                                      <span />
+                                      <span />
+                                      <span />
+                                    </span>
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* ↓ Source chip(s) */}
+                              {!isUser && msg.sources && msg.sources.length > 0 && (
+                                <div className="mt-2 flex gap-2">
+                                  {msg.sources.map((s, i) => (
+                                    <button
+                                      key={i}
+                                      type="button"
+                                      disabled={!pdfCtrl}
+                                      onClick={() => pdfCtrl?.showHighlight({ page: s.page })}
+                                      className="text-xs px-2 py-1 rounded-full border border-border bg-white hover:bg-muted disabled:opacity-50"
+                                      title={`Open ${s.label}`}
+                                    >
+                                      {s.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* message meta: timestamp + small progress (words) */}
+                              <div className="message-meta">
+                                <div>
+                                  {msg.createdAt
+                                    ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                    : ''}
+                                </div>
+                                {msg.streaming && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
+                                      {msg.wordsCount ?? 0} words
+                                    </div>
+                                    <div className="progress-bar" aria-hidden="true">
+                                      <i style={{ width: `${Math.min(100, (msg.wordsCount || 0) / 2)}%` }} />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          )}
-                        </div>
                       </div>
                     )
                   })}
