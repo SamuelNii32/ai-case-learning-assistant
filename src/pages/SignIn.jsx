@@ -51,6 +51,13 @@ export default function SignInPage() {
     setLoading(true)
     const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
     const url = base ? `${base}/auth/login` : '/auth/login'
+    // Developer debug: log the final URL used for the login request so
+    // deployed builds can reveal misconfigured VITE_API_BASE or routing/CORS issues.
+    try {
+      console.log('Login POST URL:', url)
+    } catch {
+      /* ignore */
+    }
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -161,8 +168,14 @@ export default function SignInPage() {
       if (isInstructor) navigate('/admin/sessions')
       else navigate('/dashboard')
     } catch (e) {
-      console.error('Login error', e)
-      setErr(String(e.message || e))
+      // Provide a clearer, actionable message for common network/CORS issues
+      console.error('Login error', { err: e, url })
+      const msg = String(e?.message || e)
+      if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+        setErr('Network error while contacting the API. This may be caused by CORS, an incorrect VITE_API_BASE, or mixed HTTP/HTTPS on the deployed backend. Check the browser Network tab for the request URL and response.')
+      } else {
+        setErr(msg)
+      }
     } finally {
       setLoading(false)
     }
