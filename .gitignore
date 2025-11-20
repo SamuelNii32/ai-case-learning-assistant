@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 *.local
+ai-case-learning-assistant-dist.zip
 
 # Editor directories and files
 .vscode/*
