@@ -28,7 +28,12 @@ export default function SignUpPage() {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fullName: name, email, password, isInstructor: role === 'instructor' }),
+        body: JSON.stringify({
+          fullName: name,
+          email,
+          password,
+          isInstructor: role === 'instructor',
+        }),
       })
       if (!res.ok) {
         const txt = await res.text().catch(() => '')
@@ -52,7 +57,7 @@ export default function SignUpPage() {
       }
       localStorage.setItem('userRole', role)
       // auto-redirect to login page with a success flag so the sign-in page can show confirmation
-      navigate('signin', { state: { signupSuccess: true } })
+      navigate('/signin', { state: { signupSuccess: true } })
     } catch (e) {
       console.error('Signup error', e)
       setErr(String(e.message || e))

@@ -42,7 +42,7 @@ export default function Landing() {
             <Link to="login">
               <button className="px-6 py-3 rounded-md bg-[#125691] text-white">Sign In</button>
             </Link>
-            <Link to="signup" className="block text-sm text-slate-600 hover:underline">
+            <Link to="/signup" className="block text-sm text-slate-600 hover:underline">
               Create an account
             </Link>
           </div>
