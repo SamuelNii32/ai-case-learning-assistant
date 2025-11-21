@@ -75,7 +75,7 @@ export function ensureFreshToken(thresholdSeconds = 10) {
     if (parts.length < 2) return true
     const payload = parts[1]
     // base64url -> base64
-    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/') + '=='.slice((payload.length % 4) || 0)
+    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/') + '=='.slice(payload.length % 4 || 0)
     let decoded = null
     try {
       decoded = JSON.parse(atob(b64))
@@ -138,7 +138,7 @@ async function handleAuthFailure(res, body) {
     } else if (typeof window !== 'undefined') {
       // Fallback: redirect to sign in
       try {
-        window.location.href = '/signin'
+        window.location.hash = '#/login'
       } catch {
         /* ignore */
       }
@@ -325,7 +325,7 @@ export async function renameCase(uploadId, name) {
     // Send both `name` and `title` to be tolerant of backend DTO shape
     body: JSON.stringify({ name, title: name }),
   })
-  
+
   // Try again with requestWithRetry to handle token refresh
   // (some environments may not support streaming retry, so we fall back)
   // Note: requestWithRetry will call the registered refresh function if available
