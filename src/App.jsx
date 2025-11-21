@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
 import Header from './components/Header'
+import DeployConfigWarning from './components/DeployConfigWarning'
 import { Hero } from './components/Hero'
 import { Footer } from './components/Footer'
 const SignInPage = lazy(() => import('./pages/SignIn'))
@@ -34,6 +35,7 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Toaster position="top-right" />
+      <DeployConfigWarning />
       {!hideChrome && <Header />}
       <Suspense fallback={<div className="p-8 text-center">Loading…</div>}>
         <Routes>
