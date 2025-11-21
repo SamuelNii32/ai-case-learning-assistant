@@ -1,5 +1,4 @@
 import { useState, useContext, useRef, useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
 import { Link, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Button } from './ui/button'
@@ -11,8 +10,6 @@ export default function Header() {
 
   const auth = useContext(AuthContext)
   const navigate = useNavigate()
-  const location = useLocation()
-  const isRoot = typeof location?.pathname === 'string' && location.pathname === '/'
   const userMenuRef = useRef(null)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
 
@@ -47,15 +44,10 @@ export default function Header() {
           <div className="w-10 h-10 bg-[#125691] rounded-lg flex items-center justify-center">
             <FileText className="w-6 h-6 text-white" />
           </div>
-          {/* Hide the visible brand text on the landing page to avoid duplicate headings 
-              but keep an sr-only label for screen readers */}
-          {isRoot ? (
-            <span className="sr-only">AI Case Assistant</span>
-          ) : (
-            <span className="font-semibold text-lg sm:text-xl text-slate-900">
-              AI Case Assistant
-            </span>
-          )}
+          {/* Always show the visible brand text to improve discoverability. If you
+              prefer to hide it on the landing page to avoid duplicate headings,
+              revert this to the prior isRoot conditional. */}
+          <span className="font-semibold text-lg sm:text-xl text-slate-900">AI Case Assistant</span>
         </Link>
 
         {/* Desktop Navigation */}

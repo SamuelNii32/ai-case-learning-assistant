@@ -810,9 +810,15 @@ export default function Workspace() {
 
         {/* Main two-pane layout (left PDF, right chat/guided) */}
         <div aria-hidden={showHistory || showFigures || showNotes ? 'true' : 'false'}>
-          <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-            {/* Permanent sidebar on md+; falls back to drawer on small screens */}
-            <aside className="hidden lg:flex lg:flex-col w-80 border-r border-border bg-white overflow-auto">
+          {/* On lg+ we bound the content area to the viewport height minus the header
+              so the page itself doesn't scroll; only the chat panel is scrollable.
+              Assumption: header is h-14 (3.5rem). If header height changes, replace
+              the hard calc with a CSS variable. */}
+          <div className="flex-1 flex flex-col md:flex-row overflow-hidden lg:h-[calc(100vh-3.5rem)]">
+      {/* Permanent sidebar on md+; falls back to drawer on small screens */}
+      {/* On large screens keep the history panel visually fixed (no internal scroll).
+        On smaller screens allow overflow so the drawer can scroll. */}
+  <aside className="hidden lg:flex lg:flex-col w-80 border-r border-border bg-white lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:overflow-auto">
               <div className="p-4 space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-foreground">Conversation History</h3>
@@ -856,12 +862,15 @@ export default function Workspace() {
               </div>
             </aside>
 
-            <div className="flex-1 md:flex-1 min-w-0 border-r border-border bg-muted/30 overflow-auto">
+      {/* Center PDF area: allow normal vertical scrolling on small screens
+        but keep fixed (no internal scroll) on large screens so only the
+        chat panel scrolls. */}
+      <div className="flex-1 md:flex-1 min-w-0 border-r border-border bg-muted/30 overflow-hidden lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)]">
               <div className="p-6 max-w-3xl mx-auto">
                 <Card className="bg-card">
                   <div className="p-4">
                     {uploadId ? (
-                      <div className="w-full h-[70vh] bg-white rounded overflow-hidden border border-border relative">
+                      <div className="w-full h-[70vh] lg:h-[calc(100vh-3.5rem)] bg-white rounded overflow-hidden border border-border relative">
                         <React.Suspense
                           fallback={
                             <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
