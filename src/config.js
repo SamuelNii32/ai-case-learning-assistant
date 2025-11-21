@@ -1,3 +1,9 @@
-// Central API base URL. Configure via Vite env var VITE_API_BASE.
-// Example: set VITE_API_BASE=http://localhost:3000 in a .env file.
-export const API_BASE = import.meta.env.VITE_API_BASE || ''
+// src/config.js
+
+// Try both env names so it's flexible:
+// - VITE_API_BASE       (old style)
+// - VITE_API_BASE_URL   (current / recommended)
+const envBase = import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_BASE_URL || ''
+
+// Normalize: remove trailing slash if present
+export const API_BASE = envBase ? envBase.replace(/\/$/, '') : ''
