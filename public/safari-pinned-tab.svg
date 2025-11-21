@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <g fill="currentColor">
+    <rect x="1" y="1" width="22" height="22" rx="5" />
+    <text x="12" y="15" font-family="Inter, Arial, sans-serif" font-size="10" fill="currentColor" font-weight="700" text-anchor="middle">AI</text>
+  </g>
+</svg>
