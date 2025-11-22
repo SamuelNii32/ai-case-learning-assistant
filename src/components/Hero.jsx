@@ -32,22 +32,26 @@ export function Hero() {
                   </Button>
                 </Link>
               ) : (
-                <Link to="login">
-                  <Button size="lg" className="shadow-lg">
-                    Sign In
-                  </Button>
-                </Link>
-              )}
+                <>
+                  <Link to="login">
+                    <Button size="lg" className="shadow-lg">
+                      Sign In
+                    </Button>
+                  </Link>
 
-              <Link to="dashboard">
-                <Button
-                  size="lg"
-                  variant="outline"
-                  className="border-[#125691] text-[#125691] hover:bg-[#125691]/10 shadow-lg"
-                >
-                  Try Demo
-                </Button>
-              </Link>
+                  {!auth?.loggedIn && (
+                    <Link to="/demo">
+                      <Button
+                        size="lg"
+                        variant="outline"
+                        className="border-[#125691] text-[#125691] hover:bg-[#125691]/10 shadow-lg"
+                      >
+                        Try Demo
+                      </Button>
+                    </Link>
+                  )}
+                </>
+              )}
             </div>
 
             {/* ValueProps - stays in left column, aligned with PreviewMock */}

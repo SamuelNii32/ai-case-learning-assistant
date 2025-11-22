@@ -1,4 +1,4 @@
-import { Link, useParams, useSearchParams, useNavigate } from 'react-router-dom'
+import { Link, useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom'
 import React, { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -53,6 +53,7 @@ function appendSmart(prev = '', next = '') {
 export default function Workspace() {
   const { uploadId } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const [searchParams] = useSearchParams()
   const caseType = searchParams.get('type') || 'personal'
@@ -809,6 +810,24 @@ export default function Workspace() {
         </header>
 
         {/* Main two-pane layout (left PDF, right chat/guided) */}
+        {location?.state?.demo && (
+          <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-sm">
+            <div className="container mx-auto px-4 py-2 flex items-center justify-between">
+              <div>Demo Mode — this is a demo case. Data is read-only.</div>
+              <div className="flex items-center gap-2">
+                <Link to="/signup">
+                  <Button size="sm" variant="outline">
+                    Sign up
+                  </Button>
+                </Link>
+                <Link to="/signin">
+                  <Button size="sm">Sign in</Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div aria-hidden={showHistory || showFigures || showNotes ? 'true' : 'false'}>
           {/* On lg+ we bound the content area to the viewport height minus the header
               so the page itself doesn't scroll; only the chat panel is scrollable.
