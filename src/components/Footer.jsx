@@ -1,10 +1,8 @@
-import React, { useContext } from 'react'
+import React from 'react'
 import { Link } from 'react-router-dom'
 import { FileText } from 'lucide-react'
-import { AuthContext } from '@/contexts/AuthContext'
 
 export function Footer() {
-  const auth = useContext(AuthContext)
 
   return (
     <footer className="bg-white border-t border-slate-200 py-12">
@@ -30,13 +28,7 @@ export function Footer() {
                   Features
                 </a>
               </li>
-              {!auth?.loggedIn && (
-                <li>
-                  <Link to="/demo" className="text-sm text-slate-600 hover:text-slate-900">
-                    Try Demo
-                  </Link>
-                </li>
-              )}
+              {/* Try Demo removed */}
               <li>
                 <a href="#pricing" className="text-sm text-slate-600 hover:text-slate-900">
                   Pricing

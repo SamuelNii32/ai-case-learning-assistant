@@ -1,5 +1,5 @@
-import React, { Suspense, lazy, useEffect } from 'react'
-import { Routes, Route, useLocation, useNavigate } from 'react-router-dom'
+import React, { Suspense, lazy } from 'react'
+import { Routes, Route, useLocation } from 'react-router-dom'
 import Header from './components/Header'
 import DeployConfigWarning from './components/DeployConfigWarning'
 import { Hero } from './components/Hero'
@@ -8,6 +8,7 @@ const SignInPage = lazy(() => import('./pages/SignIn'))
 const SignUpPage = lazy(() => import('./pages/SignUp'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const SettingsPage = lazy(() => import('./pages/Settings'))
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'))
 const Workspace = lazy(() => import('./pages/Workspace'))
 const AppLayout = lazy(() => import('./components/layout/AppLayout'))
 const FocusLayout = lazy(() => import('./components/layout/FocusLayout'))
@@ -18,17 +19,7 @@ const AdminSessions = lazy(() => import('./pages/admin/Sessions'))
 const AdminSessionDetail = lazy(() => import('./pages/admin/SessionDetail'))
 import { Toaster } from 'react-hot-toast'
 
-const DEMO_UPLOAD_ID = '6986a9cf-81b4-4f95-9522-0ea63496ce23'
-
-function DemoRedirect() {
-  const navigate = useNavigate()
-  useEffect(() => {
-    // navigate to workspace with demo uploadId and pass demo state
-    navigate(`/workspace/${DEMO_UPLOAD_ID}`, { state: { demo: true } })
-  }, [navigate])
-
-  return <div className="p-8 text-center">Starting demo…</div>
-}
+// Demo flow removed per request — demo route and redirect no longer included
 
 function App() {
   const location = useLocation()
@@ -84,6 +75,14 @@ function App() {
             }
           />
           <Route
+            path="/forgot-password"
+            element={
+              <main>
+                <ForgotPassword />
+              </main>
+            }
+          />
+          <Route
             path="/signup"
             element={
               <main>
@@ -93,11 +92,7 @@ function App() {
           />
           <Route path="/upload" element={<Upload />} />
 
-          {/* Demo route: redirect into workspace with demo uploadId and mark demo state */}
-          <Route
-            path="/demo"
-            element={<DemoRedirect />}
-          />
+          {/* Demo route removed */}
 
           {/* Instructor dashboard route moved into AppLayout (actual component) */}
           <Route

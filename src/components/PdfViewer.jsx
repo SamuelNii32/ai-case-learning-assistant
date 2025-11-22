@@ -1,7 +1,7 @@
 // src/components/PdfViewer.jsx
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 
-export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth = true }) {
+export default function PdfViewer({ src, onReady, onError, initialScale = 1.5, fitToWidth = true }) {
   const scrollHostRef = useRef(null)
   const pdfRef = useRef(null) // PDFDocumentProxy
   const [numPages, setNumPages] = useState(0)
@@ -15,9 +15,13 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
 
   // keep onReady stable
   const onReadyRef = useRef(onReady)
+  const onErrorRef = useRef(onError)
   useEffect(() => {
     onReadyRef.current = onReady
   }, [onReady])
+  useEffect(() => {
+    onErrorRef.current = onError
+  }, [onError])
 
   // serialize destroys across src changes (prevents worker race)
   const destroyChainRef = useRef(Promise.resolve())
@@ -179,8 +183,8 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
     ;(async () => {
       try {
         await destroyChainRef.current
-      } catch (errDC) {
-        console.debug('[PdfViewer] destroyChain await failed', errDC)
+      } catch {
+        console.debug('[PdfViewer] destroyChain await failed')
       }
 
       setError(null)
@@ -231,6 +235,12 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
             if (!res.ok) {
               const text = await res.text().catch(() => '')
               console.error('[PdfViewer] PDF fetch returned non-ok status', res.status, text)
+              // notify caller with structured info when possible
+              try {
+                onErrorRef.current && onErrorRef.current({ status: res.status, message: text || `HTTP ${res.status}` })
+              } catch {
+                /* ignore */
+              }
               throw new Error(`PDF fetch failed: ${res.status}`)
             }
             const buf = await res.arrayBuffer()
@@ -262,7 +272,7 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
         console.debug('[PdfViewer] PDF loaded', { numPages: pdf.numPages })
 
         onReadyRef.current && onReadyRef.current({ scrollToPage, showHighlight })
-      } catch (e) {
+  } catch (e) {
         if (cancelled) return
         // Add more diagnostics for aborted BodyStreamBuffer errors
         try {
@@ -300,7 +310,18 @@ export default function PdfViewer({ src, onReady, initialScale = 1.5, fitToWidth
           return
         }
 
-        setError(e?.message || 'Failed to load PDF.')
+        const errMsg = e?.message || 'Failed to load PDF.'
+        setError(errMsg)
+        try {
+          // surface structured error when available
+          if (e && typeof e === 'object' && 'status' in e) {
+            onErrorRef.current && onErrorRef.current({ status: e.status, message: errMsg })
+          } else {
+            onErrorRef.current && onErrorRef.current({ status: undefined, message: errMsg })
+          }
+        } catch {
+          /* ignore */
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }

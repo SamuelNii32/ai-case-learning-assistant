@@ -594,6 +594,7 @@ export default function Workspace() {
   const pdfCtrlRef = useRef(null)
   const [pdfCtrl, setPdfCtrl] = useState(null)
   const [caseTitle, setCaseTitle] = useState(null)
+  const [pdfLoadError, setPdfLoadError] = useState(null)
   const [uploadDate, setUploadDate] = useState(null)
   const [indexState, setIndexState] = useState('not-indexed') // 'not-indexed' | 'indexing' | 'ready' | 'error'
   const [indexSummary, setIndexSummary] = useState(null)
@@ -810,23 +811,7 @@ export default function Workspace() {
         </header>
 
         {/* Main two-pane layout (left PDF, right chat/guided) */}
-        {location?.state?.demo && (
-          <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-sm">
-            <div className="container mx-auto px-4 py-2 flex items-center justify-between">
-              <div>Demo Mode — this is a demo case. Data is read-only.</div>
-              <div className="flex items-center gap-2">
-                <Link to="/signup">
-                  <Button size="sm" variant="outline">
-                    Sign up
-                  </Button>
-                </Link>
-                <Link to="/signin">
-                  <Button size="sm">Sign in</Button>
-                </Link>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Demo banner removed */}
 
         <div aria-hidden={showHistory || showFigures || showNotes ? 'true' : 'false'}>
           {/* On lg+ we bound the content area to the viewport height minus the header
@@ -905,6 +890,14 @@ export default function Workspace() {
                             }
                             unmirror
                             fitToWidth
+                            onError={err => {
+                              // capture structured PDF fetch errors (eg. 401) so parent can show UX
+                              try {
+                                setPdfLoadError(err || null)
+                              } catch {
+                                /* ignore */
+                              }
+                            }}
                             onReady={ctrl => {
                               pdfCtrlRef.current = ctrl
                               setPdfCtrl(ctrl) // <-- context value
@@ -914,6 +907,30 @@ export default function Workspace() {
                               }
                             }}
                           />
+                          {pdfLoadError && (
+                            <div className="absolute inset-0 z-30 flex items-start justify-center p-6 pointer-events-none">
+                              <div className="bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded p-3 pointer-events-auto shadow">
+                                <div className="space-y-2">
+                                  <div className="font-medium">Failed to load PDF</div>
+                                  <div className="text-xs text-foreground/80">
+                                    {pdfLoadError?.status === 401
+                                      ? 'This document requires authentication. Please sign in to view it.'
+                                      : pdfLoadError?.message || 'An unexpected error occurred while loading the PDF.'}
+                                  </div>
+                                  <div className="pt-2 flex items-center gap-2">
+                                    <Link to="/signin">
+                                      <Button size="sm">Sign in</Button>
+                                    </Link>
+                                    <Link to="/signup">
+                                      <Button size="sm" variant="outline">
+                                        Sign up
+                                      </Button>
+                                    </Link>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </React.Suspense>
                         {/* small toolbar (top-right) so users can open Figures & Charts while viewing a PDF */}
                         <div className="absolute top-2 right-2 z-20">

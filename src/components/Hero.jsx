@@ -39,17 +39,7 @@ export function Hero() {
                     </Button>
                   </Link>
 
-                  {!auth?.loggedIn && (
-                    <Link to="/demo">
-                      <Button
-                        size="lg"
-                        variant="outline"
-                        className="border-[#125691] text-[#125691] hover:bg-[#125691]/10 shadow-lg"
-                      >
-                        Try Demo
-                      </Button>
-                    </Link>
-                  )}
+                  {/* Try Demo removed — feature paused */}
                 </>
               )}
             </div>
