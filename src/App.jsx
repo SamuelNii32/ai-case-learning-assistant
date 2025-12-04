@@ -18,6 +18,7 @@ const InstructorDashboard = lazy(() => import('./pages/InstructorDashboard'))
 const AdminSessions = lazy(() => import('./pages/admin/Sessions'))
 const AdminSessionDetail = lazy(() => import('./pages/admin/SessionDetail'))
 import { Toaster } from 'react-hot-toast'
+import RequireAuth from './components/RequireAuth'
 
 // Demo flow removed per request — demo route and redirect no longer included
 
@@ -142,17 +143,98 @@ function App() {
 
           {/* Dashboard WITHOUT Header - only AppLayout */}
           <Route element={<AppLayout />}>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/instructor-dashboard" element={<InstructorDashboard />} />
-            <Route path="/admin/sessions" element={<AdminSessions />} />
-            <Route path="/admin/sessions/:sessionId" element={<AdminSessionDetail />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/session-history" element={<SessionHistory />} />
+            <Route
+              path="/dashboard"
+              element={
+                <RequireAuth>
+                  <Dashboard />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/instructor-dashboard"
+              element={
+                <RequireAuth requireInstructor>
+                  <InstructorDashboard />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/admin/sessions"
+              element={
+                <RequireAuth requireInstructor>
+                  <AdminSessions />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/admin/sessions/:sessionId"
+              element={
+                <RequireAuth requireInstructor>
+                  <AdminSessionDetail />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <RequireAuth>
+                  <SettingsPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/session-history"
+              element={
+                <RequireAuth>
+                  <SessionHistory />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/sessions"
+              element={
+                <RequireAuth>
+                  <SessionHistory />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/cases"
+              element={
+                <RequireAuth>
+                  <Dashboard />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <RequireAuth>
+                  <SettingsPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/account"
+              element={
+                <RequireAuth>
+                  <SettingsPage />
+                </RequireAuth>
+              }
+            />
           </Route>
 
           {/* Workspace WITHOUT Header - only FocusLayout */}
           <Route element={<FocusLayout />}>
-            <Route path="/workspace/:uploadId" element={<Workspace />} />
+            <Route
+              path="/workspace/:uploadId"
+              element={
+                <RequireAuth>
+                  <Workspace />
+                </RequireAuth>
+              }
+            />
           </Route>
 
           {/* 404 */}

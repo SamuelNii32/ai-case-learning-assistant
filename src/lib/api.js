@@ -1,4 +1,5 @@
 import { API_BASE } from '@/config'
+import { navigateTo } from './navigate'
 
 // tokenGetter is a function that returns the current auth token (string|null).
 // It can be registered by AuthContext so non-React modules can read the
@@ -136,9 +137,9 @@ async function handleAuthFailure(res, body) {
         console.error('[api] authFailureHandler threw', err)
       }
     } else if (typeof window !== 'undefined') {
-      // Fallback: redirect to sign in
+      // Fallback: redirect to sign in using SPA navigation if available
       try {
-        window.location.hash = '#/login'
+        navigateTo('/login', { replace: true })
       } catch {
         /* ignore */
       }

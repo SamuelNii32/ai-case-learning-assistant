@@ -50,12 +50,29 @@ function AuthProvider({ children }) {
   useEffect(() => {
     setAuthTokenGetter(() => token)
 
+    const navigate = null
+    try {
+      // useNavigate can't be used here directly; register auth failure to logout and then redirect
+    } catch {
+      /* ignore */
+    }
+
     setOnAuthFailure(info => {
       console.warn('[auth] token invalid or expired; logging out', info)
       // Backend has rejected this token: clear it immediately
       logout()
-      // Optional: you can show a toast here instead of alert
-      // toast.error('Session expired. Please sign in again.')
+      try {
+        // SPA navigation via helper (falls back to full reload if not registered)
+        const nav = require('@/lib/navigate').navigateTo
+        if (typeof nav === 'function') nav('/login', { replace: true })
+        else window.location.assign('/login')
+      } catch {
+        try {
+          window.location.assign('/login')
+        } catch {
+          /* ignore */
+        }
+      }
     })
   }, [token, logout])
 
