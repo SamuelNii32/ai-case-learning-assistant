@@ -33,7 +33,7 @@ using Dapper;
 
 // iText7 for page count + raster image counting
 using iText.Kernel.Pdf;
-using iText.Kernel.Pdf.Canvas.Parser;
+using iText.Kernel.Pdf.Canvas.Parser; 
 using iText.Kernel.Pdf.Canvas.Parser.Data;
 using iText.Kernel.Pdf.Canvas.Parser.Listener;
 
@@ -79,6 +79,13 @@ static async Task SaveMessageAsync(
 
 
 
+const string JwtSecret = "samnii_JWT_secret_key_2025_super_strong_01_long_xyz";
+const string JwtIssuer = "IngestionApi";
+const string JwtAudience = "IngestionClient";
+
+
+
+
 
 
 
@@ -105,6 +112,7 @@ builder.Services.AddSingleton<ChatClient>(_ =>
 
 
 
+
 // Swagger (optional)
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -115,7 +123,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("FrontendDev", p => p
-        .WithOrigins("http://localhost:5174", "http://localhost:3000")
+        .WithOrigins("http://localhost:5174", "http://localhost:3000", "http://localhost:4173", "https://ai-case-learning-assistant.vercel.app", "https://ai-case-learning-assistant-rku540uom.vercel.app")
         .AllowAnyHeader()
         .AllowAnyMethod()
         .AllowCredentials());
@@ -129,14 +137,22 @@ app.UseCors("FrontendDev");
 // app.UseHttpsRedirection();
 
 
+// Choose a writable folder for SQLite (works on Windows + Azure)
+var home = Environment.GetEnvironmentVariable("HOME")
+           ?? Environment.GetEnvironmentVariable("USERPROFILE")
+           ?? ".";
+var dataDir = Path.Combine(home, "ingestion-data");
+Directory.CreateDirectory(dataDir);
 
-var connString = "Data Source=ingestion.db;Cache=Shared";
+var dbPath = Path.Combine(dataDir, "ingestion.db");
+var connString = $"Data Source={dbPath};Cache=Shared";
+
 using (var conn = new SqliteConnection(connString))
 {
     conn.Open();
 
-    var dbPath = Path.GetFullPath("ingestion.db");
     Console.WriteLine($"[DB PATH] Using ingestion.db at: {dbPath}");
+
 
 
     // (already inside: using var conn = new SqliteConnection(connString)); conn.Open();
@@ -186,6 +202,29 @@ CREATE TABLE IF NOT EXISTS Uploads (
   CreatedAt TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS Classes (
+  Id TEXT PRIMARY KEY,
+  InstructorId TEXT NOT NULL,
+  Name TEXT NOT NULL,
+  Description TEXT NULL,
+  CreatedAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ClassStudents (
+  ClassId TEXT NOT NULL,
+  StudentId TEXT NOT NULL,
+  AddedAt TEXT NOT NULL,
+  PRIMARY KEY (ClassId, StudentId)
+);
+
+CREATE TABLE IF NOT EXISTS ClassCases (
+  ClassId TEXT NOT NULL,
+  UploadId TEXT NOT NULL,
+  AssignedAt TEXT NOT NULL,
+  PRIMARY KEY (ClassId, UploadId)
+);
+
+
 
 ";
     cmd.ExecuteNonQuery();
@@ -229,6 +268,20 @@ CREATE TABLE IF NOT EXISTS Uploads (
     }
 
 
+    // 5) Add ClassId to Sessions (link sessions to classes)
+    try
+    {
+        using var mig4 = conn.CreateCommand();
+        mig4.CommandText = "ALTER TABLE Sessions ADD COLUMN ClassId TEXT NULL";
+        mig4.ExecuteNonQuery();
+    }
+    catch
+    {
+        // Column already exists -> ignore
+    }
+
+   
+
 
 
     cmd.ExecuteNonQuery();
@@ -236,7 +289,12 @@ CREATE TABLE IF NOT EXISTS Uploads (
 
 
 // --- JWT auth gate (protect everything except /ping and /auth/*) ---
-var openPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "/ping" };
+var openPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+{
+    "/ping",
+    "/debug/db-sanity"
+};
+
 
 app.Use(async (ctx, next) =>
 
@@ -265,9 +323,11 @@ app.Use(async (ctx, next) =>
     }
 
     var token = auth.Substring("Bearer ".Length).Trim();
-    var secret = Environment.GetEnvironmentVariable("AUTH_JWT_SECRET") ?? "dev-secret-change-me";
-    var issuer = Environment.GetEnvironmentVariable("AUTH_JWT_ISSUER") ?? "IngestionApi";
-    var audience = Environment.GetEnvironmentVariable("AUTH_JWT_AUDIENCE") ?? "IngestionClient";
+
+    // Use the hard-coded JWT constants so the key is long enough everywhere
+    var secret = JwtSecret;
+    var issuer = JwtIssuer;
+    var audience = JwtAudience;
 
     try
     {
@@ -278,15 +338,16 @@ app.Use(async (ctx, next) =>
             {
                 ValidIssuer = issuer,
                 ValidAudience = audience,
-                IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(secret)),
+                IssuerSigningKey =
+                    new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
+                        System.Text.Encoding.UTF8.GetBytes(secret)),
                 ValidateIssuer = true,
                 ValidateAudience = true,
                 ValidateIssuerSigningKey = true,
                 ValidateLifetime = true,
-                ClockSkew = TimeSpan.FromMinutes(1)
             },
-            out _
-        );
+            out var validatedToken);
+
 
         var userId =
         claims.FindFirst("sub")?.Value ??
@@ -346,6 +407,38 @@ string MapDocTypeToString(DocType t) => t switch
 };
 
 
+bool IsInstructor(HttpContext ctx)
+{
+    return ctx.Items.TryGetValue("isSuperUser", out var val)
+        && val is bool isSuper
+        && isSuper == true;
+}
+
+bool IsStudent(HttpContext ctx)
+{
+    // Student = logged in but NOT instructor
+    return ctx.Items.TryGetValue("isSuperUser", out var val)
+        && val is bool isSuper
+        && isSuper == false;
+}
+
+IResult RequireInstructor(HttpContext ctx)
+{
+    if (!IsInstructor(ctx))
+        return Results.Forbid();
+
+    return null;
+}
+
+IResult RequireStudent(HttpContext ctx)
+{
+    if (!IsStudent(ctx))
+        return Results.Forbid();
+
+    return null;
+}
+
+
 
 
 
@@ -359,23 +452,50 @@ app.MapPost("/auth/signup", async (HttpContext ctx) =>
     var body = await reader.ReadToEndAsync();
 
     string email = "", password = "", fullName = "";
+    bool isInstructor = false; // NEW: drives IsSuperUser
+
     try
     {
         var obj = System.Text.Json.JsonDocument.Parse(body).RootElement;
-        if (obj.TryGetProperty("email", out var e)) email = (e.GetString() ?? "").Trim().ToLowerInvariant();
-        if (obj.TryGetProperty("password", out var p)) password = p.GetString() ?? "";
-        if (obj.TryGetProperty("fullName", out var n)) fullName = (n.GetString() ?? "").Trim();
-    }
+        if (obj.TryGetProperty("email", out var e))
+            email = (e.GetString() ?? "").Trim().ToLowerInvariant();
 
-    catch { }
+        if (obj.TryGetProperty("password", out var p))
+            password = p.GetString() ?? "";
+
+        if (obj.TryGetProperty("fullName", out var n))
+            fullName = (n.GetString() ?? "").Trim();
+
+        // NEW: optional flag from frontend
+        // Frontend: send { ..., "isInstructor": true } if they chose Instructor
+        if (obj.TryGetProperty("isInstructor", out var inst))
+        {
+            try
+            {
+                isInstructor = inst.GetBoolean();
+            }
+            catch
+            {
+                // invalid type? treat as false
+                isInstructor = false;
+            }
+        }
+    }
+    catch
+    {
+        // bad JSON → will fail validation below
+    }
 
     if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
         return Results.BadRequest(new { error = "email and password required" });
 
+    if (password.Length < 8)
+        return Results.BadRequest(new { error = "password must be at least 8 characters" });
+
     var userId = Guid.NewGuid().ToString("N");
     var hash = BCrypt.Net.BCrypt.HashPassword(password);
 
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared");
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
 
     // Enforce unique email
@@ -383,26 +503,38 @@ app.MapPost("/auth/signup", async (HttpContext ctx) =>
     check.CommandText = "SELECT 1 FROM Users WHERE Email = $e LIMIT 1";
     check.Parameters.AddWithValue("$e", email);
     var exists = (await check.ExecuteScalarAsync()) != null;
-    if (exists) return Results.Conflict(new { error = "email already exists" });
+    if (exists)
+        return Results.Conflict(new { error = "email already exists" });
 
     var cmd = conn.CreateCommand();
-    cmd.CommandText = @"INSERT INTO Users (Id, Email, PasswordHash, FullName, CreatedAt)
-                    VALUES ($id,$e,$h,$n,$t)";
+    cmd.CommandText = @"
+        INSERT INTO Users (Id, Email, PasswordHash, FullName, CreatedAt, IsSuperUser)
+        VALUES ($id,$e,$h,$n,$t,$su)";
     cmd.Parameters.AddWithValue("$id", userId);
     cmd.Parameters.AddWithValue("$e", email);
     cmd.Parameters.AddWithValue("$h", hash);
     cmd.Parameters.AddWithValue("$n", string.IsNullOrWhiteSpace(fullName) ? DBNull.Value : fullName);
     cmd.Parameters.AddWithValue("$t", DateTime.UtcNow.ToString("o"));
+    cmd.Parameters.AddWithValue("$su", isInstructor ? 1 : 0); // NEW: instructor ⇒ superuser
+
     await cmd.ExecuteNonQueryAsync();
 
     return Results.Ok(new { userId, email, fullName });
+
 });
 
-// --- Auth: login (issue JWT) ---
+
 app.MapPost("/auth/login", async (HttpContext ctx) =>
 {
-    using var reader = new StreamReader(ctx.Request.Body);
+    // ⭐ Allow body to be read multiple times
+    ctx.Request.EnableBuffering();
+    ctx.Request.Body.Position = 0;
+
+    using var reader = new StreamReader(ctx.Request.Body, leaveOpen: true);
     var body = await reader.ReadToEndAsync();
+
+    // ⭐ Reset again so downstream can read body if needed
+    ctx.Request.Body.Position = 0;
 
     string email = "", password = "";
     try
@@ -416,12 +548,12 @@ app.MapPost("/auth/login", async (HttpContext ctx) =>
     if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
         return Results.BadRequest(new { error = "email and password required" });
 
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared");
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
 
     string? userId = null, hash = null, fullName = null;
     bool isSuperUser = false;
-    int rawIsSuperUser = -999; // debug
+    int rawIsSuperUser = -999;
 
     var cmd = conn.CreateCommand();
     cmd.CommandText = "SELECT Id, PasswordHash, IFNULL(FullName,''), IFNULL(IsSuperUser,0) FROM Users WHERE Email = $e LIMIT 1";
@@ -433,35 +565,26 @@ app.MapPost("/auth/login", async (HttpContext ctx) =>
             userId = r.GetString(0);
             hash = r.GetString(1);
             fullName = r.GetString(2);
-
-            // 🔍 read raw value from DB
             rawIsSuperUser = r.GetInt32(3);
             isSuperUser = rawIsSuperUser != 0;
         }
     }
 
-
-    // Hardcode superuser for Prof. Timothy (email check)
-    if (string.Equals(email, "timothywong@gmail.com", StringComparison.OrdinalIgnoreCase))
-    {
+    if (email == "timothywong@gmail.com")
         isSuperUser = true;
-    }
 
-
-    // 🔍 debug print after reading row
     Console.WriteLine($"[LOGIN DEBUG] email={email}, rawIsSuperUser={rawIsSuperUser}, isSuperUserBool={isSuperUser}");
-
-
 
     if (userId is null || hash is null || !BCrypt.Net.BCrypt.Verify(password, hash))
         return Results.Unauthorized();
 
-    var secret = Environment.GetEnvironmentVariable("AUTH_JWT_SECRET") ?? "dev-secret-change-me";
-    var issuer = Environment.GetEnvironmentVariable("AUTH_JWT_ISSUER") ?? "IngestionApi";
-    var audience = Environment.GetEnvironmentVariable("AUTH_JWT_AUDIENCE") ?? "IngestionClient";
+    var key = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
+        System.Text.Encoding.UTF8.GetBytes(JwtSecret));
 
-    var key = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(secret));
-    var creds = new Microsoft.IdentityModel.Tokens.SigningCredentials(key, Microsoft.IdentityModel.Tokens.SecurityAlgorithms.HmacSha256);
+    var creds = new Microsoft.IdentityModel.Tokens.SigningCredentials(
+        key,
+        Microsoft.IdentityModel.Tokens.SecurityAlgorithms.HmacSha256
+    );
 
     var claims = new[]
     {
@@ -471,17 +594,72 @@ app.MapPost("/auth/login", async (HttpContext ctx) =>
     };
 
     var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
-        issuer: issuer,
-        audience: audience,
+        issuer: JwtIssuer,
+        audience: JwtAudience,
         claims: claims,
         notBefore: DateTime.UtcNow,
         expires: DateTime.UtcNow.AddMinutes(60),
         signingCredentials: creds
     );
 
-    var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(token);
+    var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler()
+        .WriteToken(token);
+
     return Results.Ok(new { token = jwt, userId, email, fullName, isSuperUser });
 });
+
+
+app.MapGet("/me", async (HttpContext ctx) =>
+{
+    var userId = ctx.Items["userId"] as string;
+    if (string.IsNullOrWhiteSpace(userId))
+    {
+        return Results.Unauthorized();
+    }
+
+    bool tokenIsSuper =
+        ctx.Items.TryGetValue("isSuperUser", out var isSuperObj) &&
+        isSuperObj is bool b && b;
+
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    using var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+        SELECT Email,
+               IFNULL(FullName, ''),
+               IFNULL(IsSuperUser, 0)
+        FROM Users
+        WHERE Id = $id
+        LIMIT 1;";
+    cmd.Parameters.AddWithValue("$id", userId);
+
+    using var r = await cmd.ExecuteReaderAsync();
+    if (!await r.ReadAsync())
+    {
+        // Token might be valid but user row missing; treat as unauthorized
+        return Results.Unauthorized();
+    }
+
+    var email = r.GetString(0);
+    var fullName = r.GetString(1);
+    var dbIsSuper = r.GetInt32(2) != 0;
+
+
+    var isSuperUser = dbIsSuper || tokenIsSuper;
+
+
+    var role = isSuperUser ? "instructor" : "student";
+
+    return Results.Ok(new
+    {
+        userId,
+        email,
+        fullName,
+        role
+    });
+});
+
 
 
 
@@ -557,7 +735,7 @@ app.MapPost("/uploads", async (HttpRequest request, HttpContext ctx, IWebHostEnv
 
     // persist ownership (per-user scoping)
     var ownerId = (string?)ctx.Items["userId"] ?? "";
-    using (var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared"))
+    using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString))
     {
         await conn.OpenAsync();
         using var cmd = conn.CreateCommand();
@@ -588,9 +766,41 @@ app.MapGet("/uploads/{uploadId:guid}/summary", async (Guid uploadId, IWebHostEnv
     return Results.Text(json, "application/json");
 });
 
-// GET /cases — scans ABSOLUTE uploads folder
-app.MapGet("/cases", (IWebHostEnvironment env) =>
+// GET /cases — per-user list of uploads
+app.MapGet("/cases", async (HttpContext ctx, IWebHostEnvironment env) =>
 {
+    // 1) Get current userId from JWT middleware
+    var userId = ctx.Items["userId"] as string;
+    if (string.IsNullOrWhiteSpace(userId))
+    {
+        // Should not normally happen because of auth middleware,
+        // but this keeps things explicit.
+        return Results.Unauthorized();
+    }
+
+    // 2) Load this user's uploadIds from the Uploads table
+    var allowedUploadIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString))
+    {
+        await conn.OpenAsync();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT UploadId FROM Uploads WHERE UserId = $userId";
+        cmd.Parameters.AddWithValue("$userId", userId);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            if (!reader.IsDBNull(0))
+            {
+                var uploadId = reader.GetString(0);
+                if (!string.IsNullOrWhiteSpace(uploadId))
+                    allowedUploadIds.Add(uploadId);
+            }
+        }
+    }
+
+    // 3) Scan uploads folder as before, but filter to this user's UploadIds
     var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
     Directory.CreateDirectory(uploadsRoot);
 
@@ -608,6 +818,10 @@ app.MapGet("/cases", (IWebHostEnvironment env) =>
                 ? (pid.ValueKind == JsonValueKind.String ? pid.GetString()! : pid.ToString())
                 : "";
             if (string.IsNullOrWhiteSpace(id)) continue;
+
+            // 👇 New: if this upload does NOT belong to the current user, skip it
+            if (!allowedUploadIds.Contains(id))
+                continue;
 
             string name = root.TryGetProperty("fileName", out var pn) ? (pn.GetString() ?? "") : "";
             int pages = root.TryGetProperty("pages", out var pp) && pp.TryGetInt32(out var p) ? p : 0;
@@ -635,6 +849,7 @@ app.MapGet("/cases", (IWebHostEnvironment env) =>
 
     return Results.Json(ordered);
 });
+
 
 // GET/HEAD /uploads/{id}.pdf — serves from ABSOLUTE path (use Results.File)
 app.MapMethods("/uploads/{uploadId:guid}.pdf", new[] { "GET", "HEAD" }, (Guid uploadId, IWebHostEnvironment env) =>
@@ -783,7 +998,7 @@ app.MapPost("/index/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWe
 
     // ownership check
     var me = (string?)ctx.Items["userId"] ?? "";
-    using (var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared"))
+    using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString))
     {
         await conn.OpenAsync();
         using var chk = conn.CreateCommand();
@@ -819,7 +1034,7 @@ app.MapPost("/index/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWe
             if (string.IsNullOrWhiteSpace(text)) continue;
             pagesIndexed++;
 
-            foreach (var c in TextChunking.ChunkBySize(text, 1200, 200)) // larger, still safe
+            foreach (var c in TextChunking.ChunkBySentences(text, 1200, 200))
             {
                 var vec = emb.GenerateEmbedding(c).Value.ToFloats();
                 var preview = c; // keep full chunk text (no truncation)
@@ -891,7 +1106,8 @@ app.MapGet("/search/{uploadId:guid}", (Guid uploadId, string q, IWebHostEnvironm
         {
             x.Page,
             x.Preview,
-            score = System.Numerics.Tensors.TensorPrimitives.CosineSimilarity(qVec.Span, x.Vec.Span)
+            score = QaRetrieval.SafeCosine(qVec.Span, x.Vec.Span)
+
         })
         .OrderByDescending(s => s.score)
         .Take(5)
@@ -899,19 +1115,80 @@ app.MapGet("/search/{uploadId:guid}", (Guid uploadId, string q, IWebHostEnvironm
 
     return Results.Json(scored);
 });
+
+app.MapGet("/debug/student-access/{uploadId}", async (Guid uploadId, HttpContext ctx) =>
+{
+    var me = (string?)ctx.Items["userId"] ?? "";
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+SELECT
+    u.UploadId AS UploadId,
+    u.UserId  AS OwnerId,
+    cs.StudentId,
+    cs.ClassId,
+    cc.ClassId AS CaseClassId
+FROM Uploads u
+LEFT JOIN ClassCases cc ON cc.UploadId = u.UploadId
+LEFT JOIN ClassStudents cs ON cs.ClassId = cc.ClassId
+WHERE u.UploadId = $u;
+";
+    cmd.Parameters.AddWithValue("$u", uploadId.ToString());
+
+    var rows = new List<object>();
+    using var r = await cmd.ExecuteReaderAsync();
+    while (r.Read())
+    {
+        rows.Add(new
+        {
+            uploadId = r["UploadId"]?.ToString(),
+            owner = r["OwnerId"]?.ToString(),
+            studentId = r["StudentId"]?.ToString(),
+            classId = r["ClassId"]?.ToString(),
+            caseClass = r["CaseClassId"]?.ToString()
+        });
+    }
+
+    return Results.Json(rows);
+});
+
 // GET /ask/{uploadId}?q=...
 app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessionId, HttpContext ctx, IWebHostEnvironment env) =>
 {
     var me = (string?)ctx.Items["userId"] ?? "";
-    using (var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared"))
+    Console.WriteLine($"[ASK DEBUG] me={me}, uploadId={uploadId}");
+
+    using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString))
     {
         await conn.OpenAsync();
         using var chk = conn.CreateCommand();
-        chk.CommandText = "SELECT 1 FROM Uploads WHERE UploadId = $u AND UserId = $me LIMIT 1";
-        chk.Parameters.AddWithValue("$u", uploadId);
+        chk.CommandText = @"
+SELECT 1
+FROM Uploads u
+WHERE upper(u.UploadId) = upper($u)
+  AND (
+        u.UserId = $me
+     OR EXISTS (
+            SELECT 1
+            FROM ClassCases cc
+            JOIN ClassStudents cs ON cs.ClassId = cc.ClassId
+            WHERE cc.UploadId = u.UploadId
+              AND cs.StudentId = $me
+        )
+  )
+LIMIT 1;
+";
+
+
+        chk.Parameters.AddWithValue("$u", uploadId.ToString());
         chk.Parameters.AddWithValue("$me", me);
         var ok = await chk.ExecuteScalarAsync();
-        if (ok is null) return Results.NotFound(new { error = "not found" });
+
+        if (ok is null)
+            return Results.NotFound(new { error = "not found" });
+
     }
 
     // Keep the original question and classify it with the small model
@@ -931,13 +1208,16 @@ app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessi
             return Results.NotFound(new { error = "Not indexed. POST /index/{uploadId} first." });
     }
 
+
+
+
     // --- local helper to persist a message for this session (if any) ---
     void SaveMessage(string role, string content, int[]? citations, int[]? pages)
     {
         if (string.IsNullOrWhiteSpace(sessionId))
             return;
 
-        using var mconn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared");
+        using var mconn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
         mconn.Open();
         using var mcmd = mconn.CreateCommand();
         mcmd.CommandText = @"
@@ -961,10 +1241,87 @@ app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessi
         mcmd.ExecuteNonQuery();
     }
 
+
+    string? GetStringOrNull(Microsoft.Data.Sqlite.SqliteDataReader reader, int ordinal)
+    {
+        return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
+    }
+
+    int[]? ParseNullableIntArray(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<int[]>(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     try
     {
         // --- record USER message (if a session was provided) ---
         SaveMessage("user", q, null, null);
+
+        // --- Q/A CACHE FAST PATH ---
+        // If we've seen this exact question for this upload before,
+        // reuse the previous answer instead of redoing retrieval + LLM.
+
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            try
+            {
+                using var cacheConn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+                cacheConn.Open();
+
+                using var cacheCmd = cacheConn.CreateCommand();
+                cacheCmd.CommandText = @"
+SELECT a.Content, a.Citations, a.PagesUsed
+FROM Sessions s
+JOIN Messages qMsg
+    ON qMsg.SessionId = s.Id
+   AND qMsg.Role = 'user'
+JOIN Messages a
+    ON a.SessionId = s.Id
+   AND a.Role = 'assistant'
+   AND a.CreatedAt >= qMsg.CreatedAt
+WHERE s.UploadId = $uploadId
+  AND LOWER(TRIM(qMsg.Content)) = LOWER(TRIM($q))
+ORDER BY a.CreatedAt ASC
+LIMIT 1;
+";
+                cacheCmd.Parameters.AddWithValue("$uploadId", uploadId.ToString());
+                cacheCmd.Parameters.AddWithValue("$q", q.Trim());
+
+                using var r = cacheCmd.ExecuteReader();
+                if (r.Read())
+                {
+                    var answerText = r.GetString(0);
+                    var citations = ParseNullableIntArray(GetStringOrNull(r, 1));
+                    var pagesUsed = ParseNullableIntArray(GetStringOrNull(r, 2));
+
+                    // Still write this assistant message into the current session history
+                    SaveMessage("assistant", answerText, citations, pagesUsed);
+
+                    return Results.Json(new
+                    {
+                        answer = answerText,
+                        citations = citations ?? Array.Empty<int>(),
+                        pagesUsed = pagesUsed ?? Array.Empty<int>(),
+                        fromCache = true
+                    });
+                }
+            }
+            catch
+            {
+                // Swallow cache errors so they never break the main Q/A path.
+                // If cache lookup fails, we just continue as normal.
+            }
+        }
+        // --- END Q/A CACHE FAST PATH ---
+
 
         // ---- Normalize & detect intent/category
         var qNorm = QueryNormalization.Normalize(q ?? "");
@@ -979,8 +1336,13 @@ app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessi
         qNorm = Regex.Replace(qNorm, @"\b(key\s+findings?|findings?|key\s+takeaways?|takeaways?|insights?|what\s+did\s+they\s+conclude|conclusions?)\b",
                               "conclusion", RegexOptions.IgnoreCase);
         // map “results/outcomes/observations/measurements” → conclusion (closest existing intent)
-        qNorm = Regex.Replace(qNorm, @"\b(results?|experimental\s+results?|outcomes?|observations?|measurements?)\b",
-                              "conclusion", RegexOptions.IgnoreCase);
+        qNorm = Regex.Replace(
+    qNorm,
+    @"\b(results?|experimental\s+results?|outcomes?|observations?|measurements?|future\s+work|recommendations?|improvements?)\b",
+    "conclusion",
+    RegexOptions.IgnoreCase
+);
+
         // map “summary/overview/tldr/summarize/in N bullets” → abstract
         qNorm = Regex.Replace(qNorm, @"\b(abstract|summary|overview|tl;dr|summari[sz]e|in\s+\d+\s+bullets?)\b",
                               "abstract", RegexOptions.IgnoreCase);
@@ -1049,6 +1411,34 @@ app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessi
         // ---- Retrieval
         var top = QaRetrieval.SelectTop(list, qVec.Span, qNorm, forStreaming: false);
 
+        // 🔹 Phase 3: boost method / findings pages into the context
+        var sectionHints = new List<TopChunk>();
+
+        // If question is about methods/data collection → pull method-like sections
+        if (questionType == QuestionType.Method)
+        {
+            sectionHints = SectionSwitchboard.FindMethodLikeSections(list);
+        }
+        // If question is about findings / conclusions / "why" → pull results/discussion
+        else if (questionType == QuestionType.Findings || questionType == QuestionType.WhyExplain)
+        {
+            sectionHints = SectionSwitchboard.FindFindingsLikeSections(list);
+        }
+
+        if (sectionHints.Count > 0)
+        {
+            var existingPages = new HashSet<int>(top.Select(t => t.Page));
+            foreach (var hint in sectionHints)
+            {
+                if (!existingPages.Contains(hint.Page))
+                {
+                    top.Add(hint);
+                    existingPages.Add(hint.Page);
+                }
+            }
+        }
+
+
         // ---- Section switchboard (Title handled later)
         if (intent != SectionIntent.None && intent != SectionIntent.Title && intent != SectionIntent.Authors)
         {
@@ -1076,13 +1466,17 @@ app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessi
         // ---- Option B: Adaptive breadth (vague/global queries get wider K)
         // ---- Auto-escalate for listy queries if thin
         // Use QuestionType + intent to shape breadth
+        // Replace the threshold logic in your /ask endpoint (around line 1100-1200)
+        // Find this section and replace it:
+
+        // IMPROVED: More adaptive thresholds based on question type
         var isSummary = questionType == QuestionType.Summary;
         var isFact = questionType == QuestionType.Fact;
         var isMethod = questionType == QuestionType.Method;
         var isFindings = questionType == QuestionType.Findings;
         var isWhyExplain = questionType == QuestionType.WhyExplain;
 
-        // ---- Option B: Adaptive breadth (vague/global queries get wider K)
+        // IMPROVED: Adaptive breadth with better defaults
         bool vague = isSummary
             || isFindings
             || isWhyExplain
@@ -1092,26 +1486,35 @@ app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessi
             || Regex.IsMatch(qNorm, @"\b(key\s+findings?|takeaways?|insights?|overview|summary|summari[sz]e|tl;dr)\b",
                              RegexOptions.IgnoreCase);
 
+        // IMPROVED: More generous K values
         int desiredK;
         if (isSummary)
-            desiredK = 20;         // very broad context
+            desiredK = 25;         // very broad context (increased from 20)
         else if (isFindings)
-            desiredK = 14;         // results-type questions: moderately broad
+            desiredK = 18;         // results-type questions (increased from 14)
         else if (isMethod)
-            desiredK = 10;         // methods usually need a bit more spread
+            desiredK = 14;         // methods questions (increased from 10)
         else if (isFact)
-            desiredK = 6;          // narrow, precise
+            desiredK = 10;         // narrow, precise (increased from 6)
         else if (vague)
-            desiredK = 12;         // generic vague / listy
+            desiredK = 16;         // generic vague / listy (increased from 12)
         else
-            desiredK = 8;          // default
+            desiredK = 12;         // default (increased from 8)
 
+        // Always try to get at least desiredK chunks
         if (top.Count < desiredK)
         {
-            var fbWider = QaRetrieval.KeywordFallback(list, qNorm, k: desiredK);
+            var fbWider = QaRetrieval.KeywordFallback(list, qNorm, k: desiredK * 2); // get even more
             if (fbWider.Count > top.Count)
             {
-                top = fbWider;
+                // Merge the results, keeping best scores
+                var merged = top.Concat(fbWider)
+                    .GroupBy(t => $"{t.Page}_{t.Preview}")
+                    .Select(g => g.OrderByDescending(x => x.Score).First())
+                    .OrderByDescending(t => t.Score)
+                    .Take(desiredK)
+                    .ToList();
+                top = merged;
             }
         }
 
@@ -1120,25 +1523,38 @@ app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessi
               or SectionIntent.Keywords or SectionIntent.Authors
               or SectionIntent.Title;
 
-        // Base threshold: Title stays strict; Facts get stricter; Summary can be looser.
+        // IMPROVED: Much more lenient thresholds
         var THRESHOLD = intent == SectionIntent.Title
-            ? 0.99f
+            ? 0.95f   // slightly relaxed from 0.99f
             : isFact
-                ? 0.15f
-                : (lowIntent || isSummary ? 0.00f : 0.10f);
-
+                ? 0.08f   // relaxed from 0.15f
+                : (lowIntent || isSummary ? 0.00f : 0.05f); // relaxed from 0.10f
 
         var bestScore = top.Count > 0 ? top.Max(t => t.Score) : 0f;
         var pageSpread = top.Select(t => t.Page).Distinct().Count();
 
-        if (bestScore < THRESHOLD && pageSpread >= 3)
+        // IMPROVED: More aggressive threshold lowering
+        if (bestScore < THRESHOLD && pageSpread >= 2) // reduced from 3
         {
-            THRESHOLD = Math.Max(0.05f, THRESHOLD - 0.05f);
+            THRESHOLD = Math.Max(0.02f, THRESHOLD - 0.08f); // bigger drop
         }
 
+        // IMPROVED: Even if below threshold, try keyword fallback before giving up
         if (top.Count == 0 || bestScore < THRESHOLD)
         {
-            // Title/Authors metadata first; then Title heuristics
+            // Always try keyword fallback for non-title queries
+            if (intent != SectionIntent.Title && intent != SectionIntent.Authors)
+            {
+                var fb = QaRetrieval.KeywordFallback(list, qNorm, k: desiredK * 2);
+                if (fb.Count > 0)
+                {
+                    // Use keyword fallback results
+                    top = fb;
+                    bestScore = fb.Max(t => t.Score);
+                }
+            }
+
+            // Handle Title/Authors metadata separately (keep your existing logic)
             if (intent == SectionIntent.Title || intent == SectionIntent.Authors)
             {
                 var (metaTitle, metaAuthor) = PdfMetadataHelper.Read(uploadId, env);
@@ -1148,21 +1564,6 @@ app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessi
                 {
                     var answerText = $"From PDF metadata: {metaTitle}";
                     SaveMessage("assistant", answerText, null, null);
-
-                    return Results.Json(new
-                    {
-                        answer = answerText,
-                        pagesUsed = Array.Empty<int>(),
-                        citations = Array.Empty<int>()
-                    });
-                }
-
-                if (intent == SectionIntent.Authors && false && !string.IsNullOrWhiteSpace(metaAuthor) &&
-                    !Regex.IsMatch(metaAuthor, @"^\s*(unknown|n/?a|none)\s*$", RegexOptions.IgnoreCase))
-                {
-                    var answerText = $"From PDF metadata: {metaAuthor}";
-                    SaveMessage("assistant", answerText, null, null);
-
                     return Results.Json(new
                     {
                         answer = answerText,
@@ -1178,21 +1579,18 @@ app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessi
                     {
                         var pagesGuess = new[] { 1 };
                         SaveMessage("assistant", guess, null, pagesGuess);
-
                         return Results.Json(new
                         {
                             answer = guess,
                             pagesUsed = pagesGuess,
-                            citations = Array.Empty<int>() // no chunk ids in this path
+                            citations = Array.Empty<int>()
                         });
                     }
                 }
             }
 
-            // Generic lexical fallback
-            // Generic lexical fallback
-            var fb = QaRetrieval.KeywordFallback(list, qNorm, k: 8);
-            if (fb.Count == 0)
+            // ONLY give up if we have NO results after all attempts
+            if (top.Count == 0)
             {
                 var answerText =
                     "I can't find that in the document. " +
@@ -1204,22 +1602,15 @@ app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessi
                     answer = answerText,
                     citations = Array.Empty<int>(),
                     pagesUsed = Array.Empty<int>(),
-                    retrieval = new { bestScore, threshold = THRESHOLD }
+                    debug = new { bestScore, threshold = THRESHOLD, retrievedChunks = top.Count }
                 });
             }
-
-
-            var stitchedFb = ContextStitching.ExpandWithNeighbors(list, fb,
-                sideNeighbors: techGroup ? 2 : 1,
-                maxTotalNeighbors: techGroup ? 10 : 6);
-            var ctxStrFb = string.Join("\n\n", stitchedFb.Select(t => $"— Page {t.Page} —\n{t.Preview}"));
-            return AnswerWithContext(ctxStrFb, askQ, stitchedFb.Select(t => t.Page).Distinct().ToArray(), apiKey, catHint, SaveMessage);
         }
 
-        // ---- Normal path
+        // Continue with normal flow using 'top' results
         var stitchedTop = ContextStitching.ExpandWithNeighbors(list, top,
-            sideNeighbors: techGroup ? 2 : 1,
-            maxTotalNeighbors: techGroup ? 10 : 6);
+            sideNeighbors: techGroup ? 3 : 2,           // increased
+            maxTotalNeighbors: techGroup ? 15 : 12);     // increased
         var ctxStr = string.Join("\n\n", stitchedTop.Select(t => $"— Page {t.Page} —\n{t.Preview}"));
         return AnswerWithContext(ctxStr, askQ, stitchedTop.Select(t => t.Page).Distinct().ToArray(), apiKey, catHint, SaveMessage);
     }
@@ -1232,23 +1623,41 @@ app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessi
     // Local helper (non-static so it can capture SaveMessage)
     IResult AnswerWithContext(string ctxStr, string question, int[] pages, string apiKeyLocal, string categoryHint, Action<string, string, int[]?, int[]?> saveMessage)
     {
+
         var chat = new OpenAI.Chat.ChatClient(model: answerModel, apiKeyLocal);
 
-        // Extra hint to steer behavior based on the classifier
+        // Find this section in your /ask endpoint (around line 1410-1425)
+        // It's in the AnswerWithContext function
+        // REPLACE the questionTypeHint assignment with this:
+
         var questionTypeHint = questionType switch
         {
             QuestionType.Summary =>
-                "The user is asking for a high-level overview/summary of the document. Focus on the big picture.",
+                "The user wants a high-level overview. Synthesize the main points from the Context.",
+
             QuestionType.Fact =>
-                "The user is asking for specific factual details. Extract precise facts directly from the Context.",
+                "The user wants specific facts. Extract precise information directly from the Context.",
+
             QuestionType.Method =>
-                "The user is asking about the study's methodology, data collection, or procedures. Focus on how the work was done.",
+                "The user is asking about methodology or experimental approach. " +
+                "Look for ANY information in the Context about:\n" +
+                "- How the study/work was conducted\n" +
+                "- What methods, techniques, or procedures were used\n" +
+                "- How data was collected or analyzed\n" +
+                "- Sample information, participants, or datasets\n" +
+                "- Experimental design or setup\n" +
+                "Even if the Context doesn't have a 'Methods' section, look for method-related " +
+                "information ANYWHERE in the provided text and synthesize it into a clear answer.",
+
             QuestionType.Findings =>
-                "The user is asking about the main findings or results. Focus on outcomes, measurements, and key results.",
+                "The user wants to know the results or findings. " +
+                "Look for outcomes, measurements, observations, and key results in the Context.",
+
             QuestionType.WhyExplain =>
-                "The user is asking for an explanation, rationale, or interpretation. Explain the reasoning using the Context.",
-            _ =>
-                string.Empty
+                "The user wants an explanation or rationale. " +
+                "Use the Context to explain the reasoning, causes, or implications.",
+
+            _ => string.Empty
         };
 
         // Decide if the user is explicitly asking for bullets / a list
@@ -1268,14 +1677,52 @@ app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessi
               "Regardless of format, any specific factual claim must end with the relevant [p:X] chip. ";
 
         var sys =
-            "You are a precise assistant. Answer ONLY using the provided Context. " +
-            "If the answer is not in Context, reply: I can't find that in the document. " +
-            "When listing, include all items that are clearly supported by the Context; do not guess beyond it. " +
-            "When the user asks to list items of a specific category, focus on items that match that category, " +
-            "and clearly label any closely related items if you include them. " +
-            (string.IsNullOrWhiteSpace(categoryHint) ? "" : categoryHint + " ") +
-            (string.IsNullOrWhiteSpace(questionTypeHint) ? "" : questionTypeHint + " ") +
-            bulletRules;
+      "You are a precise but helpful assistant analyzing a PDF document. " +
+      "Your PRIMARY task is to answer the user's question using the provided Context. " +
+      "\n\n" +
+      "CORE PRINCIPLES:\n" +
+      "1. The Context contains relevant excerpts from the document. Use it as your source.\n" +
+      "2. If the answer is clearly in the Context, provide it confidently.\n" +
+      "3. For specific factual questions, extract precise details from the Context.\n" +
+      "4. For general questions (summaries, overviews, main points), synthesize across the Context.\n" +
+      "5. You may infer reasonable connections between ideas in the Context.\n" +
+      "6. ONLY say 'I can't find that' if the Context truly has NO relevant information.\n" +
+      "\n\n" +
+      "WHEN TO SAY YOU CAN'T FIND SOMETHING:\n" +
+      "- The question asks for specific data (names, numbers, dates) that aren't in Context\n" +
+      "- The question is about a topic completely absent from the Context\n" +
+      "- DO NOT say you can't find it just because the answer requires synthesis\n" +
+      "- DO NOT say you can't find it just because the exact phrasing isn't there\n" +
+      "\n\n" +
+      "CITATION RULES:\n" +
+      "- End each factual claim or piece of information with [p:X] where X is the page number\n" +
+      "- Use the page numbers shown in the Context (e.g., '— Page 5 —')\n" +
+      "- If synthesizing from multiple pages, include multiple chips: [p:3] [p:5] [p:7]\n" +
+      (string.IsNullOrWhiteSpace(categoryHint) ? "" : "\n" + categoryHint + "\n") +
+      (string.IsNullOrWhiteSpace(questionTypeHint) ? "" : "\n" + questionTypeHint + "\n") +
+      bulletRules +
+      "\n\n" +
+      "EXAMPLE RESPONSES:\n" +
+      "\n" +
+      "Context:\n" +
+      "— Page 8 —\n" +
+      "The experiment achieved 94.2% accuracy on the test set using a fine-tuned BERT-base model.\n" +
+      "— Page 12 —\n" +
+      "All experiments were run on NVIDIA A100 GPUs with batch size 32.\n" +
+      "\n" +
+      "Question: What accuracy did they report?\n" +
+      "Good Answer: The experiment achieved 94.2% accuracy on the test set. [p:8]\n" +
+      "\n" +
+      "Question: What was their experimental setup?\n" +
+      "Good Answer: They used a fine-tuned BERT-base model [p:8] and ran experiments on NVIDIA A100 GPUs with batch size 32. [p:12]\n" +
+      "\n" +
+      "Question: What datasets did they use?\n" +
+      "Bad Answer: I can't find that in the document.\n" +
+      "Why bad: You should look more carefully at the Context before giving up.\n" +
+      "\n\n" +
+      "Now answer the user's question using the Context provided below.";
+
+
 
 
         var messages = new List<OpenAI.Chat.ChatMessage>
@@ -1287,7 +1734,15 @@ Context:
 {ctxStr}")
         };
 
-        var result = chat.CompleteChat(messages).Value;
+        var options = new ChatCompletionOptions
+        {
+            Temperature = 0f
+           
+
+        };
+
+        var result = chat.CompleteChat(messages, options).Value;
+
         var answer = string.Concat(result.Content.Select(part => part.Text ?? string.Empty)).Trim();
 
         if (string.IsNullOrWhiteSpace(answer))
@@ -1324,14 +1779,37 @@ Context:
 
 
 // GET /ask/stream/{uploadId}?q=...  -> SSE: token-by-token answer + citations + done
-app.MapGet("/ask/stream/{uploadId:guid}", async (Guid uploadId, string q, string? sessionId, HttpContext ctx, IWebHostEnvironment env) =>
+app.MapGet("/ask/stream/{uploadId}", async (string uploadId, string q, string? sessionId, HttpContext ctx, IWebHostEnvironment env) =>
 {
+    if (!Guid.TryParse(uploadId, out var parsedUploadId))
+    {
+        ctx.Response.StatusCode = 404;
+        await ctx.Response.WriteAsJsonAsync(new { error = "not found" });
+        return;
+    }
+
+
     var me = (string?)ctx.Items["userId"] ?? "";
-    using (var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared"))
+    using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString))
     {
         await conn.OpenAsync();
         using var chk = conn.CreateCommand();
-        chk.CommandText = "SELECT 1 FROM Uploads WHERE UploadId = $u AND UserId = $me LIMIT 1";
+        chk.CommandText = @"
+SELECT 1
+FROM Uploads u
+WHERE u.UploadId = $u
+  AND (
+        u.UserId = $me
+     OR EXISTS (
+            SELECT 1
+            FROM ClassCases cc
+            JOIN ClassStudents cs ON cs.ClassId = cc.ClassId
+            WHERE cc.UploadId = u.UploadId
+              AND cs.StudentId = $me
+        )
+  )
+LIMIT 1;
+";
         chk.Parameters.AddWithValue("$u", uploadId); chk.Parameters.AddWithValue("$me", me);
         var ok = await chk.ExecuteScalarAsync();
         if (ok is null)
@@ -1359,7 +1837,7 @@ app.MapGet("/ask/stream/{uploadId:guid}", async (Guid uploadId, string q, string
 
     if (!InMemoryStore.VectorIndex.TryGetValue(uploadId.ToString(), out var list) || list.Count == 0)
     {
-        if (!IndexPersistence.TryLoad(uploadId, env, out list))
+        if (!IndexPersistence.TryLoad(parsedUploadId, env, out list))
         {
             await ctx.Response.WriteAsync("event: error\ndata: {\"message\":\"Not indexed. POST /index first.\"}\n\n");
             await ctx.Response.WriteAsync("event: done\ndata: {}\n\n");
@@ -1374,7 +1852,7 @@ app.MapGet("/ask/stream/{uploadId:guid}", async (Guid uploadId, string q, string
         if (string.IsNullOrWhiteSpace(sessionId))
             return;
 
-        using var mconn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared");
+        using var mconn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
         mconn.Open();
         using var mcmd = mconn.CreateCommand();
         mcmd.CommandText = @"
@@ -1399,11 +1877,85 @@ app.MapGet("/ask/stream/{uploadId:guid}", async (Guid uploadId, string q, string
     }
 
 
+    string? GetStringOrNull(Microsoft.Data.Sqlite.SqliteDataReader reader, int ordinal)
+    {
+        return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
+    }
+
+    int[]? ParseNullableIntArray(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<int[]>(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
 
     try
     {
         // --- record USER message at the start of the main happy path ---
         SaveMessage("user", q, null, null);
+
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            using var cacheConn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+            await cacheConn.OpenAsync();
+
+            using var cacheCmd = cacheConn.CreateCommand();
+            cacheCmd.CommandText = @"
+SELECT m.Content,
+       m.Citations,
+       m.PagesUsed
+FROM Messages m
+JOIN Sessions s ON s.Id = m.SessionId
+WHERE s.UploadId = $u
+  AND s.UserId   = $user
+  AND m.Role     = 'assistant'
+  AND EXISTS (
+      SELECT 1 FROM Messages mu
+      WHERE mu.SessionId = m.SessionId
+        AND mu.Role      = 'user'
+        AND lower(trim(mu.Content)) = lower(trim($q))
+        AND mu.Id < m.Id
+  )
+ORDER BY m.Id DESC
+LIMIT 1;
+";
+            cacheCmd.Parameters.AddWithValue("$u", uploadId.ToString());
+            cacheCmd.Parameters.AddWithValue("$user", me);
+            cacheCmd.Parameters.AddWithValue("$q", q.Trim());
+
+            using var reader = await cacheCmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                var cachedAnswer = reader.GetString(0);
+                var cachedPages = ParseNullableIntArray(GetStringOrNull(reader, 2));
+
+                // Stream the cached answer as SSE:
+                // 1) one token event with the full text
+                await ctx.Response.WriteAsync(
+                    $"event: token\ndata: {System.Text.Json.JsonSerializer.Serialize(new { text = cachedAnswer })}\n\n"
+                );
+
+                // 2) citations event (pages used)
+                await ctx.Response.WriteAsync(
+                    $"event: citations\ndata: {System.Text.Json.JsonSerializer.Serialize(cachedPages)}\n\n"
+                );
+
+                // 3) persist this assistant message into history for this session too
+                SaveMessage("assistant", cachedAnswer, cachedPages, cachedPages);
+
+                // 4) done
+                await ctx.Response.WriteAsync("event: done\ndata: {}\n\n");
+                await ctx.Response.Body.FlushAsync();
+                return;
+            }
+        }
 
         // Normalize + shims
         var qNorm = QueryNormalization.Normalize(q ?? "");
@@ -1458,7 +2010,7 @@ app.MapGet("/ask/stream/{uploadId:guid}", async (Guid uploadId, string q, string
         // ==== FAST PATH: Title ====
         if (intent == SectionIntent.Title)
         {
-            var (metaTitle, _) = PdfMetadataHelper.Read(uploadId, env);
+            var (metaTitle, _) = PdfMetadataHelper.Read(parsedUploadId, env);
             if (!string.IsNullOrWhiteSpace(metaTitle) &&
                 !Regex.IsMatch(metaTitle, @"^\s*untitled\s*$", RegexOptions.IgnoreCase))
             {
@@ -1473,7 +2025,7 @@ app.MapGet("/ask/stream/{uploadId:guid}", async (Guid uploadId, string q, string
                 return;
             }
 
-            var guess = TitleHeuristics.FromPdfFirstPage(uploadId, env);
+            var guess = TitleHeuristics.FromPdfFirstPage(parsedUploadId, env);
             if (!string.IsNullOrWhiteSpace(guess))
             {
                 await ctx.Response.WriteAsync($"event: token\ndata: {System.Text.Json.JsonSerializer.Serialize(new { text = $"{guess} [p:1]" })}\n\n");
@@ -1493,7 +2045,7 @@ app.MapGet("/ask/stream/{uploadId:guid}", async (Guid uploadId, string q, string
         // ==== FAST PATH: Authors (front matter only) ====
         if (intent == SectionIntent.Authors)
         {
-            var (_, metaAuthor) = PdfMetadataHelper.Read(uploadId, env);
+            var (_, metaAuthor) = PdfMetadataHelper.Read(parsedUploadId, env);
             if (false && !string.IsNullOrWhiteSpace(metaAuthor) &&
                 !Regex.IsMatch(metaAuthor, @"^\s*(unknown|n/?a|none)\s*$", RegexOptions.IgnoreCase))
             {
@@ -1583,6 +2135,34 @@ Context:
         var qVec = embClient.GenerateEmbedding(qNorm).Value.ToFloats();
 
         var top = QaRetrieval.SelectTop(list, qVec.Span, qNorm, forStreaming: true);
+
+        // 🔹 Phase 3: boost method / findings pages into the context
+        var sectionHints = new List<TopChunk>();
+
+        // If question is about methods/data collection → pull method-like sections
+        if (questionType == QuestionType.Method)
+        {
+            sectionHints = SectionSwitchboard.FindMethodLikeSections(list);
+        }
+        // If question is about findings / conclusions / "why" → pull results/discussion
+        else if (questionType == QuestionType.Findings || questionType == QuestionType.WhyExplain)
+        {
+            sectionHints = SectionSwitchboard.FindFindingsLikeSections(list);
+        }
+
+        if (sectionHints.Count > 0)
+        {
+            var existingPages = new HashSet<int>(top.Select(t => t.Page));
+            foreach (var hint in sectionHints)
+            {
+                if (!existingPages.Contains(hint.Page))
+                {
+                    top.Add(hint);
+                    existingPages.Add(hint.Page);
+                }
+            }
+        }
+
 
         // Try section switchboard first (Abstract includes Conclusion = A+)
         string? context = null;
@@ -1805,7 +2385,7 @@ app.MapPost("/tutor/step", () =>
 app.MapGet("/uploads/mine", async (HttpContext ctx) =>
 {
     var me = (string?)ctx.Items["userId"] ?? "";
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared");
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
     using var cmd = conn.CreateCommand();
     cmd.CommandText = @"
@@ -1841,7 +2421,12 @@ app.MapGet("/sessions/mine", async (HttpContext ctx) =>
 {
     var me = (string?)ctx.Items["userId"] ?? "";
 
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared");
+// Resolve IWebHostEnvironment so we can find the uploads folder
+var env = ctx.RequestServices.GetRequiredService<IWebHostEnvironment>();
+var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
+
+
+using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
 
     using var cmd = conn.CreateCommand();
@@ -1913,6 +2498,36 @@ app.MapGet("/sessions/mine", async (HttpContext ctx) =>
         var sessionId = r.GetString(0);
         var uploadId = r.IsDBNull(1) ? null : r.GetString(1);
         var caseName = r.IsDBNull(2) ? "Untitled case" : r.GetString(2);
+
+        // 🔹 NEW: Try to override caseName using the summary JSON (same source as /cases)
+        if (!string.IsNullOrWhiteSpace(uploadId))
+        {
+            var summaryPath = Path.Combine(uploadsRoot, $"{uploadId}.summary.json");
+            if (File.Exists(summaryPath))
+            {
+                try
+                {
+                    using var fs = File.OpenRead(summaryPath);
+                    using var summaryDoc = JsonDocument.Parse(fs);
+                    var rootEl = summaryDoc.RootElement;
+
+                    if (rootEl.TryGetProperty("fileName", out var fn) &&
+                        fn.ValueKind == JsonValueKind.String)
+                    {
+                        var fromJson = fn.GetString();
+                        if (!string.IsNullOrWhiteSpace(fromJson))
+                        {
+                            caseName = fromJson!;
+                        }
+                    }
+                }
+                catch
+                {
+                    // If the summary JSON is broken, keep the DB caseName ("Untitled case" or whatever)
+                }
+            }
+        }
+
         var createdAt = r.IsDBNull(3) ? null : r.GetString(3);
         var lastActivityAt = r.IsDBNull(4) ? null : r.GetString(4);
         var durationSec = r.IsDBNull(5) ? 0 : r.GetInt32(5);
@@ -1932,6 +2547,7 @@ app.MapGet("/sessions/mine", async (HttpContext ctx) =>
             notesCount,
             lastMessagePreview
         });
+
     }
 
     return Results.Json(sessions);
@@ -1945,10 +2561,18 @@ app.MapPost("/sessions", async (HttpContext ctx) =>
 
     using var doc = await System.Text.Json.JsonDocument.ParseAsync(ctx.Request.Body);
     var root = doc.RootElement;
-    var uploadId = root.TryGetProperty("uploadId", out var u) ? u.GetString() : null;
+    string? uploadId = null;
+    if (root.TryGetProperty("uploadId", out var u) && u.ValueKind == JsonValueKind.String)
+    {
+        var raw = u.GetString();
+        uploadId = string.IsNullOrWhiteSpace(raw)
+            ? null
+            : raw.Trim().ToUpperInvariant();
+    }
+
 
     var sessionId = Guid.NewGuid().ToString("N");
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared");
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
     using var cmd = conn.CreateCommand();
     cmd.CommandText = @"INSERT INTO Sessions (Id, UserId, UploadId, CreatedAt)
@@ -1967,7 +2591,7 @@ app.MapGet("/sessions/{id}", async (string id, HttpContext ctx) =>
 {
     var me = (string?)ctx.Items["userId"] ?? "";
 
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared");
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
 
     // 1) Ensure this session belongs to the current user
@@ -2054,7 +2678,7 @@ app.MapGet("/sessions/{id}/notes", async (string id, HttpContext ctx) =>
 {
     var me = (string?)ctx.Items["userId"] ?? "";
 
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared");
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
 
     // 1) Check that this session belongs to the current user
@@ -2113,7 +2737,7 @@ app.MapPost("/sessions/{id}/notes", async (string id, SessionNoteCreateDto input
         return Results.BadRequest(new { error = "text_required" });
     }
 
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared");
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
 
     // 1) Check that this session belongs to the current user and get UploadId
@@ -2183,7 +2807,7 @@ app.MapPatch("/uploads/{uploadId:guid}/name", async (Guid uploadId, RenameUpload
         return Results.BadRequest(new { error = "name_required" });
     }
 
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared");
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
 
     using var cmd = conn.CreateCommand();
@@ -2217,7 +2841,7 @@ app.MapDelete("/uploads/{uploadId:guid}", async (Guid uploadId, HttpContext ctx,
     var me = (string?)ctx.Items["userId"] ?? "";
     var id = uploadId.ToString(); // string version used for files / notes
 
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared");
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
 
     // 1) Check ownership
@@ -2326,7 +2950,7 @@ app.MapDelete("/sessions/{sessionId}", async (string sessionId, HttpContext ctx)
         return Results.Unauthorized();
     }
 
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared");
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
 
     // Make sure this session belongs to the current user
@@ -2387,7 +3011,7 @@ app.MapGet("/admin/sessions", async (HttpContext ctx) =>
         return Results.Forbid();
     }
 
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared");
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
 
     var cmd = conn.CreateCommand();
@@ -2459,7 +3083,7 @@ app.MapGet("/admin/sessions/{sessionId}", async (string sessionId, HttpContext c
         return Results.Forbid();
     }
 
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=ingestion.db;Cache=Shared");
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
 
     // 1) Load session metadata + owner + upload info
@@ -2551,42 +3175,1162 @@ ORDER BY Id ASC;
 });
 
 
+app.MapGet("/debug/db-sanity", () =>
+{
+    var result = new List<object>();
+
+    // A) Connection using connString (startup DB)
+    try
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+        conn.Open();
+
+        string? path = null;
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "PRAGMA database_list;";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                // columns: seq, name, file
+                var name = reader.GetString(1);
+                if (name == "main")
+                {
+                    path = reader.GetString(2);
+                    break;
+                }
+            }
+        }
+
+        int uploads = -1;
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "SELECT COUNT(*) FROM Uploads;";
+            uploads = Convert.ToInt32(cmd.ExecuteScalar());
+        }
+
+        result.Add(new { kind = "connString", path, uploads });
+    }
+    catch (Exception ex)
+    {
+        result.Add(new { kind = "connString", error = ex.Message });
+    }
+
+    // B) Connection using literal "ingestion.db"
+    try
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+        conn.Open();
+
+        string? path = null;
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "PRAGMA database_list;";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var name = reader.GetString(1);
+                if (name == "main")
+                {
+                    path = reader.GetString(2);
+                    break;
+                }
+            }
+        }
+
+        int uploads = -1;
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "SELECT COUNT(*) FROM Uploads;";
+            uploads = Convert.ToInt32(cmd.ExecuteScalar());
+        }
+
+        result.Add(new { kind = "literal", path, uploads });
+    }
+    catch (Exception ex)
+    {
+        result.Add(new { kind = "literal", error = ex.Message });
+    }
+
+    return Results.Json(result);
+});
+
+
+app.MapPost("/classes", async (HttpContext ctx) =>
+{
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var me = ctx.Items["userId"] as string;
+    if (me == null) return Results.Unauthorized();
+
+    var body = await ctx.Request.ReadFromJsonAsync<ClassCreateDto>();
+    if (body == null || string.IsNullOrWhiteSpace(body.Name))
+    {
+        return Results.BadRequest(new { error = "Missing class name" });
+    }
+
+    var id = Guid.NewGuid().ToString();
+    var createdAt = DateTime.UtcNow.ToString("o");
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+        INSERT INTO Classes (Id, InstructorId, Name, Description, CreatedAt)
+        VALUES ($id, $instructor, $name, $description, $createdAt);
+    ";
+
+    cmd.Parameters.AddWithValue("$id", id);
+    cmd.Parameters.AddWithValue("$instructor", me);
+    cmd.Parameters.AddWithValue("$name", body.Name);
+    cmd.Parameters.AddWithValue("$description", body.Description ?? (object)DBNull.Value);
+    cmd.Parameters.AddWithValue("$createdAt", createdAt);
+
+    await cmd.ExecuteNonQueryAsync();
+
+    return Results.Ok(new
+    {
+        id,
+        name = body.Name,
+        description = body.Description,
+        instructorId = me,
+        createdAt
+    });
+});
+
+
+app.MapPost("/classes/{classId}/students", async (string classId, HttpContext ctx) =>
+{
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var me = ctx.Items["userId"] as string;
+    if (string.IsNullOrWhiteSpace(me))
+    {
+        return Results.Unauthorized();
+    }
+
+    var body = await ctx.Request.ReadFromJsonAsync<AddStudentToClassDto>();
+    if (body == null || string.IsNullOrWhiteSpace(body.StudentEmail))
+    {
+        return Results.BadRequest(new { error = "Missing studentEmail" });
+    }
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    // 1) Check that the class exists and belongs to this instructor
+    using (var checkClass = conn.CreateCommand())
+    {
+        checkClass.CommandText = @"
+            SELECT COUNT(*) 
+            FROM Classes 
+            WHERE Id = $classId AND InstructorId = $instructorId;
+        ";
+        checkClass.Parameters.AddWithValue("$classId", classId);
+        checkClass.Parameters.AddWithValue("$instructorId", me);
+
+        var count = (long)(await checkClass.ExecuteScalarAsync() ?? 0L);
+        if (count == 0)
+        {
+            return Results.NotFound(new { error = "Class not found or not owned by you" });
+        }
+    }
+
+    // 2) Find the student by email
+    string? studentId = null;
+    using (var findStudent = conn.CreateCommand())
+    {
+        findStudent.CommandText = @"
+            SELECT Id 
+            FROM Users 
+            WHERE Email = $email;
+        ";
+        findStudent.Parameters.AddWithValue("$email", body.StudentEmail);
+
+        var result = await findStudent.ExecuteScalarAsync();
+        if (result == null || result == DBNull.Value)
+        {
+            return Results.NotFound(new { error = "No user found with that email" });
+        }
+
+        studentId = (string)result;
+    }
+
+    // 3) Check if already in class
+    using (var checkExisting = conn.CreateCommand())
+    {
+        checkExisting.CommandText = @"
+            SELECT COUNT(*) 
+            FROM ClassStudents
+             WHERE ClassId = $classId AND StudentId = $studentId;
+
+         ";
+        checkExisting.Parameters.AddWithValue("$classId", classId);
+        checkExisting.Parameters.AddWithValue("$studentId", studentId!);
+
+        var exists = (long)(await checkExisting.ExecuteScalarAsync() ?? 0L);
+        if (exists > 0)
+        {
+            return Results.Ok(new
+            {
+                classId,
+                studentId,
+                alreadyInClass = true
+            });
+        }
+    }
+
+    // 4) Insert into ClassStudents
+    using (var insert = conn.CreateCommand())
+    {
+        insert.CommandText = @"
+            INSERT INTO ClassStudents (ClassId, StudentId, AddedAt)
+            VALUES ($classId, $studentId, $addedAt);
+        ";
+        insert.Parameters.AddWithValue("$classId", classId);
+        insert.Parameters.AddWithValue("$studentId", studentId!);
+        insert.Parameters.AddWithValue("$addedAt", DateTime.UtcNow.ToString("o"));
+
+        await insert.ExecuteNonQueryAsync();
+    }
+
+    return Results.Ok(new
+    {
+        classId,
+        studentId,
+        added = true
+    });
+});
+
+
+app.MapPost("/classes/{classId}/cases", async (string classId, HttpContext ctx) =>
+{
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var me = ctx.Items["userId"] as string;
+    if (string.IsNullOrWhiteSpace(me))
+    {
+        return Results.Unauthorized();
+    }
+
+    var body = await ctx.Request.ReadFromJsonAsync<AssignCaseToClassDto>();
+    if (body == null || string.IsNullOrWhiteSpace(body.UploadId))
+    {
+        return Results.BadRequest(new { error = "Missing uploadId" });
+    }
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    // 1) Check that the class exists and belongs to this instructor
+    using (var checkClass = conn.CreateCommand())
+    {
+        checkClass.CommandText = @"
+            SELECT COUNT(*) 
+            FROM Classes 
+            WHERE Id = $classId AND InstructorId = $instructorId;
+        ";
+        checkClass.Parameters.AddWithValue("$classId", classId);
+        checkClass.Parameters.AddWithValue("$instructorId", me);
+
+        var count = (long)(await checkClass.ExecuteScalarAsync() ?? 0L);
+        if (count == 0)
+        {
+            return Results.NotFound(new { error = "Class not found or not owned by you" });
+        }
+    }
+
+    // 2) Check that the upload exists and belongs to this instructor
+    var uploadId = body.UploadId.Trim().ToUpperInvariant();
+
+    using (var checkUpload = conn.CreateCommand())
+    {
+        checkUpload.CommandText = @"
+            SELECT COUNT(*)
+            FROM Uploads
+            WHERE UploadId = $uploadId AND UserId = $ownerId;
+
+        ";
+        checkUpload.Parameters.AddWithValue("$uploadId", uploadId!);
+        checkUpload.Parameters.AddWithValue("$ownerId", me);
+
+        var count = (long)(await checkUpload.ExecuteScalarAsync() ?? 0L);
+        if (count == 0)
+        {
+            return Results.NotFound(new { error = "Upload not found or not owned by you" });
+        }
+    }
+
+    // 3) Check if this case is already assigned to the class
+    using (var checkExisting = conn.CreateCommand())
+    {
+        checkExisting.CommandText = @"
+            SELECT COUNT(*)
+            FROM ClassCases
+            WHERE ClassId = $classId AND UploadId = $uploadId;
+        ";
+        checkExisting.Parameters.AddWithValue("$classId", classId);
+        checkExisting.Parameters.AddWithValue("$uploadId", uploadId!);
+
+        var exists = (long)(await checkExisting.ExecuteScalarAsync() ?? 0L);
+        if (exists > 0)
+        {
+            return Results.Ok(new
+            {
+                classId,
+                uploadId,
+                alreadyAssigned = true
+            });
+        }
+    }
+
+    // 4) Insert into ClassCases
+    using (var insert = conn.CreateCommand())
+    {
+        insert.CommandText = @"
+            INSERT INTO ClassCases (ClassId, UploadId, AssignedAt)
+            VALUES ($classId, $uploadId, $assignedAt);
+        ";
+        insert.Parameters.AddWithValue("$classId", classId);
+        insert.Parameters.AddWithValue("$uploadId", uploadId!);
+        insert.Parameters.AddWithValue("$assignedAt", DateTime.UtcNow.ToString("o"));
+
+        await insert.ExecuteNonQueryAsync();
+    }
+
+    return Results.Ok(new
+    {
+        classId,
+        uploadId,
+        assigned = true
+    });
+});
+
+
+app.MapGet("/classes/{classId}/details", async (string classId, HttpContext ctx) =>
+{
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var me = ctx.Items["userId"] as string;
+    if (string.IsNullOrWhiteSpace(me))
+        return Results.Unauthorized();
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    // 1) Load class info and verify ownership
+    string? className = null;
+    using (var cmd = conn.CreateCommand())
+    {
+        cmd.CommandText = @"
+            SELECT Name
+            FROM Classes
+            WHERE Id = $classId AND InstructorId = $instructorId;
+        ";
+        cmd.Parameters.AddWithValue("$classId", classId);
+        cmd.Parameters.AddWithValue("$instructorId", me);
+
+        var result = await cmd.ExecuteScalarAsync();
+        className = result as string;
+        if (className is null)
+        {
+            return Results.NotFound(new { error = "Class not found or not owned by you" });
+        }
+    }
+
+    // 2) Get students in the class
+    var students = new List<object>();
+    using (var stuCmd = conn.CreateCommand())
+    {
+        stuCmd.CommandText = @"
+            SELECT Users.Id, Users.Email, Users.FullName
+            FROM ClassStudents
+            JOIN Users ON Users.Id = ClassStudents.StudentId
+            WHERE ClassStudents.ClassId = $classId;
+        ";
+        stuCmd.Parameters.AddWithValue("$classId", classId);
+
+        using var r = await stuCmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+        {
+            students.Add(new
+            {
+                id = r.GetString(0),
+                email = r.GetString(1),
+                fullName = r.GetString(2)
+            });
+        }
+    }
+
+    // 3) Get assigned cases for the class
+    var cases = new List<object>();
+    using (var caseCmd = conn.CreateCommand())
+    {
+        caseCmd.CommandText = @"
+            SELECT Uploads.UploadId, Uploads.OriginalFileName
+            FROM ClassCases
+            JOIN Uploads ON Uploads.UploadId = ClassCases.UploadId
+            WHERE ClassCases.ClassId = $classId;
+        ";
+        caseCmd.Parameters.AddWithValue("$classId", classId);
+
+        using var r = await caseCmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+        {
+            cases.Add(new
+            {
+                uploadId = r.GetString(0),
+                fileName = r.GetString(1)
+            });
+        }
+    }
+
+    return Results.Ok(new
+    {
+        classId,
+        name = className,
+        students,
+        cases
+    });
+});
+
+
+app.MapGet("/classes/{classId}/history", async (string classId, HttpContext ctx) =>
+{
+    // 0) Only instructors can call this
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var me = ctx.Items["userId"] as string;
+    if (string.IsNullOrWhiteSpace(me))
+        return Results.Unauthorized();
+
+    // Optional filters from query string
+    var query = ctx.Request.Query;
+    var studentId = query.ContainsKey("studentId") ? query["studentId"].ToString() : null;
+    var uploadId = query.ContainsKey("uploadId") ? query["uploadId"].ToString() : null;
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    // 1) Check that the class exists and belongs to this instructor
+    using (var checkClass = conn.CreateCommand())
+    {
+        checkClass.CommandText = @"
+            SELECT COUNT(*)
+            FROM Classes
+            WHERE Id = $classId AND InstructorId = $instructorId;
+        ";
+        checkClass.Parameters.AddWithValue("$classId", classId);
+        checkClass.Parameters.AddWithValue("$instructorId", me);
+
+        var count = (long)(await checkClass.ExecuteScalarAsync() ?? 0L);
+        if (count == 0)
+        {
+            return Results.NotFound(new { error = "Class not found or not owned by you" });
+        }
+    }
+
+    // 2) Build query for class-scoped session summaries
+    var cmd = conn.CreateCommand();
+    var sql = @"
+SELECT
+    s.Id                           AS SessionId,
+    s.UserId                       AS UserId,
+    IFNULL(u.FullName, '')         AS UserFullName,
+    IFNULL(u.Email, '')            AS UserEmail,
+    s.UploadId                     AS UploadId,
+    IFNULL(up.OriginalFileName, '') AS OriginalFileName,
+    s.CreatedAt                    AS SessionCreatedAt,
+    (
+        SELECT COUNT(1)
+        FROM Messages m
+        WHERE m.SessionId = s.Id
+    ) AS MessageCount,
+    (
+        SELECT Content
+        FROM Messages m
+        WHERE m.SessionId = s.Id
+          AND m.Role = 'user'
+        ORDER BY m.CreatedAt ASC
+        LIMIT 1
+    ) AS FirstUserQuestion
+FROM Sessions s
+JOIN ClassStudents cs
+    ON cs.StudentId = s.UserId
+   AND cs.ClassId = $classId
+JOIN ClassCases cc
+    ON cc.ClassId = cs.ClassId
+    AND UPPER(cc.UploadId) = UPPER(s.UploadId)
+
+LEFT JOIN Users   u  ON u.Id        = s.UserId
+LEFT JOIN Uploads up ON up.UploadId = s.UploadId
+WHERE 1 = 1
+";
+
+    cmd.Parameters.AddWithValue("$classId", classId);
+
+    if (!string.IsNullOrWhiteSpace(studentId))
+    {
+        sql += " AND s.UserId = $studentId";
+        cmd.Parameters.AddWithValue("$studentId", studentId);
+    }
+
+    if (!string.IsNullOrWhiteSpace(uploadId))
+    {
+        sql += " AND s.UploadId = $uploadId";
+        cmd.Parameters.AddWithValue("$uploadId", uploadId);
+    }
+
+    sql += " ORDER BY s.CreatedAt DESC;";
+    cmd.CommandText = sql;
+
+    var list = new List<object>();
+    using (var reader = await cmd.ExecuteReaderAsync())
+    {
+        while (await reader.ReadAsync())
+        {
+            list.Add(new
+            {
+                sessionId = reader.GetString(0),
+                studentId = reader.GetString(1),
+                studentName = reader.GetString(2),
+                studentEmail = reader.GetString(3),
+                uploadId = reader.IsDBNull(4) ? null : reader.GetString(4),
+                caseFileName = reader.IsDBNull(5) ? null : reader.GetString(5),
+                startedAt = reader.GetString(6),
+                messageCount = reader.IsDBNull(7) ? 0 : reader.GetInt32(7),
+                firstUserQuestion = reader.IsDBNull(8) ? null : reader.GetString(8),
+            });
+        }
+    }
+
+    return Results.Ok(list);
+});
+
+
+app.MapGet("/sessions/{sessionId}/messages", async (string sessionId, HttpContext ctx) =>
+{
+    // Only instructors may view session logs
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var instructorId = ctx.Items["userId"] as string;
+    if (string.IsNullOrWhiteSpace(instructorId))
+        return Results.Unauthorized();
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    //
+    // 1) Load session metadata
+    //
+    var sessionCmd = conn.CreateCommand();
+    sessionCmd.CommandText = @"
+        SELECT s.UserId, s.UploadId, s.CreatedAt,
+               u.FullName, u.Email, up.OriginalFileName
+        FROM Sessions s
+        LEFT JOIN Users u ON u.Id = s.UserId
+        LEFT JOIN Uploads up ON up.UploadId = s.UploadId
+        WHERE s.Id = $sessionId;
+    ";
+    sessionCmd.Parameters.AddWithValue("$sessionId", sessionId);
+
+    string? studentId = null;
+    string? uploadId = null;
+    string? createdAt = null;
+    string studentName = "";
+    string studentEmail = "";
+    string caseFileName = "";
+
+    using (var r = await sessionCmd.ExecuteReaderAsync())
+    {
+        if (!await r.ReadAsync())
+            return Results.NotFound(new { error = "Session not found" });
+
+        studentId = r.GetString(0);
+        uploadId = r.IsDBNull(1) ? null : r.GetString(1);
+        createdAt = r.GetString(2);
+        studentName = r.IsDBNull(3) ? "" : r.GetString(3);
+        studentEmail = r.IsDBNull(4) ? "" : r.GetString(4);
+        caseFileName = r.IsDBNull(5) ? "" : r.GetString(5);
+    }
+
+    //
+    // 2) Ensure this session belongs to a class owned by the instructor
+    //
+    var checkCmd = conn.CreateCommand();
+    checkCmd.CommandText = @"
+        SELECT COUNT(*)
+        FROM ClassStudents cs
+        JOIN ClassCases cc ON cc.ClassId = cs.ClassId
+        JOIN Classes c ON c.Id = cs.ClassId
+        WHERE cs.StudentId = $studentId
+          AND cc.UploadId = $uploadId
+          AND c.InstructorId = $instructorId;
+    ";
+    checkCmd.Parameters.AddWithValue("$studentId", studentId);
+    checkCmd.Parameters.AddWithValue("$uploadId", uploadId ?? "");
+    checkCmd.Parameters.AddWithValue("$instructorId", instructorId);
+
+    var count = (long)(await checkCmd.ExecuteScalarAsync() ?? 0L);
+    if (count == 0)
+    {
+        return Results.Forbid();
+    }
+
+    //
+    // 3) Load messages
+    //
+    var msgCmd = conn.CreateCommand();
+    msgCmd.CommandText = @"
+        SELECT Role, Content, CreatedAt
+        FROM Messages
+        WHERE SessionId = $sessionId
+        ORDER BY CreatedAt ASC;
+    ";
+    msgCmd.Parameters.AddWithValue("$sessionId", sessionId);
+
+    var messages = new List<object>();
+    using (var r = await msgCmd.ExecuteReaderAsync())
+    {
+        while (await r.ReadAsync())
+        {
+            messages.Add(new
+            {
+                role = r.GetString(0),
+                content = r.GetString(1),
+                timestamp = r.GetString(2)
+            });
+        }
+    }
+
+    // Final response:
+    return Results.Ok(new
+    {
+        sessionId,
+        studentId,
+        studentName,
+        studentEmail,
+        uploadId,
+        caseFileName,
+        createdAt,
+        messages
+    });
+});
+
+app.MapPost("/sessions/start", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+
+    string uploadId = "";
+    string? classId = null;
+
+    try
+    {
+        var obj = JsonDocument.Parse(body).RootElement;
+
+        if (obj.TryGetProperty("uploadId", out var u))
+            uploadId = u.GetString() ?? "";
+
+        if (obj.TryGetProperty("classId", out var c))
+            classId = string.IsNullOrWhiteSpace(c.GetString()) ? null : c.GetString();
+    }
+    catch { }
+
+    if (string.IsNullOrWhiteSpace(uploadId))
+        return Results.BadRequest(new { error = "uploadId required" });
+
+    var userId = ctx.Items["userId"] as string;
+    if (string.IsNullOrWhiteSpace(userId))
+        return Results.Unauthorized();
+
+    var newSessionId = Guid.NewGuid().ToString("N");
+
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+INSERT INTO Sessions (Id, UserId, UploadId, ClassId, CreatedAt)
+VALUES ($id, $user, $upload, $classId, $ts);
+";
+
+    cmd.Parameters.AddWithValue("$id", newSessionId);
+    cmd.Parameters.AddWithValue("$user", userId);
+    cmd.Parameters.AddWithValue("$upload", uploadId);
+    cmd.Parameters.AddWithValue("$classId", (object?)classId ?? DBNull.Value);
+    cmd.Parameters.AddWithValue("$ts", DateTime.UtcNow.ToString("o"));
+
+    await cmd.ExecuteNonQueryAsync();
+
+    return Results.Ok(new { sessionId = newSessionId });
+});
+
+
+app.MapGet("/classes/{classId}/students", async (string classId, HttpContext ctx) =>
+{
+    // Only instructors can view the students in a class
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var me = ctx.Items["userId"] as string;
+    if (string.IsNullOrWhiteSpace(me))
+        return Results.Unauthorized();
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    // 1) Verify class belongs to this instructor
+    using (var checkClass = conn.CreateCommand())
+    {
+        checkClass.CommandText = @"
+            SELECT COUNT(*)
+            FROM Classes
+            WHERE Id = $classId AND InstructorId = $instructorId;
+        ";
+        checkClass.Parameters.AddWithValue("$classId", classId);
+        checkClass.Parameters.AddWithValue("$instructorId", me);
+
+        var count = (long)(await checkClass.ExecuteScalarAsync() ?? 0L);
+        if (count == 0)
+        {
+            return Results.NotFound(new { error = "Class not found or not owned by you" });
+        }
+    }
+
+    // 2) Get all students in the class
+    var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+        SELECT 
+            cs.StudentId,
+            cs.AddedAt,
+            u.FullName,
+            u.Email
+        FROM ClassStudents cs
+        JOIN Users u ON u.Id = cs.StudentId
+        WHERE cs.ClassId = $classId
+        ORDER BY u.FullName COLLATE NOCASE ASC;
+    ";
+    cmd.Parameters.AddWithValue("$classId", classId);
+
+    var list = new List<object>();
+
+    using (var reader = await cmd.ExecuteReaderAsync())
+    {
+        while (await reader.ReadAsync())
+        {
+            var studentId = reader.GetString(0);
+            var addedAt = reader.IsDBNull(1) ? null : reader.GetString(1);
+            var fullName = reader.IsDBNull(2) ? "" : reader.GetString(2);
+            var email = reader.IsDBNull(3) ? "" : reader.GetString(3);
+
+            list.Add(new
+            {
+                studentId,
+                fullName,
+                email,
+                addedAt
+            });
+        }
+    }
+
+    return Results.Ok(list);
+});
+
+app.MapGet("/classes/{classId}/cases", async (string classId, HttpContext ctx) =>
+{
+    // Ensure only instructors can view class cases
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var me = ctx.Items["userId"] as string;
+    if (string.IsNullOrWhiteSpace(me))
+        return Results.Unauthorized();
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    // 1) Confirm the class belongs to this instructor
+    using (var checkClass = conn.CreateCommand())
+    {
+        checkClass.CommandText = @"
+            SELECT COUNT(*)
+            FROM Classes
+            WHERE Id = $classId AND InstructorId = $instructorId;
+        ";
+        checkClass.Parameters.AddWithValue("$classId", classId);
+        checkClass.Parameters.AddWithValue("$instructorId", me);
+
+        var exists = (long)(await checkClass.ExecuteScalarAsync() ?? 0L);
+        if (exists == 0)
+        {
+            return Results.NotFound(new { error = "Class not found or not owned by you" });
+        }
+    }
+
+    // 2) Fetch assigned cases
+    var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+        SELECT 
+            cc.UploadId,
+            cc.AssignedAt,
+            u.OriginalFileName,
+            u.Name
+        FROM ClassCases cc
+        JOIN Uploads u
+            ON u.UploadId = cc.UploadId
+        WHERE cc.ClassId = $classId
+        ORDER BY cc.AssignedAt DESC;
+    ";
+    cmd.Parameters.AddWithValue("$classId", classId);
+
+    var list = new List<object>();
+
+    using (var reader = await cmd.ExecuteReaderAsync())
+    {
+        while (await reader.ReadAsync())
+        {
+            var uploadId = reader.GetString(0);
+            var assignedAt = reader.GetString(1);
+            var originalName = reader.IsDBNull(2) ? null : reader.GetString(2);
+            var shortName = reader.IsDBNull(3) ? null : reader.GetString(3);
+
+            list.Add(new
+            {
+                uploadId,
+                fileName = string.IsNullOrWhiteSpace(shortName) ? originalName : shortName,
+                assignedAt
+            });
+        }
+    }
+
+    return Results.Ok(list);
+});
+
+// INSTRUCTOR: view full message history of a student's session
+app.MapGet("/classes/{classId}/sessions/{sessionId}", async (string classId, string sessionId, HttpContext ctx) =>
+{
+    // 1) Only instructors can call this
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var instructorId = ctx.Items["userId"] as string;
+    if (string.IsNullOrWhiteSpace(instructorId))
+        return Results.Unauthorized();
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    // 2) Verify class belongs to instructor
+    using (var checkCmd = conn.CreateCommand())
+    {
+        checkCmd.CommandText = @"
+            SELECT COUNT(*)
+            FROM Classes
+            WHERE Id = $classId AND InstructorId = $instructorId;
+        ";
+        checkCmd.Parameters.AddWithValue("$classId", classId);
+        checkCmd.Parameters.AddWithValue("$instructorId", instructorId);
+
+        var exists = (long)(await checkCmd.ExecuteScalarAsync() ?? 0L);
+        if (exists == 0)
+            return Results.NotFound(new { error = "Class not found or not owned by you" });
+    }
+
+    // 3) Load session, but ONLY if its user is enrolled in this class AND the case is assigned to this class
+    string? userId = null;
+    string? uploadId = null;
+    string? createdAt = null;
+
+    using (var sessionCmd = conn.CreateCommand())
+    {
+        sessionCmd.CommandText = @"
+SELECT s.UserId, s.UploadId, s.CreatedAt
+FROM Sessions s
+JOIN ClassStudents cs
+  ON cs.StudentId = s.UserId AND cs.ClassId = $classId
+JOIN ClassCases cc
+  ON cc.ClassId = cs.ClassId AND cc.UploadId = s.UploadId
+WHERE s.Id = $sessionId;
+";
+        sessionCmd.Parameters.AddWithValue("$classId", classId);
+        sessionCmd.Parameters.AddWithValue("$sessionId", sessionId);
+
+        using var r = await sessionCmd.ExecuteReaderAsync();
+        if (!await r.ReadAsync())
+            return Results.NotFound(new { error = "Session not found for this class" });
+
+        userId = r.GetString(0);
+        uploadId = r.IsDBNull(1) ? null : r.GetString(1);
+        createdAt = r.GetString(2);
+    }
+
+    // 4) Load student info
+    string studentName = "";
+    string studentEmail = "";
+
+    using (var stuCmd = conn.CreateCommand())
+    {
+        stuCmd.CommandText = @"
+SELECT FullName, Email
+FROM Users
+WHERE Id = $uid;
+";
+        stuCmd.Parameters.AddWithValue("$uid", userId);
+
+        using var r = await stuCmd.ExecuteReaderAsync();
+        if (await r.ReadAsync())
+        {
+            studentName = r.IsDBNull(0) ? "" : r.GetString(0);
+            studentEmail = r.IsDBNull(1) ? "" : r.GetString(1);
+        }
+    }
+
+    // 5) Load upload/case filename
+    string fileName = "";
+    if (!string.IsNullOrWhiteSpace(uploadId))
+    {
+        using var fileCmd = conn.CreateCommand();
+        fileCmd.CommandText = @"
+SELECT OriginalFileName
+FROM Uploads
+WHERE UploadId = $up;
+";
+        fileCmd.Parameters.AddWithValue("$up", uploadId);
+
+        using var r = await fileCmd.ExecuteReaderAsync();
+        if (await r.ReadAsync())
+        {
+            fileName = r.IsDBNull(0) ? "" : r.GetString(0);
+        }
+    }
+
+    // 6) Load ALL messages
+    var messages = new List<object>();
+    using (var msgCmd = conn.CreateCommand())
+    {
+        msgCmd.CommandText = @"
+SELECT Role, Content, CreatedAt
+FROM Messages
+WHERE SessionId = $sid
+ORDER BY CreatedAt ASC;
+";
+        msgCmd.Parameters.AddWithValue("$sid", sessionId);
+
+        using var r = await msgCmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+        {
+            messages.Add(new
+            {
+                role = r.GetString(0),
+                content = r.GetString(1),
+                createdAt = r.GetString(2)
+            });
+        }
+    }
+
+    // 7) Final response
+    return Results.Ok(new
+    {
+        sessionId,
+        student = new
+        {
+            id = userId,
+            fullName = studentName,
+            email = studentEmail
+        },
+        caseInfo = new
+        {
+            uploadId,
+            fileName
+        },
+        startedAt = createdAt,
+        messages
+    });
+});
+
+
+app.MapGet("/debug/uploads", async (HttpContext ctx) =>
+{
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    using var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+        SELECT UploadId, UserId, Name, CreatedAt
+        FROM Uploads;
+    ";
+
+    var list = new List<object>();
+
+    using (var reader = await cmd.ExecuteReaderAsync())
+    {
+        while (await reader.ReadAsync())
+        {
+            list.Add(new
+            {
+                uploadId = reader.IsDBNull(0) ? null : reader.GetString(0),
+                userId = reader.IsDBNull(1) ? null : reader.GetString(1),
+                name = reader.IsDBNull(2) ? null : reader.GetString(2),
+                createdAt = reader.IsDBNull(3) ? null : reader.GetString(3)
+            });
+        }
+    }
+
+    return Results.Ok(list);
+});
+
+// ======================
+// TEMP DEBUG ENDPOINT
+// ======================
+app.MapGet("/debug/sessions", async () =>
+{
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    var cmd = conn.CreateCommand();
+    cmd.CommandText = "SELECT Id, UserId, UploadId, ClassId, CreatedAt FROM Sessions";
+
+    var list = new List<object>();
+    using (var reader = await cmd.ExecuteReaderAsync())
+    {
+        while (await reader.ReadAsync())
+        {
+            list.Add(new
+            {
+                sessionId = reader.GetString(0),
+                userId = reader.GetString(1),
+                uploadId = reader.IsDBNull(2) ? null : reader.GetString(2),
+                classId = reader.IsDBNull(3) ? null : reader.GetString(3),
+                createdAt = reader.GetString(4)
+            });
+        }
+    }
+
+    return Results.Ok(list);
+});
+
+
+app.MapPost("/classes/{classId}/students", async (
+    string classId,
+    AddStudentRequest req,
+    HttpContext ctx
+) =>
+{
+    // Must be instructor (superuser)
+    var instructorId = (string?)ctx.Items["userId"];
+    var isSuper = (bool?)ctx.Items["isSuperUser"] ?? false;
+
+    if (!isSuper)
+        return Results.Unauthorized();
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    // 1 — Validate class exists AND belongs to instructor
+    var checkCmd = conn.CreateCommand();
+    checkCmd.CommandText = @"
+        SELECT 1 FROM Classes
+        WHERE Id = $cid AND InstructorId = $iid
+        LIMIT 1";
+    checkCmd.Parameters.AddWithValue("$cid", classId);
+    checkCmd.Parameters.AddWithValue("$iid", instructorId);
+
+    var exists = await checkCmd.ExecuteScalarAsync();
+    if (exists is null)
+        return Results.NotFound(new { error = "Class not found or not yours." });
+
+    // 2 — Look up the student by email
+    var findCmd = conn.CreateCommand();
+    findCmd.CommandText = "SELECT Id FROM Users WHERE Email = $email LIMIT 1";
+    findCmd.Parameters.AddWithValue("$email", req.Email);
+
+    var studentIdObj = await findCmd.ExecuteScalarAsync();
+    if (studentIdObj is null)
+        return Results.NotFound(new { error = "No user with that email." });
+
+    var studentId = (string)studentIdObj;
+
+    // 3 — Insert into ClassStudents (ignore duplicate)
+    var insertCmd = conn.CreateCommand();
+    insertCmd.CommandText = @"
+        INSERT OR IGNORE INTO ClassStudents (ClassId, StudentId, AddedAt)
+        VALUES ($cid, $sid, $ts)";
+    insertCmd.Parameters.AddWithValue("$cid", classId);
+    insertCmd.Parameters.AddWithValue("$sid", studentId);
+    insertCmd.Parameters.AddWithValue("$ts", DateTime.UtcNow.ToString("o"));
+
+    await insertCmd.ExecuteNonQueryAsync();
+
+    return Results.Ok(new { added = true, classId, studentId });
+});
+
+
+
+
 
 
 app.Run();
 
 
-// Classify a user's question into a high-level QuestionType using gpt-5-mini
 static async Task<QuestionType> ClassifyQuestionAsync(string question)
 {
     // Very short or empty → treat as Other
     if (string.IsNullOrWhiteSpace(question))
         return QuestionType.Other;
 
-    // Later we can add some fast rule shortcuts here for obvious things (title/authors)
+    // IMPROVED: Do simple pattern matching FIRST before calling the model
+    var q = question.ToLowerInvariant();
+    
+    // Strong methodology signals
+    if (Regex.IsMatch(q, @"\b(method(s|ology)?|approach(es)?|procedure|technique|experimental (setup|design|approach)|how (did|were).*?(conduct|perform|collect|measure|analyze))\b"))
+        return QuestionType.Method;
+    
+    // Strong findings signals
+    if (Regex.IsMatch(q, @"\b(finding(s)?|result(s)?|outcome(s)?|what (did|were).*?(find|discover|observe|show|demonstrate))\b"))
+        return QuestionType.Findings;
+    
+    // Strong summary signals
+    if (Regex.IsMatch(q, @"\b(summary|summarize|overview|about|main (point|idea)|key (point|takeaway)|abstract)\b"))
+        return QuestionType.Summary;
+    
+    // Strong fact signals
+    if (Regex.IsMatch(q, @"\b(who|when|where|which|what (is|are|was|were))\b"))
+        return QuestionType.Fact;
+    
+    // Strong explanation signals
+    if (Regex.IsMatch(q, @"\b(why|how|explain|rationale|reason)\b"))
+        return QuestionType.WhyExplain;
 
+    // If patterns didn't match, fall back to model classification
     var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
         ?? throw new InvalidOperationException("OPENAI_API_KEY not set.");
 
-    // Small / cheap model just for classification
     var classifierModel = Environment.GetEnvironmentVariable("OPENAI_CLASSIFIER_MODEL")
-        ?? "gpt-5-mini";
+        ?? "gpt-4o-mini"; // Use a better model
 
-    // Notice: same pattern as your other ChatClient usages
     var client = new OpenAI.Chat.ChatClient(classifierModel, apiKey);
 
     var messages = new List<OpenAI.Chat.ChatMessage>
     {
         new OpenAI.Chat.SystemChatMessage(
-            "You classify user questions about a single document. " +
-            "Return exactly ONE of these labels, and nothing else: " +
-            "SUMMARY, FACT, METHOD, FINDINGS, WHY_EXPLAIN, OTHER."
+            "Classify this question about a research document. " +
+            "Return ONLY ONE word: SUMMARY, FACT, METHOD, FINDINGS, WHY_EXPLAIN, or OTHER. " +
+            "Nothing else."
         ),
         new OpenAI.Chat.UserChatMessage($"Question: {question}")
     };
 
-    // Use the same style as AnswerWithContext: CompleteChat(messages).Value;
-    var result = client.CompleteChat(messages).Value;
+    var options = new ChatCompletionOptions { Temperature = 0f };
+    var result = client.CompleteChat(messages, options).Value;
+
     var raw = string.Concat(result.Content.Select(part => part.Text ?? string.Empty));
     var label = raw.Trim().ToUpperInvariant();
 
@@ -2600,6 +4344,7 @@ static async Task<QuestionType> ClassifyQuestionAsync(string question)
         _ => QuestionType.Other
     };
 }
+
 
 
 static int WordToInt(string w) => (w ?? "").ToLowerInvariant() switch
@@ -2653,6 +4398,17 @@ class RenameUploadDto
 {
     public string Name { get; set; } = "";
 }
+
+
+public record ClassCreateDto(string Name, string? Description);
+public record AddStudentToClassDto(string StudentEmail);
+
+public record AssignCaseToClassDto(string UploadId);
+
+
+public record AddStudentRequest(string Email);
+
+
 
 
 
@@ -2728,32 +4484,6 @@ static class PdfImageUtils
 }
 
 
-public static class TextChunking
-{
-    public static IEnumerable<string> ChunkBySize(string text, int maxChars = 1000, int overlap = 160)
-    {
-        if (string.IsNullOrEmpty(text)) yield break;
-        if (maxChars <= 0) yield break;
-        if (overlap < 0) overlap = 0;
-        int i = 0;
-        while (i < text.Length)
-        {
-            int end = Math.Min(text.Length, i + maxChars);
-            int softEnd = end;
-            for (int j = end - 1; j > i + maxChars / 2; j--)
-            {
-                char c = text[j];
-                if (c == '.' || c == '!' || c == '?' || char.IsWhiteSpace(c)) { softEnd = j + 1; break; }
-            }
-            end = softEnd;
-            var slice = text.AsSpan(i, end - i).ToString().Trim();
-            if (!string.IsNullOrWhiteSpace(slice)) yield return slice;
-            if (end >= text.Length) yield break;
-            i = Math.Max(end - overlap, i + 1);
-        }
-    }
-}
-
 
 
 public static class IndexPersistence
@@ -2787,35 +4517,30 @@ public record TopChunk(int Page, string Preview, float Score);
 
 public static class QaRetrieval
 {
-    // --- Query understanding ---
+    // Improved query understanding with more patterns
     public static bool IsListy(string q)
     {
         var s = q ?? string.Empty;
 
         // Common list verbs & phrasings
-        if (Regex.IsMatch(s, @"\b(list|all|which|enumerate|show|show me|give|give me|name|return|extract|identify|find all|find every|every|provide|report|catalog|compile|what\s+are|what\s+were)\b", RegexOptions.IgnoreCase))
+        if (Regex.IsMatch(s, @"\b(list|all|which|enumerate|show|show me|give|give me|name|return|extract|identify|find all|find every|every|provide|report|catalog|compile|what\s+are|what\s+were|how many|count)\b", RegexOptions.IgnoreCase))
             return true;
 
-        // Numeric / date cues (often imply multiple items)
-        if (Regex.IsMatch(s, @"[%+]", RegexOptions.IgnoreCase)) return true;                                     // %, +
-        if (Regex.IsMatch(s, @"\b(20\d{2}|19\d{2})\b", RegexOptions.IgnoreCase)) return true;                    // years
+        // Numeric cues
+        if (Regex.IsMatch(s, @"[%+]", RegexOptions.IgnoreCase)) return true;
+        if (Regex.IsMatch(s, @"\b(20\d{2}|19\d{2})\b", RegexOptions.IgnoreCase)) return true;
         if (Regex.IsMatch(s, @"\b(date|dates|range|ranges|deadline|deadlines)\b", RegexOptions.IgnoreCase)) return true;
-        if (Regex.IsMatch(s, @"\b(january|february|march|april|may|june|july|august|september|october|november|december)\b", RegexOptions.IgnoreCase))
-            return true;
-
-        // Category words that commonly yield lists
-        if (Regex.IsMatch(s, @"\b(languages?|frameworks?|libraries|databases?|tools?|certifications?|people|persons|authors?|organizations?|countries|requirements?|risks?|achievements?|metrics?|publications?|references?)\b", RegexOptions.IgnoreCase))
-            return true;
-
-        // Tech umbrella terms imply lists (wider recall)
-        if (Regex.IsMatch(s, @"\b(technologies?|tech\s*stack|technology\s*stack|stack|skills|technical\s+skills)\b", RegexOptions.IgnoreCase))
-            return true;
-
-
 
         return false;
     }
 
+    // Safe cosine similarity
+    public static float SafeCosine(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
+    {
+        if (a.Length != b.Length || a.Length == 0 || b.Length == 0)
+            return 0f;
+        return System.Numerics.Tensors.TensorPrimitives.CosineSimilarity(a, b);
+    }
 
     // Tokenize to alnum lowercase
     private static string[] Tokens(string s)
@@ -2826,101 +4551,167 @@ public static class QaRetrieval
                     .ToArray();
     }
 
-    // Lightweight lexical score (no external engine)
+    // Small, hand-tuned synonym expansion for academic-style questions
+    private static HashSet<string> ExpandQueryTerms(HashSet<string> original)
+    {
+        // Start with the original tokens
+        var expanded = new HashSet<string>(original);
+
+        void AddGroup(string[] keys, string[] synonyms)
+        {
+            if (!keys.Any(k => original.Contains(k))) return;
+            foreach (var s in synonyms)
+                expanded.Add(s);
+        }
+
+        // limitations / weaknesses / drawbacks
+        AddGroup(
+            new[] { "limitations", "limitation" },
+            new[] { "weakness", "weaknesses", "drawback", "drawbacks", "constraint", "constraints", "challenge", "challenges" }
+        );
+
+        // findings / results / effects
+        AddGroup(
+            new[] { "findings", "finding", "results", "result" },
+            new[] { "outcome", "outcomes", "impact", "impacts", "effect", "effects" }
+        );
+
+        // methodology / methods / approach
+        AddGroup(
+            new[] { "methodology", "methods", "method" },
+            new[] { "approach", "design", "experimental" }
+        );
+
+        // future work / improvements
+        AddGroup(
+            new[] { "future", "improvements", "improvement", "recommendations", "recommendation" },
+            new[] { "extension", "extensions", "further", "ongoing" }
+        );
+
+        // external validity / generalization
+        AddGroup(
+            new[] { "external", "validity", "generalization", "generalizability" },
+            new[] { "replication", "replications", "scaling", "scaleup", "scalability" }
+        );
+
+        return expanded;
+    }
+
+
+    // IMPROVED: More generous lexical scoring
     private static float LexicalScore(string preview, HashSet<string> qset)
     {
         if (string.IsNullOrEmpty(preview) || qset.Count == 0) return 0f;
         var p = preview.ToLowerInvariant();
 
         float s = 0f;
-        foreach (var t in qset) if (p.Contains(t)) s += 1f;
+        int matchCount = 0;
 
-        if (p.Contains("@")) s += 0.5f;          // emails
-        if (Regex.IsMatch(p, @"\b\d{4}\b")) s += 0.25f; // years/dates
+        foreach (var t in qset)
+        {
+            if (p.Contains(t))
+            {
+                matchCount++;
+                // Weight matches by term frequency
+                int occurrences = Regex.Matches(p, Regex.Escape(t), RegexOptions.IgnoreCase).Count;
+                s += 1f + (occurrences - 1) * 0.3f; // bonus for multiple occurrences
+            }
+        }
+
+        // Bonus for high match ratio
+        float matchRatio = (float)matchCount / qset.Count;
+        if (matchRatio > 0.5f) s += 2f;
+        if (matchRatio > 0.75f) s += 2f;
+
+        // Context bonuses
+        if (p.Contains("@")) s += 0.5f;
+        if (Regex.IsMatch(p, @"\b\d{4}\b")) s += 0.25f;
+
         return s;
     }
 
-    // Tiny presence boost (kept small)
+    // IMPROVED: More generous boost
     private static float Boost(string preview, HashSet<string> qset)
     {
         var p = preview?.ToLowerInvariant() ?? "";
         float b = 0f;
+        int matches = 0;
+
         foreach (var t in qset)
         {
-            if (p.Contains(t)) { b += 0.03f; if (b >= 0.09f) break; }
+            if (p.Contains(t))
+            {
+                matches++;
+                b += 0.05f; // increased from 0.03f
+            }
         }
-        if (p.Contains("@")) b += 0.02f;
-        return Math.Min(b, 0.10f);
+
+        if (p.Contains("@")) b += 0.03f;
+
+        // Extra boost for multiple term matches
+        if (matches >= 3) b += 0.05f;
+
+        return Math.Min(b, 0.20f); // increased cap from 0.10f
     }
 
-    // Fallback: keyword scan to grab a broader block (generic, not resume-specific)
+    // IMPROVED: More generous keyword fallback
     public static List<TopChunk> KeywordFallback(List<IndexedChunk> list, string q, int k = 8)
     {
-        var qset = new HashSet<string>(Tokens(q));
+        var qset = ExpandQueryTerms(new HashSet<string>(Tokens(q)));
         if (qset.Count == 0) return new List<TopChunk>();
 
+        // LOWERED threshold - accept any match
         return list
             .Select(x => new { x.Page, x.Preview, lex = LexicalScore(x.Preview, qset) })
-            .Where(r => r.lex > 0)
+            .Where(r => r.lex > 0) // accept ANY match
             .OrderByDescending(r => r.lex)
-            .Take(k)
-            .Select(r => new TopChunk(r.Page, r.Preview, 0.16f))
+            .Take(k * 2) // get more candidates
+            .Select(r => new TopChunk(r.Page, r.Preview, Math.Min(0.25f, r.lex / 10f))) // score based on lexical
             .ToList();
     }
 
-
-    // Main selection with hybrid score + MMR + list-mode + optional page dedupe
+    // IMPROVED: Main selection with better defaults
     public static List<TopChunk> SelectTop(
-     List<IndexedChunk> list,
-     ReadOnlySpan<float> qVec,
-     string q,
-     bool forStreaming)
+        List<IndexedChunk> list,
+        ReadOnlySpan<float> qVec,
+        string q,
+        bool forStreaming)
     {
         bool listy = IsListy(q);
+        var qset = ExpandQueryTerms(new HashSet<string>(Tokens(q)));
 
-        // More coverage for lists; conservative for non-lists
-        int K = listy ? 12 : (forStreaming ? 3 : 3);
+        // IMPROVED: More generous K values
+        int K = listy ? 25 : (forStreaming ? 15 : 12); // increased from 20/10/10
 
-        var qset = new HashSet<string>(Tokens(q));
-        const float alpha = 0.85f; // embedding weight
-        const float beta = 0.15f; // lexical weight
+        // ADJUSTED: Less aggressive weighting to favor embeddings
+        const float alpha = 0.70f; // embedding weight (reduced from 0.85)
+        const float beta = 0.30f;  // lexical weight (increased from 0.15)
 
-        // Avoid ref-like span use in lambdas
         float[] qVecArr = qVec.ToArray();
 
-        // 1) score candidates (oversample before MMR)
+        // 1) Score ALL candidates first
         var cands = list.Select(x =>
         {
-            var cos = System.Numerics.Tensors.TensorPrimitives.CosineSimilarity(qVecArr, x.Vec.Span);
+            var cos = SafeCosine(qVecArr, x.Vec.Span);
             var lex = LexicalScore(x.Preview, qset);
             var boo = Boost(x.Preview, qset);
             var fin = alpha * cos + beta * lex + boo;
             return new Cand(x.Page, x.Preview, x.Vec, cos, lex, boo, fin);
         })
         .OrderByDescending(c => c.Final)
-        .Take(Math.Max(K * 4, 12))
+        .Take(Math.Max(K * 6, 20)) // increased oversample from K*4
         .ToList();
 
-        // 2) MMR for diversity
-        var picked = MMR(cands, K, lambda: 0.7f);
+        // 2) ADJUSTED MMR - less diversity for better recall
+        var picked = MMR(cands, K, lambda: 0.85f); // increased from 0.7f to favor relevance
 
-        // 3) Dedupe-by-page ONLY for non-list queries.
-        if (!listy)
-        {
-            picked = picked
-                .GroupBy(c => c.Page)
-                .Select(g => g.First())
-                .ToList();
-        }
-
-        // 4) return lightweight tops
         return picked.Select(c => new TopChunk(c.Page, c.Preview, c.Final)).ToList();
     }
 
-
-    // ----- internals -----
+    // Internal record
     private record Cand(int Page, string Preview, ReadOnlyMemory<float> Vec, float Cos, float Lex, float Boost, float Final);
 
+    // IMPROVED MMR with better diversity balance
     private static List<Cand> MMR(List<Cand> cands, int K, float lambda)
     {
         var chosen = new List<Cand>();
@@ -2933,18 +4724,32 @@ public static class QaRetrieval
 
             foreach (var c in remaining)
             {
-                float div = 0f;
+                float maxSim = 0f;
                 foreach (var s in chosen)
                 {
-                    var sim = System.Numerics.Tensors.TensorPrimitives.CosineSimilarity(c.Vec.Span, s.Vec.Span);
-                    if (sim > div) div = sim;
+                    var sim = SafeCosine(c.Vec.Span, s.Vec.Span);
+                    if (sim > maxSim) maxSim = sim;
                 }
-                float score = lambda * c.Final - (1 - lambda) * div;
-                if (score > bestScore) { bestScore = score; best = c; }
+
+                // MMR score: balance relevance vs diversity
+                float score = lambda * c.Final - (1 - lambda) * maxSim;
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = c;
+                }
             }
 
-            chosen.Add(best);
-            remaining.Remove(best);
+            if (best != null)
+            {
+                chosen.Add(best);
+                remaining.Remove(best);
+            }
+            else
+            {
+                break; // safety
+            }
         }
 
         return chosen;
@@ -2952,20 +4757,16 @@ public static class QaRetrieval
 }
 
 
-// ---- Context stitching: include immediate neighbor chunks on the same page ----
 public static class ContextStitching
 {
-    // Adds up to `sideNeighbors` neighbors on each side per picked chunk (same page),
-    // up to `maxTotalNeighbors` total across all picks. Keeps order by doc position.
     public static List<TopChunk> ExpandWithNeighbors(
         List<IndexedChunk> all,
         List<TopChunk> picks,
-        int sideNeighbors = 1,
-        int maxTotalNeighbors = 6)
+        int sideNeighbors = 2,        // increased from 1
+        int maxTotalNeighbors = 10)   // increased from 6
     {
         if (picks == null || picks.Count == 0) return picks ?? new List<TopChunk>();
 
-        // Build a (page, preview) -> index map to recover original order
         var order = new Dictionary<(int page, string preview), int>();
         for (int i = 0; i < all.Count; i++)
         {
@@ -2984,25 +4785,28 @@ public static class ContextStitching
 
             for (int offset = 1; offset <= sideNeighbors; offset++)
             {
-                // previous neighbor on same page
-                if (added < maxTotalNeighbors && idx - offset >= 0 && all[idx - offset].Page == p.Page)
+                if (added >= maxTotalNeighbors) break;
+
+                // Previous neighbor on same page
+                if (idx - offset >= 0 && all[idx - offset].Page == p.Page)
                 {
                     var prev = all[idx - offset];
                     var k = $"{prev.Page}\u0001{prev.Preview}";
                     if (seen.Add(k))
                     {
-                        result.Add(new TopChunk(prev.Page, prev.Preview, p.Score * 0.99f));
+                        result.Add(new TopChunk(prev.Page, prev.Preview, p.Score * 0.95f));
                         added++;
                     }
                 }
-                // next neighbor on same page
+
+                // Next neighbor on same page
                 if (added < maxTotalNeighbors && idx + offset < all.Count && all[idx + offset].Page == p.Page)
                 {
                     var next = all[idx + offset];
                     var k = $"{next.Page}\u0001{next.Preview}";
                     if (seen.Add(k))
                     {
-                        result.Add(new TopChunk(next.Page, next.Preview, p.Score * 0.99f));
+                        result.Add(new TopChunk(next.Page, next.Preview, p.Score * 0.95f));
                         added++;
                     }
                 }
@@ -3011,7 +4815,6 @@ public static class ContextStitching
             if (added >= maxTotalNeighbors) break;
         }
 
-        // Preserve document order
         result = result
             .OrderBy(t => order.TryGetValue((t.Page, t.Preview), out var i) ? i : int.MaxValue)
             .ToList();
@@ -3019,8 +4822,6 @@ public static class ContextStitching
         return result;
     }
 }
-
-
 // ----- Category detector: adds a small, query-aware precision hint -----
 public record CategoryHint(string Name, string PromptHint);
 
@@ -3128,14 +4929,57 @@ public static class SectionSwitchboard
     public static SectionIntent Detect(string q)
     {
         var s = q?.ToLowerInvariant() ?? "";
-        if (Regex.IsMatch(s, @"\b(document title|title)\b")) return SectionIntent.Title;
-        if (Regex.IsMatch(s, @"\babstract\b")) return SectionIntent.Abstract;
-        if (Regex.IsMatch(s, @"\bauthors?\b")) return SectionIntent.Authors;
-        if (Regex.IsMatch(s, @"\baffiliations?\b")) return SectionIntent.Affiliations;
+        if (Regex.IsMatch(s,
+        @"\b(what\s+is\s+the\s+(document|paper|thesis)\s+title\b|" +
+        @"give\s+me\s+the\s+(document|paper|thesis)\s+title\b|" +
+        @"title\s+of\s+this\s+(paper|document|thesis)\b)"))
+        {
+            return SectionIntent.Title;
+        }
+        if (Regex.IsMatch(s,
+                @"\b(what\s+is\s+the\s+abstract\b|" +
+                @"give\s+me\s+the\s+abstract\b|" +
+                @"abstract\s+of\s+this\s+(paper|document|thesis)\b|" +
+                @"show\s+the\s+abstract\b)"))
+        {
+            return SectionIntent.Abstract;
+        }
+        // Only treat as an "authors" question if it's explicitly about listing / naming them
+        if (Regex.IsMatch(s,
+                @"\b(who\s+(are|is)\s+the\s+authors?\b|" +
+                @"list\s+the\s+authors?\b|" +
+                @"author\s+names?\b|" +
+                @"authors?\s+of\s+this\s+(paper|document))",
+                RegexOptions.IgnoreCase))
+        {
+            return SectionIntent.Authors;
+        }
+
+        if (Regex.IsMatch(s,
+                @"\b(what\s+are\s+the\s+affiliations?\b|" +
+                @"list\s+the\s+affiliations?\b|" +
+                @"affiliations?\s+of\s+the\s+authors?\b|" +
+                @"which\s+institutions?\s+are\s+the\s+authors?\s+from\b)"))
+        {
+            return SectionIntent.Affiliations;
+        }
         if (Regex.IsMatch(s, @"\b(introduction|background)\b")) return SectionIntent.Introduction;
         if (Regex.IsMatch(s, @"\b(conclusion|conclusions)\b")) return SectionIntent.Conclusion;
-        if (Regex.IsMatch(s, @"\b(references|bibliography|works\s+cited)\b")) return SectionIntent.References;
-        if (Regex.IsMatch(s, @"\bkeywords?\b")) return SectionIntent.Keywords;
+        if (Regex.IsMatch(s,
+               @"\b((list|show|give)\s+the\s+(references|bibliography|works\s+cited)\b|" +
+               @"what\s+are\s+the\s+(references|bibliography|works\s+cited)\b|" +
+               @"(references|bibliography|works\s+cited)\s+of\s+this\s+(paper|document|thesis)\b)"))
+        {
+            return SectionIntent.References;
+        }
+        if (Regex.IsMatch(s,
+               @"\b(what\s+are\s+the\s+keywords?\b|" +
+               @"list\s+the\s+keywords?\b|" +
+               @"keywords?\s+of\s+this\s+(paper|document|thesis)\b)"))
+        {
+            return SectionIntent.Keywords;
+        }
+
         return SectionIntent.None;
     }
 
@@ -3162,8 +5006,45 @@ public static class SectionSwitchboard
                        .Select(x => new TopChunk(x.Page, x.Preview, 0.5f))
                        .ToList();
         return hits;
+
+
+    }
+
+    // Heuristic finders for methods / results-like sections
+    public static List<TopChunk> FindMethodLikeSections(List<IndexedChunk> list)
+    {
+        // Look for headings like "Methods", "Materials and Methods", "Methodology"
+        var pattern = @"\b(methods?|materials and methods|methodology)\b";
+
+        var hits = list
+            .Where(x => Regex.IsMatch(x.Preview ?? "", pattern, RegexOptions.IgnoreCase))
+            .GroupBy(x => x.Page)
+            .Select(g => g.First())
+            .OrderBy(x => x.Page)
+            .Select(x => new TopChunk(x.Page, x.Preview, 0.6f))
+            .ToList();
+
+        return hits;
+    }
+
+    public static List<TopChunk> FindFindingsLikeSections(List<IndexedChunk> list)
+    {
+        // Look for sections like "Results", "Findings", "Discussion"
+        var pattern = @"\b(results?|findings?|results and discussion|discussion)\b";
+
+        var hits = list
+            .Where(x => Regex.IsMatch(x.Preview ?? "", pattern, RegexOptions.IgnoreCase))
+            .GroupBy(x => x.Page)
+            .Select(g => g.First())
+            .OrderBy(x => x.Page)
+            .Select(x => new TopChunk(x.Page, x.Preview, 0.6f))
+            .ToList();
+
+        return hits;
     }
 }
+
+
 
 // ---------- Text normalization (applied at index time) ----------
 public static class TextNormalization
@@ -3296,6 +5177,25 @@ public static class TitleHeuristics
 
         // --- end post-process ---
 
+        // 4b) If the candidate still looks more like a paragraph/abstract than a title, discard it
+        if (!string.IsNullOrWhiteSpace(pick))
+        {
+            // Drop pure "ABSTRACT" lines
+            if (Regex.IsMatch(pick, @"^\s*abstract\s*:?\s*$", RegexOptions.IgnoreCase))
+                return null;
+
+            // Rough word-count limit: most real titles are not 30+ words
+            var words = pick.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length > 30)
+                return null;
+
+            // Rough multi-sentence check – abstracts usually have several sentences
+            var sentenceEndCount = Regex.Matches(pick, "[\\.\\?!]").Count;
+            if (sentenceEndCount > 2)
+                return null;
+        }
+
+        return pick;
 
 
         return pick;
@@ -3865,23 +5765,164 @@ internal static class StepResponder
 }
 
 
-
-
-
-
-static class TutorHelpers
+public static class TextChunking
 {
-    public static string FocusDisplay(string? f) => f switch
+    // ... your existing ChunkBySize method stays here ...
+
+    /// <summary>
+    /// Improved chunking that respects sentence boundaries better than ChunkBySize
+    /// Use this instead of ChunkBySize for better results
+    /// </summary>
+    public static IEnumerable<string> ChunkBySentences(string text, int maxChars = 1000, int overlap = 160)
     {
-        "findings" => "Findings",
-        "methodology" => "Methodology",
-        "theory" => "Theory",
-        "discussion" => "Discussion",
-        "limitations" => "Limitations",
-        "conclusion" => "Conclusion",
-        _ => "Section"
-    };
+        if (string.IsNullOrEmpty(text)) yield break;
+        if (maxChars <= 0) yield break;
+        if (overlap < 0) overlap = 0;
+
+        // First, split into sentences properly
+        var sentences = SplitIntoSentences(text);
+        if (!sentences.Any()) yield break;
+
+        var currentChunk = new System.Text.StringBuilder();
+        var overlapText = "";
+
+        foreach (var sentence in sentences)
+        {
+            // If adding this sentence would exceed max chars, yield current chunk
+            if (currentChunk.Length > 0 && currentChunk.Length + sentence.Length + 1 > maxChars)
+            {
+                var chunkText = currentChunk.ToString().Trim();
+                if (!string.IsNullOrWhiteSpace(chunkText))
+                {
+                    yield return chunkText;
+
+                    // Calculate overlap - take last N characters but try to start at a sentence
+                    if (overlap > 0 && chunkText.Length > overlap / 2)
+                    {
+                        // Find a sentence boundary in the last part of the chunk for overlap
+                        int overlapStart = Math.Max(0, chunkText.Length - overlap);
+
+                        // Try to find a sentence start (capital letter after period)
+                        for (int i = overlapStart; i < chunkText.Length - 1; i++)
+                        {
+                            if (chunkText[i] == '.' && i + 2 < chunkText.Length && char.IsUpper(chunkText[i + 2]))
+                            {
+                                overlapStart = i + 2;
+                                break;
+                            }
+                        }
+
+                        overlapText = chunkText.Substring(overlapStart);
+                    }
+                }
+
+                // Start new chunk with overlap
+                currentChunk.Clear();
+                if (!string.IsNullOrWhiteSpace(overlapText))
+                {
+                    currentChunk.Append(overlapText);
+                    currentChunk.Append(" ");
+                }
+            }
+
+            // Add sentence to current chunk
+            if (currentChunk.Length > 0) currentChunk.Append(" ");
+            currentChunk.Append(sentence);
+        }
+
+        // Yield any remaining text
+        var finalChunk = currentChunk.ToString().Trim();
+        if (!string.IsNullOrWhiteSpace(finalChunk) && finalChunk.Length > 50) // Avoid tiny chunks
+        {
+            yield return finalChunk;
+        }
+    }
+
+    /// <summary>
+    /// Helper method to split text into sentences intelligently
+    /// </summary>
+    private static List<string> SplitIntoSentences(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return new List<string>();
+
+        var sentences = new List<string>();
+        var currentSentence = new System.Text.StringBuilder();
+
+        // Common abbreviations that don't end sentences
+        var abbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Dr", "Mr", "Mrs", "Ms", "Prof", "Ph.D", "M.D", "et al",
+            "i.e", "e.g", "etc", "vs", "Fig", "Vol", "pp", "No"
+        };
+
+        int i = 0;
+        while (i < text.Length)
+        {
+            char c = text[i];
+            currentSentence.Append(c);
+
+            // Check for sentence endings
+            if (c == '.' || c == '!' || c == '?')
+            {
+                // Look ahead to see if this is really the end of a sentence
+                bool isEnd = true;
+
+                // Check if it's an abbreviation
+                if (c == '.')
+                {
+                    // Get the word before the period
+                    var beforePeriod = currentSentence.ToString().TrimEnd('.');
+                    var lastWord = beforePeriod.Split(' ', '\n', '\t').LastOrDefault()?.Trim();
+
+                    if (!string.IsNullOrEmpty(lastWord) && abbreviations.Contains(lastWord))
+                    {
+                        isEnd = false;
+                    }
+
+                    // Check for numbers (like 3.14)
+                    if (i > 0 && i + 1 < text.Length && char.IsDigit(text[i - 1]) && char.IsDigit(text[i + 1]))
+                    {
+                        isEnd = false;
+                    }
+
+                    // Check if next character is lowercase (continuation)
+                    if (i + 2 < text.Length && char.IsLower(text[i + 2]))
+                    {
+                        isEnd = false;
+                    }
+                }
+
+                // If this is the end of a sentence and we have a space or newline next
+                if (isEnd && i + 1 < text.Length && char.IsWhiteSpace(text[i + 1]))
+                {
+                    sentences.Add(currentSentence.ToString().Trim());
+                    currentSentence.Clear();
+
+                    // Skip whitespace
+                    i++;
+                    while (i < text.Length && char.IsWhiteSpace(text[i])) i++;
+                    continue;
+                }
+            }
+
+            i++;
+        }
+
+        // Add any remaining text as the last sentence
+        if (currentSentence.Length > 0)
+        {
+            sentences.Add(currentSentence.ToString().Trim());
+        }
+
+        return sentences;
+    }
 }
+
+
+
+
+
+
 
 
 
