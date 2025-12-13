@@ -18,7 +18,7 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter basename={routerBase}>
       {/* Register navigate so non-React modules can perform SPA navigation */}
-      <_NavigatorSetter />
+      <NavigatorSetter />
       <AuthProvider>
         <App />
       </AuthProvider>
@@ -26,7 +26,7 @@ createRoot(document.getElementById('root')).render(
   </StrictMode>
 )
 
-function _NavigatorSetter() {
+function NavigatorSetter() {
   // This component registers the router navigate function for use by api/Auth modules.
   const navigate = useNavigate()
   React.useEffect(() => {

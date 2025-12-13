@@ -12,7 +12,7 @@ export default function AdminSessionDetail() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    if (!auth?.loggedIn || !auth?.user?.isSuperUser) return
+    if (!auth?.loggedIn || auth?.user?.role !== 'instructor') return
     let cancelled = false
     ;(async () => {
       setLoading(true)
@@ -40,9 +40,9 @@ export default function AdminSessionDetail() {
     return () => {
       cancelled = true
     }
-  }, [sessionId, auth?.loggedIn, auth?.user?.isSuperUser])
+  }, [sessionId, auth?.loggedIn, auth?.user?.role])
 
-  if (!auth?.loggedIn || !auth?.user?.isSuperUser) {
+  if (!auth?.loggedIn || auth?.user?.role !== 'instructor') {
     return (
       <div className="p-8">
         <h2 className="text-2xl font-bold">Access denied — supervisor only</h2>

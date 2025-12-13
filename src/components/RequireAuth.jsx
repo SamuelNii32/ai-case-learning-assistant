@@ -39,9 +39,9 @@ export default function RequireAuth({ children, requireInstructor = false }) {
     )
   }
 
-  // Role-based guard (optional) - use isSuperUser for instructor flag
+  // Role-based guard (optional) - require instructor role for some pages
   if (requireInstructor && auth?.user) {
-    if (!auth.user.isSuperUser) {
+    if (auth.user.role !== 'instructor') {
       // student tried to access instructor-only page
       navigate('/dashboard', { replace: true })
       return null

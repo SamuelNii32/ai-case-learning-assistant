@@ -1,24 +1,30 @@
 import { useContext, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Outlet } from 'react-router-dom'
 import { AuthContext } from '@/contexts/AuthContext'
+import InstructorNav from '@/components/instructor/InstructorNav'
 
 export default function InstructorDashboard() {
   const auth = useContext(AuthContext)
   const navigate = useNavigate()
 
   useEffect(() => {
-    // If user is a supervisor / superuser, send them to the supervisor admin view
-    if (auth?.user?.isSuperUser) {
-      navigate('/admin/sessions', { replace: true })
-      return
-    }
-
     // If not logged in, send to sign in
     if (!auth?.loggedIn) {
       navigate('/login', { replace: true })
     }
-    // Otherwise, keep here — placeholder for instructor-specific UI
-  }, [auth?.user?.isSuperUser, auth?.loggedIn])
+  }, [auth?.loggedIn, navigate])
 
-  return null
+  // Redirect instructors to classes as the default landing
+  useEffect(() => {
+    if (auth?.user?.role === 'instructor' && window.location.pathname === '/instructor-dashboard') {
+      navigate('/admin/classes', { replace: true })
+    }
+  }, [auth?.user?.role, navigate])
+
+  return (
+    <div className="min-h-screen bg-background">
+      <InstructorNav />
+      <Outlet />
+    </div>
+  )
 }

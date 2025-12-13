@@ -9,6 +9,8 @@ export default function CompleteSummary({
   uploadDate,
   onStartAnalysis,
   onUploadAnother,
+  isInstructor = false,
+  onAssignToClass,
 }) {
   return (
     <div className="space-y-6">
@@ -30,7 +32,9 @@ export default function CompleteSummary({
             <FileText className="w-5 h-5 text-[#125691] mt-0.5" />
             <div className="flex-1">
               <p className="font-medium text-slate-900">{fileName}</p>
-              <p className="text-sm text-slate-600">Ready for analysis</p>
+              <p className="text-sm text-slate-600">
+                {isInstructor ? 'Ready to assign to a class' : 'Ready for analysis'}
+              </p>
             </div>
           </div>
 
@@ -55,20 +59,43 @@ export default function CompleteSummary({
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3">
-        <button
-          className="flex-1 rounded-xl bg-[#125691] px-5 py-3 text-white"
-          onClick={onStartAnalysis}
-        >
-          Start Analysis
-        </button>
-        <button
-          className="flex-1 rounded-xl border border-slate-200 bg-white px-5 py-3"
-          onClick={onUploadAnother}
-        >
-          Upload Another
-        </button>
-      </div>
+      {isInstructor ? (
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button
+            className="flex-1 rounded-xl bg-[#125691] px-5 py-3 text-white"
+            onClick={onAssignToClass}
+          >
+            Assign to Class
+          </button>
+          <button
+            className="flex-1 rounded-xl border border-slate-200 bg-white px-5 py-3"
+            onClick={onStartAnalysis}
+          >
+            Open for Analysis
+          </button>
+          <button
+            className="flex-1 rounded-xl border border-slate-200 bg-white px-5 py-3"
+            onClick={onUploadAnother}
+          >
+            Upload Another
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button
+            className="flex-1 rounded-xl bg-[#125691] px-5 py-3 text-white"
+            onClick={onStartAnalysis}
+          >
+            Start Analysis
+          </button>
+          <button
+            className="flex-1 rounded-xl border border-slate-200 bg-white px-5 py-3"
+            onClick={onUploadAnother}
+          >
+            Upload Another
+          </button>
+        </div>
+      )}
     </div>
   )
 }

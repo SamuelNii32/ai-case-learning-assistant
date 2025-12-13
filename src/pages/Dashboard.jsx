@@ -15,10 +15,10 @@ export default function Dashboard() {
 
   // If a superuser visits the regular dashboard, send them to the admin view
   useEffect(() => {
-    if (auth?.user?.isSuperUser) {
+    if (auth?.user?.role === 'instructor') {
       navigate('/admin/sessions', { replace: true })
     }
-  }, [auth?.user?.isSuperUser, navigate])
+  }, [auth?.user?.role, navigate])
 
   // API ping removed
   const [cases, setCases] = useState([])

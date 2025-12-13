@@ -50,29 +50,28 @@ function AuthProvider({ children }) {
   useEffect(() => {
     setAuthTokenGetter(() => token)
 
-    const navigate = null
-    try {
-      // useNavigate can't be used here directly; register auth failure to logout and then redirect
-    } catch {
-      /* ignore */
-    }
-
     setOnAuthFailure(info => {
-      console.warn('[auth] token invalid or expired; logging out', info)
-      // Backend has rejected this token: clear it immediately
-      logout()
-      try {
-        // SPA navigation via helper (falls back to full reload if not registered)
-        const nav = require('@/lib/navigate').navigateTo
-        if (typeof nav === 'function') nav('/login', { replace: true })
-        else window.location.assign('/login')
-      } catch {
-        try {
-          window.location.assign('/login')
-        } catch {
-          /* ignore */
-        }
+      // Always log for visibility
+      console.warn('[auth] auth failure', info)
+
+      // Only force logout on 401 from the auth-critical endpoint
+      if (info?.status === 401 && info?.endpoint === '/me') {
+        logout()
+        ;(async () => {
+          try {
+            const { navigateTo } = await import('@/lib/navigate')
+            if (typeof navigateTo === 'function') navigateTo('/login', { replace: true })
+            else window.location.assign('/login')
+          } catch {
+            try {
+              window.location.assign('/login')
+            } catch {
+              /* ignore */
+            }
+          }
+        })()
       }
+      // For other 401s, do not logout; let UI handle the error normally
     })
   }, [token, logout])
 
@@ -206,7 +205,10 @@ function AuthProvider({ children }) {
           userId: js.userId || js.id || null,
           email: js.email || null,
           fullName: js.fullName || null,
-          isSuperUser: !!js.isSuperUser,
+          // Prefer an explicit role string from the server. Fall back to
+          // legacy boolean `isSuperUser` when present so older backends
+          // remain compatible during a rollout.
+          role: js.role || (js.isSuperUser ? 'instructor' : 'student'),
         }
 
         setUser(normalizedUser)

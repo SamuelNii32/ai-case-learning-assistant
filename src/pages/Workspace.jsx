@@ -1,4 +1,4 @@
-import { Link, useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom'
+import { Link, useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import React, { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -53,7 +53,6 @@ function appendSmart(prev = '', next = '') {
 export default function Workspace() {
   const { uploadId } = useParams()
   const navigate = useNavigate()
-  const location = useLocation()
 
   const [searchParams] = useSearchParams()
   const caseType = searchParams.get('type') || 'personal'

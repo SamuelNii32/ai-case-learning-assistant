@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { StickyNote, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { listSessionNotes, addSessionNote } from '@/lib/api'
+import { listSessionNotes, addSessionNote, updateSessionNote, deleteSessionNote } from '@/lib/api'
 
 /**
  * Props:
@@ -31,6 +31,8 @@ export default function WorkspaceNotesPanel({
   const [notes, setNotes] = useState([])
   const [notesLoading, setNotesLoading] = useState(false)
   const [notesError, setNotesError] = useState(null)
+  const [editingId, setEditingId] = useState(null)
+  const [editText, setEditText] = useState('')
 
   // Load notes from backend when the panel opens and we have a real session
   useEffect(() => {
@@ -197,6 +199,28 @@ export default function WorkspaceNotesPanel({
     }
   }
 
+  async function saveEdit(noteId) {
+    const newText = (editText || '').trim()
+    if (!newText) {
+      toast.error('Note cannot be empty')
+      return
+    }
+    if (!hasSession) {
+      toast.error('Start a Q&A session before editing notes.')
+      return
+    }
+    try {
+      await updateSessionNote(currentSessionId, noteId, newText)
+      setNotes(prev => prev.map(n => (n.id === noteId ? { ...n, text: newText } : n)))
+      setEditingId(null)
+      setEditText('')
+      toast.success('Note updated')
+    } catch (err) {
+      console.error('[Notes] update failed', err)
+      toast.error('Failed to update note')
+    }
+  }
+
   // Named handler to avoid inline arrow in JSX
   function handleTextChange(e) {
     setText(e.target.value)
@@ -283,8 +307,67 @@ export default function WorkspaceNotesPanel({
           ) : (
             notes.map(n => (
               <Card key={n.id} className="p-4 bg-white">
-                <div className="text-xs text-muted-foreground mb-2">{n.createdAt}</div>
-                <pre className="whitespace-pre-wrap text-sm text-foreground">{n.text}</pre>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-xs text-muted-foreground mb-2">{n.createdAt}</div>
+                  <div className="flex items-center gap-2">
+                    {editingId === n.id ? (
+                      <>
+                        <Button size="sm" variant="secondary" onClick={() => saveEdit(n.id)}>
+                          Save
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setEditingId(null)
+                            setEditText('')
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setEditingId(n.id)
+                            setEditText(n.text || '')
+                          }}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={async () => {
+                            if (!window.confirm('Delete this note?')) return
+                            try {
+                              await deleteSessionNote(currentSessionId, n.id)
+                              setNotes(prev => prev.filter(x => x.id !== n.id))
+                              toast.success('Note deleted')
+                            } catch (err) {
+                              console.error('[Notes] delete failed', err)
+                              toast.error('Failed to delete note')
+                            }
+                          }}
+                        >
+                          Delete
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {editingId === n.id ? (
+                  <Textarea
+                    value={editText}
+                    onChange={e => setEditText(e.target.value)}
+                    className="mt-2 min-h-[100px]"
+                  />
+                ) : (
+                  <pre className="whitespace-pre-wrap text-sm text-foreground">{n.text}</pre>
+                )}
               </Card>
             ))
           )}

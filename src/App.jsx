@@ -17,6 +17,9 @@ const Upload = lazy(() => import('./pages/Upload'))
 const InstructorDashboard = lazy(() => import('./pages/InstructorDashboard'))
 const AdminSessions = lazy(() => import('./pages/admin/Sessions'))
 const AdminSessionDetail = lazy(() => import('./pages/admin/SessionDetail'))
+const AdminClasses = lazy(() => import('./pages/admin/Classes'))
+const AdminClassDetail = lazy(() => import('./pages/admin/ClassDetail'))
+const StudentClasses = lazy(() => import('./pages/StudentClasses'))
 import { Toaster } from 'react-hot-toast'
 import RequireAuth from './components/RequireAuth'
 
@@ -27,6 +30,7 @@ function App() {
   const hideChrome = [
     '/upload',
     '/dashboard',
+    '/classes',
     '/settings',
     '/session-history',
     '/workspace',
@@ -152,29 +156,25 @@ function App() {
               }
             />
             <Route
-              path="/instructor-dashboard"
+              path="/classes"
+              element={
+                <RequireAuth>
+                  <StudentClasses />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/admin/*"
               element={
                 <RequireAuth requireInstructor>
                   <InstructorDashboard />
                 </RequireAuth>
               }
-            />
-            <Route
-              path="/admin/sessions"
-              element={
-                <RequireAuth requireInstructor>
-                  <AdminSessions />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/admin/sessions/:sessionId"
-              element={
-                <RequireAuth requireInstructor>
-                  <AdminSessionDetail />
-                </RequireAuth>
-              }
-            />
+            >
+              <Route path="classes" element={<AdminClasses />} />
+              <Route path="classes/:classId" element={<AdminClassDetail />} />
+              <Route path="upload" element={<Upload />} />
+            </Route>
             <Route
               path="/settings"
               element={

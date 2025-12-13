@@ -1,16 +1,20 @@
 import { Link, NavLink } from 'react-router-dom'
 import { useContext } from 'react'
-import { FolderOpen, Clock, X, FileText, Settings } from 'lucide-react' // ← icons
+import { FolderOpen, Clock, X, FileText, Settings, Users } from 'lucide-react' // ← icons
 import { AuthContext } from '@/contexts/AuthContext'
 
 export default function Sidebar({ isOpen = false, onClose = () => {} }) {
   const auth = useContext(AuthContext)
-  const isSuperUser = !!auth?.user?.isSuperUser
+  const isInstructor = auth?.user?.role === 'instructor'
 
-  const items = isSuperUser
-    ? [{ to: '/admin/sessions', label: 'Supervisor — Sessions', icon: FolderOpen }]
+  const items = isInstructor
+    ? [
+        { to: '/admin/classes', label: 'Classes', icon: Users },
+        { to: '/admin/sessions', label: 'History', icon: Clock },
+      ]
     : [
         { to: '/dashboard', label: 'My Cases', icon: FolderOpen },
+        { to: '/classes', label: 'My Classes', icon: Users },
         { to: '/session-history', label: 'Session History', icon: Clock },
       ]
 

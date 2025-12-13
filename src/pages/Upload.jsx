@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useContext } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Sparkles, Upload, ArrowLeft, CheckCircle2, FileText, Loader2 } from 'lucide-react'
 import UploadCard from './upload/UploadCard'
@@ -7,9 +7,11 @@ import ProcessingView from './upload/ProcessingView'
 import CompleteSummary from './upload/CompleteSummary'
 import toast from 'react-hot-toast'
 import { API_BASE } from '../config'
+import { AuthContext } from '@/contexts/AuthContext'
 
 export default function UploadPage() {
   const navigate = useNavigate()
+  const auth = useContext(AuthContext)
   const [uploadState, setUploadState] = useState('idle')
   const [uploadProgress, setUploadProgress] = useState(0)
   const [fileName, setFileName] = useState('')
@@ -197,6 +199,8 @@ export default function UploadPage() {
               uploadDate={uploadDate}
               onStartAnalysis={() => navigate(`/workspace/${uploadId}`)}
               onUploadAnother={() => setUploadState('idle')}
+              isInstructor={auth?.user?.role === 'instructor'}
+              onAssignToClass={() => navigate(`/admin/classes?uploadId=${encodeURIComponent(uploadId)}`)}
             />
           )}
 

@@ -84,8 +84,11 @@ export default function SignInPage() {
       try {
         console.log('LOGIN RESPONSE JSON:', j)
         console.log('j.isSuperUser:', j?.isSuperUser)
+        console.log('j.role:', j?.role)
         console.log('j.data?.isSuperUser:', j?.data?.isSuperUser)
+        console.log('j.data?.role:', j?.data?.role)
         console.log('j.user?.isSuperUser:', j?.user?.isSuperUser)
+        console.log('j.user?.role:', j?.user?.role)
         console.log('j.user (raw):', j?.user)
         console.log('j.data (raw):', j?.data)
 
@@ -109,6 +112,7 @@ export default function SignInPage() {
             const parsed = JSON.parse(decodeURIComponent(escape(atob(base64))))
             console.log('decoded JWT payload:', parsed)
             console.log('payload.isSuperUser:', parsed?.isSuperUser)
+            console.log('payload.role:', parsed?.role)
           } catch (err) {
             console.warn('Failed to decode JWT payload', err)
           }
@@ -137,12 +141,14 @@ export default function SignInPage() {
           fullName: j.fullName || j.name || (j.data && j.data.fullName),
         }
 
-      // Make sure we carry over isSuperUser from the backend (if present)
+      // Make sure we carry over an explicit role from the backend (if present)
       if (user) {
         user = {
           ...user,
-          // pick isSuperUser from common shapes; fall back to existing value if already present
-          isSuperUser: !!(j.isSuperUser ?? (j.data && j.data.isSuperUser) ?? user.isSuperUser),
+          // Prefer the server-provided `role`. For backwards compatibility
+          // fall back to `isSuperUser` when present, otherwise use the
+          // selected role from the RoleSelector (`role` state).
+          role: j.role ?? (j.isSuperUser ? 'instructor' : role),
         }
       }
       // update centralized auth state so the rest of the SPA knows we're logged in
@@ -163,10 +169,9 @@ export default function SignInPage() {
         }
       }
 
-      // Prefer server-provided role (isSuperUser) when deciding where to navigate.
-      const isInstructor = role === 'instructor' || (user && user.isSuperUser)
-      // Superusers should go to the supervisor admin view. Use /admin/sessions
-      // as the landing page for supervisors rather than the instructor page.
+      // Prefer server-provided role when deciding where to navigate.
+      const isInstructor = (user && user.role === 'instructor') || role === 'instructor'
+      // Instructors/supervisors should go to the supervisor admin view.
       if (isInstructor) navigate('/admin/sessions')
       else navigate('/dashboard')
     } catch (e) {
