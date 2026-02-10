@@ -1,3 +1,9 @@
+# AI Case Learning Assistant
+
+Preview note: This commit triggers a Vercel Preview deployment for the `designer-preview` branch to validate Demo Mode (VITE_DEMO_MODE=true).
+
+# React + Vite
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
