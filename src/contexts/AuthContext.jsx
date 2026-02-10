@@ -2,6 +2,7 @@ import React, { createContext, useState, useEffect, useCallback } from 'react'
 import { setAuthTokenGetter, setOnAuthFailure, setRefreshTokenFn } from '@/lib/api'
 // at the top of AuthContext.jsx
 import { API_BASE } from '@/config'
+import { isDemoModeEnabled, isDemoSessionActive, getDemoUser, endDemoSession } from '@/auth/demoMode'
 
 const AuthContext = createContext(null)
 export { AuthContext }
@@ -38,6 +39,8 @@ function AuthProvider({ children }) {
       if (typeof window !== 'undefined') {
         localStorage.removeItem('authToken')
         localStorage.removeItem('authUser')
+        // also clear demo session if active
+        endDemoSession()
       }
     } catch {
       /* ignore */
@@ -172,6 +175,14 @@ function AuthProvider({ children }) {
   }, [])
 
   useEffect(() => {
+    // Demo-mode bootstrap: if demo enabled and session active, set a demo user
+    if (isDemoModeEnabled() && isDemoSessionActive()) {
+      const du = getDemoUser()
+      setUser(du)
+      setToken(null)
+      return
+    }
+
     if (!token) return
 
     let cancelled = false
@@ -236,7 +247,7 @@ function AuthProvider({ children }) {
   const value = {
     token,
     user,
-    loggedIn: Boolean(token && user),
+    loggedIn: Boolean(token && user) || (isDemoModeEnabled() && isDemoSessionActive()),
     login,
     logout,
   }

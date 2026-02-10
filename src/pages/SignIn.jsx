@@ -10,6 +10,7 @@ import AuthCard from '../components/auth/AuthCard'
 import RoleSelector from '../components/auth/RoleSelector'
 import AuthFormFooter from '../components/auth/AuthFormFooter'
 import { API_BASE } from '@/config'
+import { isDemoModeEnabled, startDemoSession } from '@/auth/demoMode'
 import { useContext } from 'react'
 import { AuthContext } from '@/contexts/AuthContext'
 
@@ -257,6 +258,22 @@ export default function SignInPage() {
         <Button type="submit" className="w-full bg-[#125691] hover:bg-[#0f4f74]" disabled={loading}>
           {loading ? 'Signing in…' : 'Sign In'}
         </Button>
+
+        {/* Demo Mode: show demo entry when enabled */}
+        {isDemoModeEnabled() && (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() => {
+              // Start demo session and go to normal post-login route
+              startDemoSession()
+              navigate('/dashboard')
+            }}
+          >
+            Continue as Demo
+          </Button>
+        )}
 
         {err && <div className="text-sm text-red-600 mt-2">{err}</div>}
       </form>

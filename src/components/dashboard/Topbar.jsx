@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useContext } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, ChevronDown, User, Settings, HelpCircle, LogOut, Menu } from 'lucide-react'
+import { isDemoModeEnabled, isDemoSessionActive, endDemoSession } from '@/auth/demoMode'
 import toast from 'react-hot-toast'
 import { AuthContext } from '@/contexts/AuthContext'
 
@@ -85,6 +86,20 @@ export default function Topbar({
     navigate('/')
   }
 
+  const handleExitDemo = () => {
+    try {
+      endDemoSession()
+    } catch {
+      /* ignore */
+    }
+    try {
+      toast.success('Exited demo mode')
+    } catch {
+      /* ignore */
+    }
+    navigate('/login')
+  }
+
   return (
     <header className="sticky top-0 z-30 h-14 md:h-16 border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/70 flex items-center gap-4 px-4 md:px-6">
       {/* Hamburger Menu - Mobile + Tablet (0-1023px) */}
@@ -114,6 +129,12 @@ export default function Topbar({
         </div>
       </div>
 
+      {/* Demo badge */}
+      {isDemoModeEnabled() && isDemoSessionActive() && (
+        <div className="ml-auto mr-2 px-2 py-1 text-xs rounded bg-yellow-100 text-yellow-800 border border-yellow-200">
+          Demo Mode
+        </div>
+      )}
       {/* User dropdown */}
       <div className="relative ml-auto" ref={dropdownRef}>
         <button
@@ -177,6 +198,17 @@ export default function Topbar({
               </button>
 
               <div className="border-t border-slate-100 my-1" />
+
+              {isDemoModeEnabled() && isDemoSessionActive() && (
+                <button
+                  role="menuitem"
+                  className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 flex items-center gap-3"
+                  onClick={handleExitDemo}
+                >
+                  <LogOut className="w-4 h-4" />
+                  Exit Demo
+                </button>
+              )}
 
               <button
                 onClick={handleLogout}

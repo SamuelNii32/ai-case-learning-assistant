@@ -1,4 +1,6 @@
 import { API_BASE } from '@/config'
+import { isDemoModeEnabled, isDemoSessionActive } from '@/auth/demoMode'
+import { mockUploads, mockSessions, mockClassesMine, mockClassDetails, mockClassesEnrolled, mockNotes } from '@/mocks/demoMocks'
 import { navigateTo } from './navigate'
 
 // tokenGetter is a function that returns the current auth token (string|null).
@@ -176,6 +178,9 @@ export async function pagesPreview(uploadId) {
 
 export async function listCases() {
   const url = makeUrl('/uploads/mine')
+  if (isDemoModeEnabled() && isDemoSessionActive()) {
+    return Promise.resolve(mockUploads)
+  }
   const res = await requestWithRetry(url, { method: 'GET' })
   if (res.status === 401) {
     const txt = await res.text().catch(() => '')
@@ -237,6 +242,9 @@ export async function createSession(uploadId) {
 
 export async function listSessionsMine() {
   const url = makeUrl('/sessions/mine')
+  if (isDemoModeEnabled() && isDemoSessionActive()) {
+    return Promise.resolve(mockSessions)
+  }
   const res = await requestWithRetry(url, { method: 'GET' })
   if (res.status === 401) {
     const txt = await res.text().catch(() => '')
@@ -249,6 +257,9 @@ export async function listSessionsMine() {
 
 export async function listSessionNotes(sessionId) {
   const url = makeUrl(`/sessions/${encodeURIComponent(sessionId)}/notes`)
+  if (isDemoModeEnabled() && isDemoSessionActive()) {
+    return Promise.resolve(mockNotes)
+  }
   const res = await requestWithRetry(url, { method: 'GET' })
   if (res.status === 401) {
     const txt = await res.text().catch(() => '')
@@ -264,6 +275,10 @@ export async function listSessionNotes(sessionId) {
 
 export async function getSession(sessionId) {
   const url = makeUrl(`/sessions/${encodeURIComponent(sessionId)}`)
+  if (isDemoModeEnabled() && isDemoSessionActive()) {
+    const s = mockSessions.find(x => String(x.id) === String(sessionId)) || mockSessions[0]
+    return Promise.resolve(s)
+  }
   const res = await requestWithRetry(url, { method: 'GET' })
   if (res.status === 401) {
     const txt = await res.text().catch(() => '')
@@ -486,6 +501,9 @@ export async function deleteSession(sessionId) {
 export async function getClasses() {
   // Backend exposes instructor-owned classes at /classes/mine
   const url = makeUrl('/classes/mine')
+  if (isDemoModeEnabled() && isDemoSessionActive()) {
+    return Promise.resolve(mockClassesMine)
+  }
   const res = await requestWithRetry(url, {
     method: 'GET',
   })
@@ -530,6 +548,9 @@ export async function createClass(name, description = '') {
 
 export async function getClassDetails(classId) {
   const url = makeUrl(`/classes/${encodeURIComponent(classId)}/details`)
+  if (isDemoModeEnabled() && isDemoSessionActive()) {
+    return Promise.resolve(mockClassDetails)
+  }
   const res = await requestWithRetry(url, { method: 'GET' })
 
   if (res.status === 401 || res.status === 403) {
@@ -548,6 +569,9 @@ export async function getClassDetails(classId) {
 
 export async function getClassStudents(classId) {
   const url = makeUrl(`/classes/${encodeURIComponent(classId)}/students`)
+  if (isDemoModeEnabled() && isDemoSessionActive()) {
+    return Promise.resolve(mockClassDetails.students)
+  }
   const res = await requestWithRetry(url, { method: 'GET' })
 
   if (res.status === 401 || res.status === 403) {
@@ -566,6 +590,9 @@ export async function getClassStudents(classId) {
 
 export async function getClassCases(classId) {
   const url = makeUrl(`/classes/${encodeURIComponent(classId)}/cases`)
+  if (isDemoModeEnabled() && isDemoSessionActive()) {
+    return Promise.resolve(mockClassDetails.cases)
+  }
   const res = await requestWithRetry(url, { method: 'GET' })
 
   if (res.status === 401 || res.status === 403) {
@@ -697,6 +724,9 @@ export async function getClassSession(classId, sessionId) {
 
 export async function getMyUploads() {
   const url = makeUrl('/uploads/mine')
+  if (isDemoModeEnabled() && isDemoSessionActive()) {
+    return Promise.resolve(mockUploads)
+  }
   const res = await requestWithRetry(url, { method: 'GET' })
 
   if (res.status === 401 || res.status === 403) {
@@ -715,6 +745,9 @@ export async function getMyUploads() {
 
 export async function getEnrolledClasses() {
   const url = makeUrl('/classes/enrolled')
+  if (isDemoModeEnabled() && isDemoSessionActive()) {
+    return Promise.resolve(mockClassesEnrolled)
+  }
   const res = await requestWithRetry(url, { method: 'GET' })
 
   if (res.status === 401 || res.status === 403) {
