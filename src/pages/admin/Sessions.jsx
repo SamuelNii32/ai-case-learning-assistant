@@ -43,11 +43,27 @@ function groupSessionsByUser(sessions) {
   return groups
 }
 
+function AccessDenied() {
+  return (
+    <div className="p-8">
+      <h2 className="text-2xl font-bold">Access denied — supervisor only</h2>
+      <p className="mt-2 text-sm text-muted-foreground">
+        You do not have permission to view this page.
+      </p>
+    </div>
+  )
+}
+
 export default function AdminSessions() {
   const auth = useContext(AuthContext)
   const _navigate = useNavigate() // kept for future use
 
   console.log('AUTH DEBUG:', auth)
+
+  const isInstructor =
+    auth?.user?.role === 'instructor' ||
+    auth?.user?.isSuperUser === true ||
+    auth?.user?.isSuperUser === 'true'
 
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(false)
@@ -57,7 +73,7 @@ export default function AdminSessions() {
   const [collapsedByEmail, setCollapsedByEmail] = useState({})
 
   useEffect(() => {
-    if (!auth?.loggedIn || auth?.user?.role !== 'instructor') return
+    if (!auth?.loggedIn || !isInstructor) return
     let cancelled = false
     ;(async () => {
       setLoading(true)
@@ -85,15 +101,8 @@ export default function AdminSessions() {
     }
   }, [auth?.loggedIn, auth?.user?.role])
 
-  if (!auth?.loggedIn || auth?.user?.role !== 'instructor') {
-    return (
-      <div className="p-8">
-        <h2 className="text-2xl font-bold">Access denied — supervisor only</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          You do not have permission to view this page.
-        </p>
-      </div>
-    )
+  if (!auth?.loggedIn || !isInstructor) {
+    return <AccessDenied />
   }
 
   function exportCsv() {
@@ -138,8 +147,8 @@ export default function AdminSessions() {
   const groups = groupSessionsByUser(sessions)
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-8">
+      <h2 className="text-2xl font-bold">Access denied — supervisor only</h2>
         <div>
           <h1 className="text-2xl font-bold">Supervisor — Sessions</h1>
           <p className="text-sm text-slate-600 mt-1">
