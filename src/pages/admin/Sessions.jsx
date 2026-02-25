@@ -47,6 +47,8 @@ export default function AdminSessions() {
   const auth = useContext(AuthContext)
   const _navigate = useNavigate() // kept for future use
 
+  console.log('AUTH DEBUG:', auth)
+
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
