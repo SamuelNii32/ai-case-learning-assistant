@@ -58,8 +58,6 @@ export default function AdminSessions() {
   const auth = useContext(AuthContext)
   const _navigate = useNavigate() // kept for future use
 
-  alert('Admin Sessions page mounted')
-
   console.log('AUTH DEBUG:', auth)
 
   const isInstructor =
