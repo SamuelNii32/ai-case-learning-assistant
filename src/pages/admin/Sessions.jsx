@@ -82,7 +82,8 @@ export default function AdminSessions() {
       setError(null)
       try {
         const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
-        const url = base ? `${base}/admin/sessions` : `/admin/sessions`
+        if (!base) throw new Error('API_BASE is empty in this build')
+        const url = `${base}/sessions/mine`
         const token = getAuthToken()
         const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
         if (!res.ok) {
@@ -101,7 +102,7 @@ export default function AdminSessions() {
     return () => {
       cancelled = true
     }
-  }, [auth?.loggedIn, auth?.user?.role])
+  }, [auth?.loggedIn, auth?.user?.role, auth?.user?.isSuperUser])
 
   if (!auth?.loggedIn || !isInstructor) {
     return <AccessDenied />
