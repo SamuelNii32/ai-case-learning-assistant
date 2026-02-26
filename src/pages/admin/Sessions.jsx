@@ -83,7 +83,7 @@ export default function AdminSessions() {
       try {
         const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
         if (!base) throw new Error('API_BASE is empty in this build')
-        const url = `${base}/sessions/mine`
+        const url = `${base}/admin/sessions`
         const token = getAuthToken()
         const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
         if (!res.ok) {
