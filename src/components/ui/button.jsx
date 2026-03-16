@@ -9,6 +9,7 @@ const Button = React.forwardRef(
       default: 'bg-[#125691] text-white hover:bg-[#0f4f74]',
       outline: 'border border-slate-300 bg-white text-slate-900 hover:bg-slate-50',
       ghost: 'hover:bg-slate-100',
+      warm: 'bg-[#C96A08] text-white hover:bg-[#b85f0a]',
     }
 
     const sizes = {

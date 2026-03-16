@@ -12,12 +12,12 @@ import { renameCase, deleteCase as apiDeleteCase, listSessionsMine, createSessio
 
 function SkeletonCard() {
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm animate-pulse">
-      <div className="aspect-[5/3] bg-slate-100" />
+    <div className="overflow-hidden rounded-2xl border border-[#e2d2c4] bg-[#fdfaf5] shadow-sm animate-pulse">
+      <div className="aspect-[5/3] bg-[#f5ecde]" />
       <div className="p-5 space-y-3">
-        <div className="h-5 w-3/4 bg-slate-100 rounded" />
-        <div className="h-4 w-full bg-slate-100 rounded" />
-        <div className="h-4 w-5/6 bg-slate-100 rounded" />
+        <div className="h-5 w-3/4 bg-[#e0d0c2] rounded" />
+        <div className="h-4 w-full bg-[#e0d0c2] rounded" />
+        <div className="h-4 w-5/6 bg-[#e0d0c2] rounded" />
       </div>
     </div>
   )
@@ -45,13 +45,13 @@ export default function CasesGrid({ items = [], loading = false }) {
 
   if (!items.length) {
     return (
-      <div className="col-span-full rounded-lg border border-slate-200 bg-white p-8 text-center">
-        <h3 className="text-slate-900 font-semibold">No cases match your filters</h3>
-        <p className="text-slate-600 mt-1">Try clearing search or changing the status filter.</p>
+      <div className="col-span-full rounded-2xl border border-[#e2d2c4] bg-[#fffafa] p-8 text-center shadow-sm">
+        <h3 className="text-[#2C2218] font-semibold">No cases match your filters</h3>
+        <p className="text-[#5C4C3C] mt-1">Try clearing search or changing the search text.</p>
         <div className="mt-4">
           <Link
             to="/upload"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-[#125691] text-white text-sm hover:bg-[#0f4f74] focus:outline-none focus:ring-2 focus:ring-[#125691]/60 focus:ring-offset-2"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-[#C96A08] text-white text-sm font-medium shadow-sm hover:bg-[#a05706] focus:outline-none focus:ring-2 focus:ring-[#C96A08]/60 focus:ring-offset-2 focus:ring-offset-[#f5ecde]"
           >
             Upload a Case
           </Link>
@@ -219,64 +219,69 @@ export default function CasesGrid({ items = [], loading = false }) {
     <>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {items.map(c => (
-          <div key={c.id} className="block group">
-            <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow relative">
-              <div role="button" tabIndex={0} onClick={() => handleOpenCase(c)} className="block group cursor-pointer">
-                <div className="relative aspect-[5/3] overflow-hidden flex items-center justify-center bg-slate-100">
+          <div key={c.id} className="group">
+            <div className="flex flex-col overflow-hidden rounded-2xl border border-[#e2d2c4] bg-white shadow-sm transition duration-200 ease-out transform hover:shadow-lg hover:-translate-y-1 relative">
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => handleOpenCase(c)}
+                className="group cursor-pointer"
+              >
+                <div className="h-36 w-full bg-[#f5ecde] flex items-center justify-center">
                   {c.image ? (
                     <img
                       src={c.image}
                       alt={c.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
                       loading="lazy"
                       decoding="async"
                       width={1000}
                       height={600}
                     />
                   ) : (
-                    <div className="flex items-center justify-center w-full h-full text-slate-400">
-                      <FileText className="w-16 h-16" />
+                    <div className="flex items-center justify-center w-full h-full text-[#C96A08]">
+                      <FileText className="w-12 h-12" />
                     </div>
                   )}
                 </div>
+              </div>
 
-                <div className="p-5 space-y-2 relative z-0">
-                  {(() => {
-                    const fullTitle = (
-                      c.title ||
-                      c.name ||
-                      c.fileName ||
-                      c.filename ||
-                      'Untitled PDF'
-                    ).replace(/\.pdf$/i, '')
-                    return (
-                      <h3
-                        title={fullTitle}
-                        className="font-semibold text-lg text-slate-900 group-hover:text-[#125691] transition-colors truncate"
-                      >
-                        {toTitleCase(fullTitle)}
-                      </h3>
-                    )
-                  })()}
+              <div className="p-5 space-y-2 bg-white relative z-0">
+                {(() => {
+                  const fullTitle = (
+                    c.title ||
+                    c.name ||
+                    c.fileName ||
+                    c.filename ||
+                    'Untitled PDF'
+                  ).replace(/\.pdf$/i, '')
+                  return (
+                    <h3
+                      title={fullTitle}
+                      className="font-semibold text-lg text-[#2C2218] group-hover:text-[#C96A08] transition-colors truncate"
+                    >
+                      {toTitleCase(fullTitle)}
+                    </h3>
+                  )
+                })()}
 
-                  {(() => {
-                    const raw = c.fileName || c.filename || ''
-                    const main = (c.title || c.name || '').replace(/\.pdf$/i, '')
-                    if (raw && raw !== main) {
-                      return <div className="text-xs text-slate-400">{raw}</div>
-                    }
-                    return null
-                  })()}
+                {(() => {
+                  const raw = c.fileName || c.filename || ''
+                  const main = (c.title || c.name || '').replace(/\.pdf$/i, '')
+                  if (raw && raw !== main) {
+                    return <div className="text-xs text-[#8B7462]">{raw}</div>
+                  }
+                  return null
+                })()}
 
-                  <p className="text-sm text-slate-600 leading-relaxed">{c.description}</p>
+                <p className="text-sm text-[#5C4C3C] leading-relaxed">{c.description}</p>
 
-                  <div className="pt-2">
-                    <div className="text-xs text-slate-400">
-                      {formatDate(c.createdAt || c.uploadedAt || c.uploaded_at)}
-                    </div>
+                <div className="pt-2">
+                  <div className="text-xs text-[#8B7462]">
+                    {formatDate(c.createdAt || c.uploadedAt || c.uploaded_at)}
                   </div>
-                  <div className="pt-2" />
                 </div>
+                <div className="pt-2" />
               </div>
 
               <div className="absolute bottom-3 right-3 z-50">
@@ -285,58 +290,58 @@ export default function CasesGrid({ items = [], loading = false }) {
                     e.stopPropagation()
                     setOpenId(openId === c.id ? null : c.id)
                   }}
-                  className="p-1 rounded-md text-slate-600 bg-white/90 hover:bg-white border border-slate-200 cursor-pointer"
+                  className="p-1 rounded-md text-[#5C4C3C] bg-white/90 hover:bg-[#fff2e4] border border-[#e2d2c4] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#C96A08]/50"
                   aria-label="Open actions"
                 >
                   <MoreVertical className="w-5 h-5" />
                 </button>
 
                 {openId === c.id && (
-                  <div className="absolute bottom-10 right-0 z-50 w-44 bg-white rounded-md shadow-lg border border-slate-200 py-1">
+                  <div className="absolute bottom-10 right-0 z-50 w-44 bg-white rounded-md shadow-lg border border-[#e2d2c4] py-1">
                     <button
                       onClick={() => {
                         handleRename(c)
                         setOpenId(null)
                       }}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                      className="w-full text-left px-3 py-2 text-sm text-[#2C2218] hover:bg-[#fff2e4] flex items-center gap-2 cursor-pointer"
                     >
-                      <Edit2 className="w-4 h-4" /> Rename
+                      <Edit2 className="w-4 h-4 text-[#C96A08]" /> Rename
                     </button>
                     <button
                       onClick={() => {
                         handleNewWorkspace(c)
                         setOpenId(null)
                       }}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                      className="w-full text-left px-3 py-2 text-sm text-[#2C2218] hover:bg-[#fff2e4] flex items-center gap-2 cursor-pointer"
                     >
-                      <FileText className="w-4 h-4" /> New workspace
+                      <FileText className="w-4 h-4 text-[#C96A08]" /> New workspace
                     </button>
                     <button
                       onClick={() => {
                         handleShare(c)
                         setOpenId(null)
                       }}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                      className="w-full text-left px-3 py-2 text-sm text-[#2C2218] hover:bg-[#fff2e4] flex items-center gap-2 cursor-pointer"
                     >
-                      <Share className="w-4 h-4" /> Share
+                      <Share className="w-4 h-4 text-[#C96A08]" /> Share
                     </button>
                     <button
                       onClick={() => {
                         handleDownload(c)
                         setOpenId(null)
                       }}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                      className="w-full text-left px-3 py-2 text-sm text-[#2C2218] hover:bg-[#fff2e4] flex items-center gap-2 cursor-pointer"
                     >
-                      <Download className="w-4 h-4" /> Download
+                      <Download className="w-4 h-4 text-[#C96A08]" /> Download
                     </button>
                     <button
                       onClick={() => {
                         handleDelete(c)
                         setOpenId(null)
                       }}
-                      className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                      className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-[#fff2e4] flex items-center gap-2 cursor-pointer"
                     >
-                      <Trash2 className="w-4 h-4" /> Delete
+                      <Trash2 className="w-4 h-4 text-red-600" /> Delete
                     </button>
                   </div>
                 )}
@@ -349,19 +354,25 @@ export default function CasesGrid({ items = [], loading = false }) {
       {renameOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/40" onClick={() => setRenameOpen(false)} />
-          <div className="bg-white rounded-lg shadow-lg p-4 w-full max-w-md mx-4 relative">
-            <h3 className="text-lg font-semibold mb-2">Rename case</h3>
+          <div className="bg-[#fffefa] rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4 relative border border-[#e2d2c4]">
+            <h3 className="text-lg font-semibold mb-2 text-[#2C2218]">Rename case</h3>
             <input
-              className="w-full border px-3 py-2 rounded mb-3"
+              className="w-full border border-[#d6c6b4] px-3 py-2 rounded mb-3 text-[#2C2218]"
               value={renameValue}
               onChange={e => setRenameValue(e.target.value)}
               aria-label="New case name"
             />
             <div className="flex justify-end gap-2">
-              <button className="px-3 py-2" onClick={() => setRenameOpen(false)}>
+              <button
+                className="px-3 py-2 text-[#5C4C3C]"
+                onClick={() => setRenameOpen(false)}
+              >
                 Cancel
               </button>
-              <button className="px-3 py-2 bg-[#125691] text-white rounded" onClick={performRename}>
+              <button
+                className="px-3 py-2 bg-[#C96A08] text-white rounded shadow-sm"
+                onClick={performRename}
+              >
                 Rename
               </button>
             </div>
@@ -372,13 +383,13 @@ export default function CasesGrid({ items = [], loading = false }) {
       {deleteOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/40" onClick={() => setDeleteOpen(false)} />
-          <div className="bg-white rounded-lg shadow-lg p-4 w-full max-w-sm mx-4 relative">
+          <div className="bg-[#fffefa] rounded-2xl shadow-2xl p-6 w-full max-w-sm mx-4 relative border border-[#e2d2c4]">
             <h3 className="text-lg font-semibold mb-2 text-red-600">Delete case</h3>
-            <p className="text-sm text-slate-700 mb-4">
+            <p className="text-sm text-[#5C4C3C] mb-4">
               Are you sure you want to delete this case? This cannot be undone.
             </p>
             <div className="flex justify-end gap-2">
-              <button className="px-3 py-2" onClick={() => setDeleteOpen(false)}>
+              <button className="px-3 py-2 text-[#5C4C3C]" onClick={() => setDeleteOpen(false)}>
                 Cancel
               </button>
               <button className="px-3 py-2 bg-red-600 text-white rounded" onClick={performDelete}>

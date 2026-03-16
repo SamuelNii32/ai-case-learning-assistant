@@ -2,8 +2,8 @@ import React, { Suspense, lazy } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
 import Header from './components/Header'
 import DeployConfigWarning from './components/DeployConfigWarning'
-import { Hero } from './components/Hero'
 import { Footer } from './components/Footer'
+import Landing from './pages/Landing'
 const SignInPage = lazy(() => import('./pages/SignIn'))
 const SignUpPage = lazy(() => import('./pages/SignUp'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
@@ -25,6 +25,45 @@ import RequireAuth from './components/RequireAuth'
 
 // Demo flow removed per request — demo route and redirect no longer included
 
+const toastOptions = {
+  duration: 3500,
+  style: {
+    background: '#fdf4eb',
+    color: '#2c2218',
+    border: '1px solid #e4d6c7',
+    borderRadius: '14px',
+    boxShadow: '0 10px 25px rgba(32,20,8,0.08)',
+  },
+  iconTheme: {
+    primary: '#C96A08',
+    secondary: '#ffffff',
+  },
+  success: {
+    iconTheme: { primary: '#2f7a3f', secondary: '#ffffff' },
+    style: {
+      background: '#eaf8ee',
+      border: '1px solid #cfeadc',
+      color: '#25432c',
+    },
+  },
+  error: {
+    iconTheme: { primary: '#c94444', secondary: '#ffffff' },
+    style: {
+      background: '#fde5e5',
+      border: '1px solid #f2c6c6',
+      color: '#8c1c1c',
+    },
+  },
+  info: {
+    iconTheme: { primary: '#c96a08', secondary: '#ffffff' },
+    style: {
+      background: '#fef6ec',
+      border: '1px solid #f2ddd0',
+      color: '#2c2218',
+    },
+  },
+}
+
 function App() {
   const location = useLocation()
   const hideChrome = [
@@ -42,7 +81,21 @@ function App() {
   ].some(p => location.pathname.startsWith(p))
   return (
     <div className="min-h-screen bg-gray-50">
-      <Toaster position="top-right" />
+      <Toaster
+        position="bottom-right"
+        toastOptions={toastOptions}
+        gutter={12}
+        containerStyle={{ bottom: 20, right: 20 }}
+        closeButton={({ toast }) => (
+          <button
+            className="h-7 w-7 rounded-full bg-white/60 text-sm font-bold text-[#7a5c3c] transition hover:text-[#2c2218] hover:bg-white"
+            aria-label="Close toast"
+            onClick={() => toast.dismiss(toast.id)}
+          >
+            ×
+          </button>
+        )}
+      />
       <DeployConfigWarning />
       {!hideChrome && <Header />}
       <Suspense fallback={<div className="p-8 text-center">Loading…</div>}>
@@ -52,13 +105,7 @@ function App() {
             path="/"
             element={
               <>
-                <main>
-                  <div className="max-w-7xl mx-auto px-6 py-12">
-                    <div className="text-center">
-                      <Hero />
-                    </div>
-                  </div>
-                </main>
+                <Landing />
                 <Footer />
               </>
             }

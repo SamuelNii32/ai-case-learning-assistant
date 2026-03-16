@@ -228,7 +228,7 @@ export default function ClassDetail() {
                 value={studentEmail}
                 onChange={e => setStudentEmail(e.target.value)}
               />
-              <Button type="submit" disabled={addingStudent} className="w-full sm:w-auto">
+              <Button type="submit" disabled={addingStudent} className="w-full sm:w-auto" variant="warm">
                 {addingStudent ? 'Adding...' : 'Add student'}
               </Button>
             </form>
@@ -270,7 +270,7 @@ export default function ClassDetail() {
                   id="case-select"
                   value={uploadId}
                   onChange={e => setUploadId(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                  className="w-full px-3 py-2 border border-[#e4d6c7] rounded-md text-sm focus:outline-none focus:border-[#C96A08] focus:ring-2 focus:ring-[#C96A08]/30"
                   disabled={loadingUploads}
                 >
                   <option value="">
@@ -283,7 +283,7 @@ export default function ClassDetail() {
                   ))}
                 </select>
               </div>
-              <Button type="submit" disabled={assigningCase || !uploadId} className="w-full sm:w-auto">
+              <Button type="submit" disabled={assigningCase || !uploadId} className="w-full sm:w-auto" variant="warm">
                 {assigningCase ? 'Assigning...' : 'Assign case'}
               </Button>
             </form>

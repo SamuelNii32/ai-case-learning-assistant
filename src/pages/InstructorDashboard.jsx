@@ -22,7 +22,7 @@ export default function InstructorDashboard() {
   }, [auth?.user?.role, navigate])
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-white text-[#2c2218]">
       <InstructorNav />
       <Outlet />
     </div>

@@ -76,7 +76,6 @@ export default function WorkspaceNotesPanel({
   // ---- Local autosave state for the composer ----
   const storageKey = `notes:${currentCaseId || 'no-id'}:${currentSessionId || 'default'}`
   const [text, setText] = useState('')
-  const [saveStatus, setSaveStatus] = useState('idle') // 'idle' | 'saving' | 'saved' | 'error'
   const debounceRef = useRef(null)
 
   // Load saved draft text when panel opens
@@ -88,7 +87,6 @@ export default function WorkspaceNotesPanel({
     } catch {
       // ignore localStorage errors in dev
     }
-    setSaveStatus('idle')
   }, [open, storageKey])
 
   // Debounced autosave of the draft text
@@ -97,13 +95,10 @@ export default function WorkspaceNotesPanel({
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (text == null) return
 
-    setSaveStatus('saving')
     debounceRef.current = setTimeout(() => {
       try {
         localStorage.setItem(storageKey, text)
-        setSaveStatus('saved')
       } catch {
-        setSaveStatus('error')
         console.warn('[Notes] local draft save failed')
       }
     }, 600)
@@ -172,7 +167,6 @@ export default function WorkspaceNotesPanel({
     }
 
     try {
-      setSaveStatus('saving')
       const created = await addSessionNote(currentSessionId, content)
       // The API returns { id, text, createdAt }
       setNotes(prev => [
@@ -185,7 +179,6 @@ export default function WorkspaceNotesPanel({
       ])
       // clear composer + draft
       setText('')
-      setSaveStatus('saved')
       try {
         localStorage.removeItem(storageKey)
       } catch {
@@ -194,7 +187,6 @@ export default function WorkspaceNotesPanel({
       toast.success('Note saved')
     } catch (err) {
       console.error('[Notes] add failed', err)
-      setSaveStatus('error')
       toast.error('Failed to save note')
     }
   }
@@ -261,22 +253,14 @@ export default function WorkspaceNotesPanel({
             <h3 className="font-semibold text-foreground flex items-center gap-2">
               <StickyNote className="w-4 h-4" /> Notes
             </h3>
-            <p className="text-xs text-muted-foreground mt-1">
-              {saveStatus === 'saving'
-                ? 'Saving…'
-                : saveStatus === 'saved'
-                  ? 'Saved'
-                  : saveStatus === 'error'
-                    ? 'Save failed'
-                    : ''}
-            </p>
-            {!hasSession && (
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Start a Q&amp;A session first – notes are attached to sessions.
-              </p>
-            )}
           </div>
-          <Button variant="ghost" size="sm" onClick={requestClose} aria-label="Close notes">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={requestClose}
+            aria-label="Close notes"
+            className="text-[#5C4C3C] hover:text-[#C96A0A] hover:bg-[#F6EEE5] rounded-full"
+          >
             <X className="w-4 h-4" />
           </Button>
         </div>
@@ -290,7 +274,7 @@ export default function WorkspaceNotesPanel({
             className="min-h-[160px] p-3 resize-y bg-white text-foreground border border-slate-200"
           />
           <div className="mt-2 flex justify-end">
-            <Button onClick={addNote} disabled={!hasSession}>
+            <Button variant="warm" onClick={addNote}>
               Save note
             </Button>
           </div>

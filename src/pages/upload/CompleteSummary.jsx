@@ -14,25 +14,25 @@ export default function CompleteSummary({
 }) {
   return (
     <div className="space-y-6">
-      <div className="p-6 rounded-2xl bg-blue-50 border border-blue-200 text-center">
+      <div className="p-6 rounded-2xl bg-[#f5ecde] border border-[#d6c6b4] text-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center">
-            <CheckCircle2 className="w-8 h-8 text-[#125691]" />
+          <div className="w-16 h-16 bg-[#f5ecde] rounded-full flex items-center justify-center">
+            <CheckCircle2 className="w-8 h-8 text-[#C96A08]" />
           </div>
           <div className="space-y-2">
-            <p className="text-xl font-semibold text-slate-900">Upload Complete!</p>
-            <p className="text-slate-600">Your case study is ready for analysis</p>
+            <p className="text-xl font-semibold text-[#2C2218]">Upload Complete!</p>
+            <p className="text-[#5C4C3C]">Your case study is ready for analysis</p>
           </div>
         </div>
       </div>
 
-      <div className="p-6 rounded-2xl border bg-white">
+      <div className="p-6 rounded-2xl border border-[#d6c6b4] bg-[#f8f5ef]">
         <div className="space-y-4">
-          <div className="flex items-start gap-3 pb-4 border-b border-slate-200">
-            <FileText className="w-5 h-5 text-[#125691] mt-0.5" />
+          <div className="flex items-start gap-3 pb-4 border-b border-[#d6c6b4]">
+            <FileText className="w-5 h-5 text-[#C96A08] mt-0.5" />
             <div className="flex-1">
-              <p className="font-medium text-slate-900">{fileName}</p>
-              <p className="text-sm text-slate-600">
+              <p className="font-medium text-[#2C2218]">{fileName}</p>
+              <p className="text-sm text-[#5C4C3C]">
                 {isInstructor ? 'Ready to assign to a class' : 'Ready for analysis'}
               </p>
             </div>
@@ -40,20 +40,20 @@ export default function CompleteSummary({
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-sm text-slate-600">File Size</p>
-              <p className="font-medium text-slate-900">{fileSize}</p>
+              <p className="text-sm text-[#5C4C3C]">File Size</p>
+              <p className="font-medium text-[#2C2218]">{fileSize}</p>
             </div>
             <div>
-              <p className="text-sm text-slate-600">Pages</p>
-              <p className="font-medium text-slate-900">{pageCount} pages</p>
+              <p className="text-sm text-[#5C4C3C]">Pages</p>
+              <p className="font-medium text-[#2C2218]">{pageCount} pages</p>
             </div>
             <div>
-              <p className="text-sm text-slate-600">Images</p>
-              <p className="font-medium text-slate-900">{imageCount} images</p>
+              <p className="text-sm text-[#5C4C3C]">Images</p>
+              <p className="font-medium text-[#2C2218]">{imageCount} images</p>
             </div>
             <div>
-              <p className="text-sm text-slate-600">Uploaded</p>
-              <p className="font-medium text-slate-900">{uploadDate}</p>
+              <p className="text-sm text-[#5C4C3C]">Uploaded</p>
+              <p className="font-medium text-[#2C2218]">{uploadDate}</p>
             </div>
           </div>
         </div>
@@ -62,19 +62,19 @@ export default function CompleteSummary({
       {isInstructor ? (
         <div className="flex flex-col sm:flex-row gap-3">
           <button
-            className="flex-1 rounded-xl bg-[#125691] px-5 py-3 text-white"
+            className="flex-1 rounded-xl bg-[#C96A08] px-5 py-3 text-white shadow-sm shadow-[#C96A08]/30"
             onClick={onAssignToClass}
           >
             Assign to Class
           </button>
           <button
-            className="flex-1 rounded-xl border border-slate-200 bg-white px-5 py-3"
+            className="flex-1 rounded-xl border border-[#d6c6b4] bg-white px-5 py-3 text-[#2C2218]"
             onClick={onStartAnalysis}
           >
             Open for Analysis
           </button>
           <button
-            className="flex-1 rounded-xl border border-slate-200 bg-white px-5 py-3"
+            className="flex-1 rounded-xl border border-[#d6c6b4] bg-white px-5 py-3 text-[#2C2218]"
             onClick={onUploadAnother}
           >
             Upload Another
@@ -83,13 +83,13 @@ export default function CompleteSummary({
       ) : (
         <div className="flex flex-col sm:flex-row gap-3">
           <button
-            className="flex-1 rounded-xl bg-[#125691] px-5 py-3 text-white"
+            className="flex-1 rounded-xl bg-[#C96A08] px-5 py-3 text-white shadow-sm shadow-[#C96A08]/30"
             onClick={onStartAnalysis}
           >
             Start Analysis
           </button>
           <button
-            className="flex-1 rounded-xl border border-slate-200 bg-white px-5 py-3"
+            className="flex-1 rounded-xl border border-[#d6c6b4] bg-white px-5 py-3 text-[#2C2218]"
             onClick={onUploadAnother}
           >
             Upload Another

@@ -26,6 +26,21 @@ export default function UploadPage() {
     return (bytes / (1024 * 1024)).toFixed(2) + ' MB'
   }
 
+  const nextSteps = [
+    {
+      title: 'Secure upload',
+      detail: 'Your PDF is encrypted, uploaded, and stored for processing',
+    },
+    {
+      title: 'AI analyzes the document',
+      detail: 'Our models structure the pages, figures, and metadata',
+    },
+    {
+      title: 'Workspace opens for analysis',
+      detail: "You're taken into the workspace to explore insights",
+    },
+  ]
+
   async function handleFileUpload(e) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -148,24 +163,24 @@ export default function UploadPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-[#f8f5ef]">
       {/* Header */}
-      <header className="border-b border-slate-200 bg-white/50 backdrop-blur-sm">
+      <header className="border-b border-[#d6c6b4] bg-white/80 backdrop-blur-sm">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <button
             type="button"
             onClick={() => navigate(-1)}
-            className="inline-flex items-center gap-2 text-sm text-slate-700"
+            className="inline-flex items-center gap-2 text-sm font-medium text-[#2C2218]"
           >
             <ArrowLeft className="w-4 h-4" />
             Back
           </button>
 
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-[#125691] rounded-lg flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-white" />
+            <div className="w-8 h-8 bg-[#C96A08] rounded-lg flex items-center justify-center">
+              <Sparkles className="w-5 h-5 text-[#f8f5ef]" />
             </div>
-            <span className="font-semibold text-lg text-slate-900">CaseAI</span>
+            <span className="font-semibold text-lg text-[#2C2218]">CaseAI</span>
           </div>
 
           <div className="w-20" />
@@ -173,10 +188,10 @@ export default function UploadPage() {
       </header>
 
       <div className="container mx-auto px-4 py-12 max-w-3xl">
-        <div className="space-y-8">
-          <div className="text-center space-y-3">
-            <h1 className="text-4xl font-bold text-slate-900">Upload Your Case Study</h1>
-            <p className="text-lg text-slate-600">
+        <div className="space-y-5">
+          <div className="text-center space-y-1">
+            <h1 className="text-4xl font-bold text-[#2C2218]">Upload Your Case Study</h1>
+            <p className="text-lg text-[#5C4C3C]">
               Upload a PDF case study to begin your AI-powered analysis journey
             </p>
           </div>
@@ -205,31 +220,20 @@ export default function UploadPage() {
           )}
 
           {uploadState === 'idle' && (
-            <div className="pt-8 border-t border-slate-200">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">What happens next?</h3>
-              <div className="space-y-3">
-                <div className="flex gap-3">
-                  <div className="w-6 h-6 bg-slate-50 rounded-full flex items-center justify-center flex-shrink-0 text-[#125691] text-sm font-semibold">
-                    1
+            <div className="pt-8 border-t border-[#d6c6b4]">
+              <div className="text-lg font-semibold text-[#2C2218] mb-4">What happens next?</div>
+              <div className="space-y-4">
+                {nextSteps.map((step, index) => (
+                  <div key={step.title} className="flex gap-3">
+                    <div className="h-10 w-10 rounded-2xl border border-[#C96A08]/30 bg-[#fff2e4] text-[#C96A08] text-sm font-semibold flex items-center justify-center">
+                      {index + 1}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-[#2C2218]">{step.title}</p>
+                      <p className="text-sm text-[#5C4C3C] max-w-prose">{step.detail}</p>
+                    </div>
                   </div>
-                  <p className="text-slate-600">Your PDF will be securely uploaded and processed</p>
-                </div>
-                <div className="flex gap-3">
-                  <div className="w-6 h-6 bg-slate-50 rounded-full flex items-center justify-center flex-shrink-0 text-[#125691] text-sm font-semibold">
-                    2
-                  </div>
-                  <p className="text-slate-600">
-                    AI will analyze the document structure and content
-                  </p>
-                </div>
-                <div className="flex gap-3">
-                  <div className="w-6 h-6 bg-slate-50 rounded-full flex items-center justify-center flex-shrink-0 text-[#125691] text-sm font-semibold">
-                    3
-                  </div>
-                  <p className="text-slate-600">
-                    You'll be taken to the workspace to begin your analysis
-                  </p>
-                </div>
+                ))}
               </div>
             </div>
           )}

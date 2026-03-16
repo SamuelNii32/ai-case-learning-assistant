@@ -602,6 +602,21 @@ export default function Workspace() {
 
   const chatRef = useRef(null)
 
+  const historyCardBase =
+    'group p-3 rounded-2xl border border-[#e4d6c7]/60 bg-white shadow-sm transition-colors duration-150 cursor-pointer hover:bg-[#faf6f0]'
+  const historyCardActive =
+    'border-l-[3px] border-[#c96a0a] bg-[#f6eee5] hover:bg-[#f6eee5]'
+  const getHistoryCardClass = isActive => `${historyCardBase} ${isActive ? historyCardActive : ''}`
+  const tabButtonBase =
+    'inline-flex items-center gap-2 rounded-t-full px-4 py-2 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary focus-visible:ring focus-visible:ring-ring focus-visible:ring-offset-1 hover:bg-[#faf6f0] cursor-pointer'
+  const getTabClass = isActive => `${tabButtonBase} ${isActive ? 'text-foreground' : 'text-muted-foreground'}`
+  const getTabStyle = isActive => ({
+    backgroundColor: isActive ? '#f6eee5' : 'transparent',
+    borderBottomWidth: isActive ? 3 : 0,
+    borderBottomStyle: 'solid',
+    borderBottomColor: '#c96a0a',
+  })
+
   const scrollToBottom = (smooth = false) => {
     const el = chatRef.current
     if (!el) return
@@ -729,7 +744,7 @@ export default function Workspace() {
   return (
     <PdfControllerProvider value={pdfCtrl}>
       <div
-        className="h-screen bg-white flex flex-col"
+          className="min-h-screen bg-[#faf6f0] flex flex-col"
         data-mode="chat"
         data-shownotes={String(showNotes)}
         data-showhistory={String(showHistory)}
@@ -738,7 +753,7 @@ export default function Workspace() {
         data-casetype={caseType}
       >
         {/* Header */}
-        <header className="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex-shrink-0">
+          <header className="sticky top-0 z-20 h-14 border-b border-[#e4d6c7] bg-card/50 backdrop-blur-sm flex-shrink-0">
           <div className="container mx-auto px-4 h-full flex items-center justify-between">
             <div className="flex items-center gap-4 flex-1 min-w-0">
               <Button
@@ -754,7 +769,7 @@ export default function Workspace() {
               <Link
                 to="/dashboard"
                 className={
-                  'inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none hover:bg-slate-100 h-9 px-3 gap-2'
+                  'inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none hover:bg-[#f6eee5] cursor-pointer h-9 px-3 gap-2'
                 }
               >
                 <span className="flex items-center gap-2">
@@ -786,18 +801,33 @@ export default function Workspace() {
             </div>
 
             <div className="flex items-center gap-2 flex-shrink-0">
-              <div className="hidden md:flex items-center gap-1 bg-muted rounded-lg p-1">
-                <Button variant="secondary" size="sm" className="text-xs">
-                  <MessageSquare className="w-3 h-3 mr-1" />
-                  Chat
-                </Button>
-                {/* Guided mode removed — button intentionally omitted */}
+              <div className="hidden md:flex items-center gap-1 rounded-full bg-[#f6f0e8]/80 px-1 py-1">
+                <button
+                  type="button"
+                  className={getTabClass(!showNotes)}
+                  style={getTabStyle(!showNotes)}
+                  onClick={() => setShowNotes(false)}
+                  aria-pressed={!showNotes}
+                >
+                  <MessageSquare className="w-3 h-3" />
+                  <span>Chat</span>
+                </button>
+                <button
+                  type="button"
+                  className={getTabClass(showNotes)}
+                  style={getTabStyle(showNotes)}
+                  onClick={() => setShowNotes(true)}
+                  aria-pressed={showNotes}
+                >
+                  <StickyNote className="w-3 h-3" />
+                  <span>Notes</span>
+                </button>
               </div>
 
               <Button
                 variant="outline"
                 size="sm"
-                className="gap-2 bg-transparent"
+                className="gap-2 bg-transparent md:hidden hover:text-[#c96a0a]"
                 onClick={() => setShowNotes(true)}
               >
                 <StickyNote className="w-4 h-4" />
@@ -817,50 +847,56 @@ export default function Workspace() {
               so the page itself doesn't scroll; only the chat panel is scrollable.
               Assumption: header is h-14 (3.5rem). If header height changes, replace
               the hard calc with a CSS variable. */}
-          <div className="flex-1 flex flex-col md:flex-row overflow-hidden lg:h-[calc(100vh-3.5rem)]">
+          <div className="flex-1 flex flex-col md:flex-row overflow-hidden lg:h-[calc(100vh-3.5rem)] divide-y divide-[#E8DDD0] md:divide-y-0 md:divide-x">
       {/* Permanent sidebar on md+; falls back to drawer on small screens */}
       {/* On large screens keep the history panel visually fixed (no internal scroll).
         On smaller screens allow overflow so the drawer can scroll. */}
-  <aside className="hidden lg:flex lg:flex-col w-80 border-r border-border bg-white lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:overflow-auto">
-              <div className="p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-foreground">Conversation History</h3>
+  <aside className="hidden lg:flex lg:flex-col lg:flex-[0_0_20%] lg:min-w-0 border-r border-[#e4d6c7] bg-white shadow-sm lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden">
+              <div className="flex flex-col flex-1 overflow-hidden">
+                <div className="sticky top-0 z-10 border-b border-[#E8DDD0] bg-white px-4 py-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-foreground">Conversation History</h3>
+                  </div>
                 </div>
+                <div className="flex-1 overflow-auto p-4 space-y-2">
+                  {conversationHistory.map(c => {
+                    const isActive = sessionId === c.id
+                    return (
+                      <Card
+                        key={c.id}
+                        className={getHistoryCardClass(isActive)}
+                        onClick={() => {
+                          // uploadId for this conversation (PDF case). Fallback to sessionId if ever needed.
+                          const uploadIdForNav = c.caseId || c.id
 
-                <div className="space-y-2">
-                  {conversationHistory.map(c => (
-                    <Card
-                      key={c.id}
-                      className="p-3 cursor-pointer hover:border-primary/50 transition-colors"
-                      onClick={() => {
-                        // uploadId for this conversation (PDF case). Fallback to sessionId if ever needed.
-                        const uploadIdForNav = c.caseId || c.id
+                          const url = `/workspace/${encodeURIComponent(
+                            uploadIdForNav
+                          )}?sessionId=${encodeURIComponent(c.id)}`
 
-                        const url = `/workspace/${encodeURIComponent(
-                          uploadIdForNav
-                        )}?sessionId=${encodeURIComponent(c.id)}`
-
-                        navigate(url)
-                        setShowHistory(false)
-                      }}
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <h4 className="text-sm font-medium text-foreground line-clamp-1">
-                            {c.title}
-                          </h4>
-                          <span className="text-xs text-muted-foreground whitespace-nowrap">
-                            {c.messageCount}
-                          </span>
+                          navigate(url)
+                          setShowHistory(false)
+                        }}
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <h4 className="text-sm font-semibold text-foreground/90 line-clamp-1">
+                              {c.title}
+                            </h4>
+                            <span className="text-xs text-muted-foreground/80 whitespace-nowrap">
+                              {c.messageCount}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground/70 line-clamp-2">
+                            {c.preview}
+                          </p>
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground/70">
+                            <Clock className="w-3 h-3" />
+                            {c.date}
+                          </div>
                         </div>
-                        <p className="text-xs text-muted-foreground line-clamp-2">{c.preview}</p>
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <Clock className="w-3 h-3" />
-                          {c.date}
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
+                      </Card>
+                    )
+                  })}
                 </div>
               </div>
             </aside>
@@ -868,12 +904,12 @@ export default function Workspace() {
       {/* Center PDF area: allow normal vertical scrolling on small screens
         but keep fixed (no internal scroll) on large screens so only the
         chat panel scrolls. */}
-      <div className="flex-1 md:flex-1 min-w-0 border-r border-border bg-muted/30 overflow-hidden lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)]">
+      <div className="flex-1 min-w-0 border-r border-[#e4d6c7] bg-[#faf6f0] overflow-hidden lg:flex-[0_0_45%] lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)]">
               <div className="p-6 max-w-3xl mx-auto">
                 <Card className="bg-card">
                   <div className="p-4">
                     {uploadId ? (
-                      <div className="w-full h-[70vh] lg:h-[calc(100vh-3.5rem)] bg-white rounded overflow-hidden border border-border relative">
+                      <div className="w-full h-[70vh] lg:h-[calc(100vh-3.5rem)] bg-white rounded overflow-hidden border border-[#e4d6c7] relative shadow-sm">
                         <React.Suspense
                           fallback={
                             <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
@@ -945,7 +981,7 @@ export default function Workspace() {
                       </div>
                     ) : (
                       <div className="p-8 space-y-4">
-                        <div className="flex items-center justify-between pb-4 border-b border-border">
+                        <div className="flex items-center justify-between pb-4 border-b border-[#e4d6c7]">
                           <span className="text-sm text-muted-foreground">Page 1 of 12</span>
                           <div className="flex items-center gap-2">
                             <Button
@@ -1017,12 +1053,12 @@ export default function Workspace() {
               </div>
             </div>
 
-            <div className="w-full md:flex-1 lg:w-[480px] flex-shrink-0 flex flex-col bg-card">
-              <>
+            <div className="w-full md:flex-1 lg:flex-[0_0_35%] lg:min-w-[24rem] flex-shrink-0 flex flex-col bg-white border border-[#e4d6c7] shadow-sm">
+              <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Messages */}
                 <div
                   ref={chatRef}
-                  className={`flex-1 overflow-auto p-4 space-y-4 ${showFigures ? 'pr-64' : ''}`}
+                  className={`flex-1 overflow-auto p-4 space-y-4 pb-20 ${showFigures ? 'pr-64' : ''}`}
                 >
                   {/* tutor gating removed: guided mode intentionally disabled for now */}
 
@@ -1034,10 +1070,10 @@ export default function Workspace() {
                         className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
                       >
                             <div
-                              className={`max-w-[85%] rounded-lg p-3 ${
+                              className={`max-w-[85%] rounded-lg p-3 transition-colors duration-150 ${
                                 isUser
-                                  ? 'bg-primary text-primary-foreground'
-                                  : 'bg-muted text-foreground'
+                                  ? 'bg-[#B86A17] text-white hover:bg-[#A65408]'
+                                  : 'bg-white text-foreground'
                               }`}
                             >
                               <div className="text-sm leading-relaxed whitespace-pre-wrap break-words">
@@ -1071,7 +1107,7 @@ export default function Workspace() {
                                       type="button"
                                       disabled={!pdfCtrl}
                                       onClick={() => pdfCtrl?.showHighlight({ page: s.page })}
-                                      className="text-xs px-2 py-1 rounded-full border border-border bg-white hover:bg-muted disabled:opacity-50"
+                                      className="text-xs px-2 py-1 rounded-full border border-[#E4C6A1] bg-[#F6EEE5] text-[#6A3A0A] transition-colors hover:bg-[#EFE2D4] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                                       title={`Open ${s.label}`}
                                     >
                                       {s.label}
@@ -1099,35 +1135,32 @@ export default function Workspace() {
                   })}
 
                   {/* Suggested Questions - hidden on mobile, visible md+ */}
-                  <div className="pt-4 space-y-2 hidden md:block">
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <div className="pt-4 hidden md:block">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1 font-semibold tracking-wide">
                       <Lightbulb className="w-3 h-3" />
                       Suggested Questions
                     </p>
-                    <div className="space-y-2">
+                    <div className="mt-3 flex flex-wrap gap-2">
                       {[
                         'What is the main problem?',
                         'What evidence supports this?',
                         'What are potential solutions?',
                       ].map((q, i) => (
-                        <Button
+                        <button
                           key={i}
-                          variant="outline"
-                          size="sm"
-                          className="w-full justify-start items-start text-left h-auto py-2 px-3 bg-transparent"
+                          type="button"
+                          className="rounded-full border border-[#e4c6a1] bg-[#faf6f0] px-3 py-1.5 text-xs font-normal text-foreground transition-colors hover:border-[#c96a0a] hover:bg-[#f6eee5] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#c96a0a] cursor-pointer"
                           onClick={() => setMessage(q)}
                         >
-                          <div className="w-full flex items-start justify-start">
-                            <span className="text-xs font-normal">{q}</span>
-                          </div>
-                        </Button>
+                          {q}
+                        </button>
                       ))}
                     </div>
                   </div>
                 </div>
 
                 {/* Input */}
-                <div className="border-t border-border p-4">
+                <div className="border-t border-[#e4d6c7] p-4 bg-white sticky bottom-0 z-20">
                   {/* Indexing control */}
                   {uploadId && indexState !== 'ready' && (
                     <div className="mb-3 flex items-center gap-2">
@@ -1166,8 +1199,9 @@ export default function Workspace() {
                             e.preventDefault()
                             handleSendMessage()
                           }
+                          // Enter sends; Shift+Enter keeps the newline.
                         }}
-                        className="w-full min-h-[40px] max-h-[96px] resize-none"
+                        className="w-full min-h-[56px] max-h-[140px] resize-none px-4 py-3 leading-relaxed text-sm focus-visible:border-[#C96A0A] focus-visible:shadow-[0_0_0_2px_rgba(201,106,10,0.15)] focus-visible:outline-none"
                       />
                     </div>
 
@@ -1176,14 +1210,14 @@ export default function Workspace() {
                         size="icon"
                         onClick={handleSendMessage}
                         aria-label="Send message"
-                        className="h-10 w-10"
+                        className="h-10 w-10 rounded-full bg-[#C96A0A] text-white shadow-sm transition-colors duration-150 hover:bg-[#B85F0A] active:bg-[#A65408] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fdf9f4] focus-visible:ring-[#C96A0A]/60 disabled:opacity-70 disabled:cursor-not-allowed"
                       >
                         <Send className="w-4 h-4" />
                       </Button>
                     </div>
                   </div>
                 </div>
-              </>
+              </div>
             </div>
           </div>
         </div>
@@ -1197,7 +1231,7 @@ export default function Workspace() {
             />
 
             {/* Drawer - only show on small screens and tablet (hidden on lg+) */}
-            <div className="fixed top-14 bottom-0 left-0 w-80 bg-white border-r border-border shadow-xl z-50 overflow-auto lg:hidden">
+            <div className="fixed top-14 bottom-0 left-0 w-80 bg-white border-r border-[#e4d6c7] shadow-xl z-50 overflow-auto lg:hidden">
               <div className="p-4 space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-foreground">Conversation History</h3>
@@ -1218,38 +1252,43 @@ export default function Workspace() {
                 </Button>
 
                 <div className="space-y-2">
-                  {conversationHistory.map(c => (
-                    <Card
-                      key={c.id}
-                      className="p-3 cursor-pointer hover:border-primary/50 transition-colors"
-                      onClick={() => {
-                        const uploadIdForNav = c.caseId || c.id
+                  {conversationHistory.map(c => {
+                    const isActive = sessionId === c.id
+                    return (
+                      <Card
+                        key={c.id}
+                        className={getHistoryCardClass(isActive)}
+                        onClick={() => {
+                          const uploadIdForNav = c.caseId || c.id
 
-                        const url = `/workspace/${encodeURIComponent(
-                          uploadIdForNav
-                        )}?sessionId=${encodeURIComponent(c.id)}`
+                          const url = `/workspace/${encodeURIComponent(
+                            uploadIdForNav
+                          )}?sessionId=${encodeURIComponent(c.id)}`
 
-                        navigate(url)
-                        setShowHistory(false)
-                      }}
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <h4 className="text-sm font-medium text-foreground line-clamp-1">
-                            {c.title}
-                          </h4>
-                          <span className="text-xs text-muted-foreground whitespace-nowrap">
-                            {c.messageCount}
-                          </span>
+                          navigate(url)
+                          setShowHistory(false)
+                        }}
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <h4 className="text-sm font-semibold text-foreground/90 line-clamp-1">
+                              {c.title}
+                            </h4>
+                            <span className="text-xs text-muted-foreground/80 whitespace-nowrap">
+                              {c.messageCount}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground/70 line-clamp-2">
+                            {c.preview}
+                          </p>
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground/70">
+                            <Clock className="w-3 h-3" />
+                            {c.date}
+                          </div>
                         </div>
-                        <p className="text-xs text-muted-foreground line-clamp-2">{c.preview}</p>
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <Clock className="w-3 h-3" />
-                          {c.date}
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
+                      </Card>
+                    )
+                  })}
                 </div>
               </div>
             </div>
@@ -1257,7 +1296,7 @@ export default function Workspace() {
         )}
 
         {showFigures && (
-          <div className="fixed top-0 bottom-0 right-0 w-64 bg-white border-l border-border shadow-xl z-60 overflow-auto">
+          <div className="fixed top-0 bottom-0 right-0 w-64 bg-white border-l border-[#e4d6c7] shadow-xl z-60 overflow-auto">
             <div className="p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-foreground">Figures & Charts</h3>

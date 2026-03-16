@@ -7,7 +7,7 @@ const RoleSelector = ({ role, onRoleChange, className = '' }) => {
 
   return (
     <div className={`space-y-3 ${className}`}>
-      <Label className="text-sm font-medium text-gray-700">I am a:</Label>
+      <Label className="text-sm font-medium">I am a:</Label>
       <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-6">
         <div className="flex items-center">
           <input
@@ -17,9 +17,9 @@ const RoleSelector = ({ role, onRoleChange, className = '' }) => {
             value="student"
             checked={role === 'student'}
             onChange={handleRoleChange}
-            className="h-4 w-4 text-[#125691] border-gray-300 focus:ring-[#125691]"
+            className="h-4 w-4 text-[#C96A08] border-[#b89a82] focus:ring-[#C96A08] accent-[#C96A08] cursor-pointer"
           />
-          <Label htmlFor="student" className="ml-2 text-sm text-gray-700 cursor-pointer">
+          <Label htmlFor="student" className="ml-2 text-sm text-[#2C2218] cursor-pointer">
             Student
           </Label>
         </div>
@@ -31,9 +31,9 @@ const RoleSelector = ({ role, onRoleChange, className = '' }) => {
             value="instructor"
             checked={role === 'instructor'}
             onChange={handleRoleChange}
-            className="h-4 w-4 text-[#125691] border-gray-300 focus:ring-[#125691]"
+            className="h-4 w-4 text-[#C96A08] border-[#b89a82] focus:ring-[#C96A08] accent-[#C96A08] cursor-pointer"
           />
-          <Label htmlFor="instructor" className="ml-2 text-sm text-gray-700 cursor-pointer">
+          <Label htmlFor="instructor" className="ml-2 text-sm text-[#2C2218] cursor-pointer">
             Instructor
           </Label>
         </div>

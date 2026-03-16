@@ -5,7 +5,6 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { FileText } from 'lucide-react'
-import AuthCard from '../components/auth/AuthCard'
 import RoleSelector from '../components/auth/RoleSelector'
 import AuthFormFooter from '../components/auth/AuthFormFooter'
 import { API_BASE } from '@/config'
@@ -69,75 +68,106 @@ export default function SignUpPage() {
   }
 
   return (
-    <AuthCard
-      className="bg-white"
-      title={
-        <>
-          <div className="w-12 h-12 bg-[#125691] rounded-xl flex items-center justify-center">
-            <FileText className="w-7 h-7 text-white" />
+    <main className="min-h-screen bg-[#f5ecde] flex items-stretch">
+      <div className="w-full grid min-h-screen grid-cols-1 md:grid-cols-2">
+        <section className="flex flex-col justify-center bg-[#f5ecde] px-8 py-12 text-[#2C2218]">
+          <p className="text-xs uppercase tracking-[0.4em] text-[#3c2a1e] font-semibold">AI Case Assistant</p>
+          <h2 className="mt-3 text-3xl font-semibold">Guided Case Learning</h2>
+          <p className="mt-4 text-sm text-[#5c4c3c]">
+            Build confidence with every case. Breakthroughs come faster when every note, insight,
+            and walkthrough stays close at hand.
+          </p>
+          <ul className="mt-6 space-y-3 text-sm text-[#5c4c3c]">
+            <li className="flex items-start gap-2">
+              <span className="mt-1 h-2 w-2 rounded-full bg-[#C96A08]" />
+              Guided case walkthroughs
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="mt-1 h-2 w-2 rounded-full bg-[#C96A08]" />
+              Evidence-grounded insights and notes in one place
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="mt-1 h-2 w-2 rounded-full bg-[#C96A08]" />
+              Private by design
+            </li>
+          </ul>
+        </section>
+
+        <section className="flex items-center justify-center bg-[#f8f5ef] px-8 py-12 md:border-l md:border-[#ecdccf]">
+          <div className="w-full max-w-md space-y-6">
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-12 h-12 rounded-xl bg-[#C96A08] flex items-center justify-center">
+                <FileText className="w-7 h-7 text-white" />
+              </div>
+              <h1 className="text-2xl font-semibold text-[#2C2218]">Create Account</h1>
+              <p className="text-center text-sm text-[#5c4c3c]">Start your case learning journey today</p>
+            </div>
+
+            <form onSubmit={handleSignUp} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name</Label>
+                <Input
+                  id="name"
+                  type="text"
+                  placeholder="John Doe"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    required
+                  />
+                  <button
+                    type="button"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    onClick={() => setShowPassword(v => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500"
+                    style={{ background: 'transparent', border: 'none' }}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <RoleSelector role={role} onRoleChange={setRole} />
+
+              <Button
+                type="submit"
+                className="w-full bg-[#C96A08] hover:bg-[#9c5306]"
+                disabled={loading}
+              >
+                {loading ? 'Creating…' : 'Create Account'}
+              </Button>
+
+              {err && <div className="text-sm text-red-600 mt-2">{err}</div>}
+
+              <AuthFormFooter mode="signup" />
+            </form>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Create Account</h1>
-        </>
-      }
-      description="Start your case learning journey today"
-    >
-      <form onSubmit={handleSignUp} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="name">Full Name</Label>
-          <Input
-            id="name"
-            type="text"
-            placeholder="John Doe"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            required
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
-          <Input
-            id="email"
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            required
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
-          <div className="relative">
-            <Input
-              id="password"
-              type={showPassword ? 'text' : 'password'}
-              placeholder="••••••••"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-            />
-            <button
-              type="button"
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-              onClick={() => setShowPassword(v => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
-              style={{ background: 'transparent', border: 'none' }}
-            >
-              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-        </div>
-
-        <RoleSelector role={role} onRoleChange={setRole} />
-
-        <Button type="submit" className="w-full bg-[#125691] hover:bg-[#0f4f74]" disabled={loading}>
-          {loading ? 'Creating…' : 'Create Account'}
-        </Button>
-        {err && <div className="text-sm text-red-600 mt-2">{err}</div>}
-      </form>
-
-      <AuthFormFooter mode="signup" />
-    </AuthCard>
+        </section>
+      </div>
+    </main>
   )
 }

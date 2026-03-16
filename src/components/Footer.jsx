@@ -1,102 +1,63 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
-import { FileText } from 'lucide-react'
+
+const columnLinks = [
+  ['Product', ['Features', 'Roadmap', 'Pricing']],
+  ['Company', ['About', 'Team', 'Careers']],
+  ['Resources', ['Docs', 'Support', 'Blog']],
+]
 
 export function Footer() {
-
   return (
-    <footer className="bg-white border-t border-slate-200 py-12">
-      <div className="container mx-auto px-6">
-        <div className="grid md:grid-cols-4 gap-8 mb-8">
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-[#125691] rounded-lg flex items-center justify-center">
-                <FileText className="w-5 h-5 text-white" />
-              </div>
-              <span className="font-semibold text-lg text-slate-900">AI Case Assistant</span>
+    <footer>
+      <section className="bg-[#8B7462] text-[#F5EDE2]">
+        <div className="container mx-auto px-6 py-12">
+          <div className="grid gap-10 md:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
+            <div className="space-y-4 max-w-[280px]">
+              <h3 className="text-xl font-semibold">AI Case Assistant</h3>
+              <div className="h-px w-16 bg-[#F5EDE2]/60" />
+              <p className="text-sm leading-relaxed text-[#F0E8DA]">
+                A guided learning companion that keeps every case, note, and insight within reach for
+                students and instructors.
+              </p>
             </div>
-            <p className="text-sm text-slate-600">
-              Empowering students and instructors with AI-powered case analysis and learning.
-            </p>
-          </div>
 
-          <div>
-            <h4 className="font-semibold text-slate-900 mb-4">Product</h4>
-            <ul className="space-y-2">
-              <li>
-                <a href="#features" className="text-sm text-slate-600 hover:text-slate-900">
-                  Features
-                </a>
-              </li>
-              {/* Try Demo removed */}
-              <li>
-                <a href="#pricing" className="text-sm text-slate-600 hover:text-slate-900">
-                  Pricing
-                </a>
-              </li>
-            </ul>
-          </div>
-
-          <div>
-            <h4 className="font-semibold text-slate-900 mb-4">Company</h4>
-            <ul className="space-y-2">
-              <li>
-                <Link to="about" className="text-sm text-slate-600 hover:text-slate-900">
-                  About
-                </Link>
-              </li>
-              <li>
-                <Link to="privacy" className="text-sm text-slate-600 hover:text-slate-900">
-                  Privacy
-                </Link>
-              </li>
-              <li>
-                <Link to="contact" className="text-sm text-slate-600 hover:text-slate-900">
-                  Contact
-                </Link>
-              </li>
-            </ul>
-          </div>
-
-          <div>
-            <h4 className="font-semibold text-slate-900 mb-4">Resources</h4>
-            <ul className="space-y-2">
-              <li>
-                <a href="#docs" className="text-sm text-slate-600 hover:text-slate-900">
-                  Documentation
-                </a>
-              </li>
-              <li>
-                <a href="#support" className="text-sm text-slate-600 hover:text-slate-900">
-                  Support
-                </a>
-              </li>
-              <li>
-                <a href="#blog" className="text-sm text-slate-600 hover:text-slate-900">
-                  Blog
-                </a>
-              </li>
-            </ul>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-3 md:justify-end">
+              {columnLinks.map(([title, links]) => (
+                <div key={title}>
+                  <h4 className="text-lg font-semibold mb-4">{title}</h4>
+                  <ul className="space-y-2 text-sm">
+                    {links.map(link => (
+                      <li key={link}>
+                        <a className="text-[#F0E8DA] hover:text-white" href="#">
+                          {link}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
+      </section>
 
-        <div className="border-t border-slate-200 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-sm text-slate-600">
-            © {new Date().getFullYear()} AI Case Assistant. All rights reserved.
-          </p>
-          <div className="flex items-center gap-6">
-            <a href="#terms" className="text-sm text-slate-600 hover:text-slate-900">
+      <section className="bg-[#E9E1D6] text-[#5C4C3C]">
+        <div className="container mx-auto px-6 py-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <p className="text-sm">All Rights Reserved</p>
+          <div className="flex gap-6 text-sm">
+            <Link to="/terms" className="hover:text-[#8B7462]">
               Terms
-            </a>
-            <Link to="privacy" className="text-sm text-slate-600 hover:text-slate-900">
-              Privacy Policy
             </Link>
-            <a href="#cookies" className="text-sm text-slate-600 hover:text-slate-900">
+            <Link to="/privacy" className="hover:text-[#8B7462]">
+              Privacy
+            </Link>
+            <Link to="/cookies" className="hover:text-[#8B7462]">
               Cookies
-            </a>
+            </Link>
           </div>
         </div>
-      </div>
+      </section>
     </footer>
   )
 }

@@ -4,17 +4,17 @@
 	 This file avoids advanced PostCSS at-rules and keeps changes localized.
 */
 :root {
-  /* Palette provided by user */
-  --background: #f4f2c9; /* Champagne */
-  --foreground: #0f172a; /* slate-900-ish for readable text */
-  --primary: #265999; /* Cyan Cobalt Blue */
+  /* Warm palette tokens */
+  --background: #faf6f0; /* soft beige */
+  --foreground: #2c2218; /* dark brown */
+  --primary: #C96A08; /* burnt orange */
   --primary-foreground: #ffffff;
-  --secondary: #f4f2c9; /* light champagne */
-  --muted: #f6f5ee;
-  --muted-foreground: #6b6b5a;
-  --accent: #ca9703; /* Chinese Gold */
+  --secondary: #f7efe7;
+  --muted: #f8f6ef;
+  --muted-foreground: #7a5c3c;
+  --accent: #C96A08;
   --accent-foreground: #ffffff;
-  --border: #e9e6d1;
+  --border: #e4d6c7;
 }
 
 /* Dark mode overrides (optional) */
@@ -62,11 +62,11 @@
 
 /* Chart color variables (used by visual components) */
 :root {
-  --chart-1: #265999; /* Cyan Cobalt Blue */
-  --chart-2: #ca9703; /* Chinese Gold */
-  --chart-3: #4488bf; /* Cyan-Blue Azure */
-  --chart-4: #d5ad36; /* American Gold */
-  --chart-5: #4a74b8; /* medium blue */
+  --chart-1: #C96A08; /* burnt orange */
+  --chart-2: #d18b47; /* warm amber */
+  --chart-3: #d79b71; /* soft sand */
+  --chart-4: #bf7b3e; /* deep bronze */
+  --chart-5: #e4c4a5; /* muted peach */
 }
 
 /* Ensure clickable controls show a pointer cursor for consistent UX */
@@ -170,7 +170,7 @@ label[role='button'],
   gap: 8px;
   margin-left: 6px;
   padding: 4px 8px;
-  background: rgba(38,89,153,0.08); /* subtle primary tint for contrast */
+  background: rgba(201, 106, 8, 0.1);
   border-radius: 9999px;
   color: var(--primary);
   font-size: 12px;

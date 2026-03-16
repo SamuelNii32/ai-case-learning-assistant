@@ -112,10 +112,10 @@ export default function Topbar({
       </button>
 
       {/* Search */}
-      <div className="w-full max-w-sm md:max-w-md">
+      <div className="w-full max-w-md">
         <div className="relative">
           <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-            <Search className="w-4 h-4 text-slate-400" />
+            <Search className="w-4 h-4 text-[#8B7462]" />
           </div>
           <input
             id={inputId} /* enables "/" focus shortcut if you wire it */
@@ -123,7 +123,7 @@ export default function Topbar({
             placeholder="Search cases…"
             value={searchValue}
             onChange={e => onSearchChange?.(e.target.value)}
-            className="w-full h-10 rounded-md border border-slate-300 pl-10 pr-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-300/60 focus:ring-offset-2"
+            className="w-full h-10 rounded-md border border-[#d6c6b4] bg-white pl-10 pr-3 text-[#2C2218] placeholder-[#8B7462] focus:outline-none focus:ring-2 focus:ring-[#C96A08]/60 focus:ring-offset-2 focus:ring-offset-[#f5ecde]"
             aria-label="Search cases"
           />
         </div>
@@ -144,7 +144,7 @@ export default function Topbar({
           aria-expanded={isDropdownOpen}
           aria-controls="topbar-user-menu"
         >
-          <div className="w-9 h-9 md:w-10 md:h-10 bg-[#125691] rounded-full grid place-items-center text-white font-semibold">
+          <div className="w-9 h-9 md:w-10 md:h-10 bg-[#C96A08] rounded-full grid place-items-center text-white font-semibold">
             {getInitials(getDisplayName())}
           </div>
           <span className="hidden sm:inline font-medium text-slate-900">{getDisplayName()}</span>

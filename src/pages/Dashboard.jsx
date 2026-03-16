@@ -122,14 +122,14 @@ export default function Dashboard() {
     <>
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">My Cases</h1>
-          <p className="text-slate-600 mt-1">Continue your learning journey or start a new case</p>
+          <h1 className="text-3xl font-bold text-[#2C2218]">My Cases</h1>
+          <p className="text-[#5C4C3C] mt-1">Continue your learning journey or start a new case</p>
         </div>
 
         {/* Upload Case action (top-right) */}
         <Link
           to="/upload"
-          className="inline-flex items-center gap-2 rounded-md bg-[#125691] px-3 py-2 text-sm font-medium text-white hover:bg-[#0f4f74] focus:outline-none focus:ring-2 focus:ring-[#125691]/60 focus:ring-offset-2"
+          className="inline-flex items-center gap-2 rounded-md bg-[#C96A08] px-3 py-2 text-sm font-medium text-white hover:bg-[#a05706] focus:outline-none focus:ring-2 focus:ring-[#C96A08]/60 focus:ring-offset-2"
         >
           <Upload className="w-4 h-4" aria-hidden="true" />
           <span className="hidden sm:inline">Upload Case</span>

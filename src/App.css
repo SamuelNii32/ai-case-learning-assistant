@@ -2,15 +2,15 @@
 /* Custom styles can go here if needed */
 
 :root {
-  /* v0 dev color tokens */
-  --background: #f4f2c9; /* champagne */
-  --foreground: #0b1220;
+  /* Warm palette tokens */
+  --background: #faf6f0;
+  --foreground: #2c2218;
   --card: #ffffff;
-  --primary: #265999; /* cyan cobalt blue */
+  --primary: #C96A08;
   --primary-foreground: #ffffff;
-  --accent: #ca9703; /* chinese gold */
-  --ring: #4488bf; /* cyan-blue azure */
-  --muted-foreground: #6b7280;
+  --accent: #C96A08;
+  --ring: #d18b47;
+  --muted-foreground: #7a5c3c;
 }
 
 /* global background/text */

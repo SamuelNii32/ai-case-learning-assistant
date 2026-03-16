@@ -37,28 +37,34 @@ export default function Header() {
   const toggleMenu = () => setIsMenuOpen(v => !v)
 
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
-      <div className="container mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+    <header className="sticky top-0 z-40 bg-[#fdfcf7] shadow-[0_10px_25px_rgba(0,0,0,0.08)] border-b border-slate-200 rounded-b-[28px]">
+      <div className="container mx-auto px-6 sm:px-10 py-4 flex items-center justify-between gap-6">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2">
-          <div className="w-10 h-10 bg-[#125691] rounded-lg flex items-center justify-center">
-            <FileText className="w-6 h-6 text-white" />
+          <div className="w-10 h-10 bg-[#d6b087] rounded-lg flex items-center justify-center">
+            <FileText className="w-6 h-6 text-[#2c2218]" />
           </div>
-          {/* Always show the visible brand text to improve discoverability. If you
-              prefer to hide it on the landing page to avoid duplicate headings,
-              revert this to the prior isRoot conditional. */}
-          <span className="font-semibold text-lg sm:text-xl text-slate-900">AI Case Assistant</span>
+          <span className="font-semibold text-lg sm:text-xl text-[#1f140a]">AI Case Assistant</span>
         </Link>
 
         {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center gap-8">
-          <Link to="about" className="text-slate-600 hover:text-slate-900 transition-colors">
+        <nav className="hidden md:flex items-center gap-10 text-[#1f140a]">
+          <Link
+            to="about"
+            className="text-base font-medium tracking-wide text-[#2c2218] transition-colors duration-200 hover:text-[#4a3a2a]"
+          >
             About
           </Link>
-          <Link to="privacy" className="text-slate-600 hover:text-slate-900 transition-colors">
+          <Link
+            to="privacy"
+            className="text-base font-medium tracking-wide text-[#2c2218] transition-colors duration-200 hover:text-[#4a3a2a]"
+          >
             Privacy
           </Link>
-          <Link to="contact" className="text-slate-600 hover:text-slate-900 transition-colors">
+          <Link
+            to="contact"
+            className="text-base font-medium tracking-wide text-[#2c2218] transition-colors duration-200 hover:text-[#4a3a2a]"
+          >
             Contact
           </Link>
           {auth?.loggedIn ? (
@@ -128,7 +134,7 @@ export default function Header() {
             </div>
           ) : (
             <Link to="login">
-              <Button className="h-9 px-4 rounded-lg bg-[#125691] text-white hover:opacity-90">
+              <Button className="h-10 px-5 rounded-full bg-[#C96A08] text-white hover:bg-[#9c5306] transition-colors">
                 Sign In
               </Button>
             </Link>

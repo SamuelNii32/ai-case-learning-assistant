@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { API_BASE } from '@/config'
 import { getAuthToken } from '@/lib/api'
 import { AuthContext } from '@/contexts/AuthContext'
+import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 
 // Group sessions by user (email/name)
 function groupSessionsByUser(sessions) {
@@ -45,9 +47,9 @@ function groupSessionsByUser(sessions) {
 
 function AccessDenied() {
   return (
-    <div className="p-8">
-      <h2 className="text-2xl font-bold">Access denied — supervisor only</h2>
-      <p className="mt-2 text-sm text-muted-foreground">
+    <div className="p-6 md:p-8 bg-white border border-[#f3e0ce] rounded-[12px] shadow-sm">
+      <h2 className="text-2xl font-bold text-[#2c2218]">Access denied — supervisor only</h2>
+      <p className="mt-2 text-sm text-[#7a5c3c]">
         You do not have permission to view this page.
       </p>
     </div>
@@ -100,7 +102,7 @@ export default function AdminSessions() {
     return () => {
       cancelled = true
     }
-  }, [auth?.loggedIn, auth?.user?.role, auth?.user?.isSuperUser])
+  }, [auth?.loggedIn, isInstructor])
 
   if (!auth?.loggedIn || !isInstructor) {
     return <AccessDenied />
@@ -148,115 +150,126 @@ export default function AdminSessions() {
   const groups = groupSessionsByUser(sessions)
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">Supervisor — Sessions</h1>
-          <p className="text-sm text-slate-600 mt-1">
-            View and export session activity across learners.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={exportCsv}
-            className="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 rounded text-sm"
-          >
-            Export CSV
-          </button>
-        </div>
-      </div>
+    <div className="min-h-screen bg-[#faf6f0] py-10">
+      <div className="max-w-7xl mx-auto px-4 space-y-6">
+        <div className="bg-white border border-[#f4e7d8] shadow-[0_25px_45px_rgba(32,20,8,0.08)] rounded-[12px] p-6 md:p-8 space-y-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold text-[#2c2218]">Supervisor — Sessions</h1>
+              <p className="text-sm text-[#5C4C3C] mt-1">
+                View and export session activity across learners.
+              </p>
+            </div>
+            <Button variant="warm" onClick={exportCsv} className="inline-flex items-center gap-2">
+              Export CSV
+            </Button>
+          </div>
 
-      {loading ? (
-        <div>Loading sessions…</div>
-      ) : error ? (
-        <div className="text-red-600">Failed to load sessions: {error}</div>
-      ) : groups.length === 0 ? (
-        <div>No sessions found.</div>
-      ) : (
-        <div className="space-y-6">
-          {groups.map(group => {
-            const key = group.userEmail || group.key
-            const isCollapsed = collapsedByEmail[key]
+          <div className="border-b border-[#E8DDD0] bg-white px-1">
+            <div className="flex flex-wrap gap-6 text-sm font-semibold text-[#5C4C3C]">
+              <button type="button" className="pb-3 text-[#C96A08] border-b-2 border-[#C96A08]">
+                Sessions
+              </button>
+              <button type="button" className="pb-3 text-[#7a5c3e]">
+                History
+              </button>
+            </div>
+          </div>
 
-            return (
-              <div key={key} className="space-y-2">
-                {/* Student header row */}
-                <button
-                  type="button"
-                  className="w-full flex items-center justify-between text-left"
-                  onClick={() =>
-                    setCollapsedByEmail(prev => ({
-                      ...prev,
-                      [key]: !prev[key],
-                    }))
-                  }
-                >
-                  <div>
-                    <div className="text-sm font-semibold text-slate-900">{group.userFullName}</div>
-                    {group.userEmail && (
-                      <div className="text-xs text-slate-500">{group.userEmail}</div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-slate-500">
-                    <span>{group.sessions.length} session(s)</span>
-                    <span className="text-slate-400">{isCollapsed ? '▸' : '▾'}</span>
-                  </div>
-                </button>
+          {loading ? (
+            <div className="bg-white border border-[#f3e0ce] rounded-2xl p-6 text-center shadow-sm">
+              <p className="text-[#7a5c3e]">Loading sessions…</p>
+            </div>
+          ) : error ? (
+            <div className="bg-white border border-[#f3e0ce] rounded-2xl p-6 text-center shadow-sm">
+              <p className="text-[#c76008]">Failed to load sessions: {error}</p>
+            </div>
+          ) : groups.length === 0 ? (
+            <div className="bg-white border border-[#f3e0ce] rounded-2xl p-6 text-center shadow-sm">
+              <p className="text-[#7a5c3e]">No sessions found.</p>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {groups.map(group => {
+                const key = group.userEmail || group.key
+                const isCollapsed = collapsedByEmail[key]
 
-                {/* That student's sessions */}
-                {!isCollapsed && (
-                  <div className="space-y-3 mt-1">
-                    {group.sessions.map(s => (
-                      <Link
-                        key={s.sessionId}
-                        to={`/admin/sessions/${encodeURIComponent(s.sessionId)}`}
-                        className="block bg-white border border-slate-100 rounded-lg shadow-sm hover:shadow-md p-4 transition-shadow"
+                return (
+                  <Card
+                    key={key}
+                    className="p-5 md:p-6 bg-white border border-[#f3e0ce] rounded-[12px] shadow-sm transition-shadow hover:shadow-md"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-lg font-semibold text-[#2c2218]">{group.userFullName}</div>
+                        {group.userEmail && (
+                          <div className="text-sm text-[#7a5c3c]">{group.userEmail}</div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCollapsedByEmail(prev => ({
+                            ...prev,
+                            [key]: !prev[key],
+                          }))
+                        }
+                        className="text-sm font-semibold text-[#5C4C3C]"
                       >
-                        <div className="grid gap-4 items-start md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.3fr)_minmax(0,0.7fr)]">
-                          <div className="min-w-0">
-                            {/* We already show name/email in the header above, so just show case info here */}
-                            <div className="mt-1">
-                              {/* First line: prefer caseName, otherwise show originalFileName once */}
-                              <div className="text-sm font-medium text-slate-800 truncate">
-                                {s.caseName ? s.caseName : s.originalFileName || '—'}
+                        {group.sessions.length} session{group.sessions.length !== 1 ? 's' : ''}
+                        <span className="ml-2 text-[#c76008]">{isCollapsed ? '▸' : '▾'}</span>
+                      </button>
+                    </div>
+
+                    {!isCollapsed && (
+                      <div className="mt-5 space-y-4">
+                        {group.sessions.map(s => (
+                          <Link
+                            key={s.sessionId}
+                            to={`/admin/sessions/${encodeURIComponent(s.sessionId)}`}
+                            className="block border border-[#f4e7d8] rounded-[12px] p-4 bg-white shadow-sm transition-shadow hover:shadow-[0_12px_30px_rgba(32,20,8,0.12)]"
+                          >
+                            <div className="grid gap-4 items-start md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.3fr)_minmax(0,0.7fr)]">
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium text-[#2c2218] truncate">
+                                  {s.caseName ? s.caseName : s.originalFileName || '—'}
+                                </div>
+                                {s.caseName &&
+                                  s.originalFileName &&
+                                  s.caseName !== s.originalFileName && (
+                                    <div className="text-xs text-[#7a5c3c]">{s.originalFileName}</div>
+                                  )}
                               </div>
 
-                              {/* Second line: only if BOTH exist and are different */}
-                              {s.caseName &&
-                                s.originalFileName &&
-                                s.caseName !== s.originalFileName && (
-                                  <div className="text-xs text-slate-500">{s.originalFileName}</div>
-                                )}
-                            </div>
-                          </div>
+                              <div className="flex flex-col items-start gap-2">
+                                <div className="text-xs text-[#7a5c3c]">Created</div>
+                                <div className="text-sm text-[#2c2218]">
+                                  {s.createdAt ? new Date(s.createdAt).toLocaleString() : '—'}
+                                </div>
+                                <div className="mt-2 text-xs text-[#7a5c3c]">Last message</div>
+                                <div className="text-sm text-[#2c2218]">
+                                  {s.lastMessageAt ? new Date(s.lastMessageAt).toLocaleString() : '—'}
+                                </div>
+                              </div>
 
-                          <div className="flex flex-col items-start gap-2">
-                            <div className="text-xs text-slate-500">Created</div>
-                            <div className="text-sm text-slate-700">
-                              {s.createdAt ? new Date(s.createdAt).toLocaleString() : '—'}
+                              <div className="flex flex-col items-start md:items-end">
+                                <div className="text-xs text-[#7a5c3c]">Messages</div>
+                                <div className="mt-1 inline-flex items-center justify-center px-2 py-1 bg-[#fdf4eb] border border-[#f3e0ce] rounded text-sm font-medium text-[#2c2218]">
+                                  {s.messageCount ?? 0}
+                                </div>
+                              </div>
                             </div>
-                            <div className="mt-2 text-xs text-slate-500">Last message</div>
-                            <div className="text-sm text-slate-700">
-                              {s.lastMessageAt ? new Date(s.lastMessageAt).toLocaleString() : '—'}
-                            </div>
-                          </div>
-
-                          <div className="flex flex-col items-start md:items-end">
-                            <div className="text-xs text-slate-500">Messages</div>
-                            <div className="mt-1 inline-flex items-center justify-center px-2 py-1 bg-slate-100 rounded text-sm font-medium">
-                              {s.messageCount ?? 0}
-                            </div>
-                          </div>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </Card>
+                )
+              })}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }

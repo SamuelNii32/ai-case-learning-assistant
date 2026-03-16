@@ -35,7 +35,7 @@ function formatDurationFromSeconds(sec) {
   const minutes = totalMinutes % 60
   if (hours && minutes) return `${hours}h ${minutes}m`
   if (hours) return `${hours}h`
-  return `${minutes}m`
+  return `${minutes} min`
 }
 
 function mapApiSessionToView(api) {
@@ -72,7 +72,7 @@ function mapApiSessionToView(api) {
 
 function NotesButton({ session, onClick }) {
   if (!session.hasNotes) {
-    return <span className="text-xs text-slate-400">—</span>
+    return <span className="text-xs text-slate-400">No notes</span>
   }
 
   return (
@@ -100,7 +100,7 @@ function SessionActionsDropdown({ sessionId, isOpen, onToggle, onAction }) {
           e.stopPropagation()
           onToggle()
         }}
-        className="p-1 hover:bg-slate-100 rounded focus:outline-none focus:ring-2 focus:ring-blue-300/60 focus:ring-offset-2"
+        className="p-1 hover:bg-[#f3e8dc] rounded-md focus:outline-none focus:ring-2 focus:ring-blue-300/60 focus:ring-offset-2 transition-colors"
       >
         <MoreVertical className="w-4 h-4 text-slate-400" />
       </button>
@@ -409,7 +409,7 @@ export default function SessionHistory() {
                 <div key={s.id}>
                   {/* Desktop Layout */}
                   <div
-                    className="hidden md:grid grid-cols-[140px_1fr_120px_140px_100px_80px] gap-4 px-4 py-4 items-center hover:bg-slate-50/70 rounded-lg transition-colors cursor-pointer"
+                    className="hidden md:grid grid-cols-[140px_1fr_120px_140px_100px_80px] gap-4 px-4 py-4 items-center hover:bg-[#f9f6f1] rounded-lg transition-colors cursor-pointer"
                     onClick={() => {
                       // uploadId is the case (PDF). Fallback to sessionId for free chat.
                       const uploadId = s.uploadId || s.caseId || s.id
@@ -463,7 +463,7 @@ export default function SessionHistory() {
                         </div>
                       ) : (
                         <div
-                          className="text-sm font-medium text-slate-900 truncate"
+                          className="text-sm font-semibold text-slate-900 truncate"
                           title={getSessionTitle(s)}
                         >
                           {getSessionTitle(s)}
@@ -508,7 +508,7 @@ export default function SessionHistory() {
 
                   {/* Mobile Layout */}
                   <div
-                    className="md:hidden px-4 py-4 hover:bg-slate-50/70 rounded-lg transition-colors cursor-pointer"
+                    className="md:hidden px-4 py-4 hover:bg-[#f9f6f1] rounded-lg transition-colors cursor-pointer"
                     onClick={() => {
                       const uploadId = s.uploadId || s.caseId || s.id
 
@@ -521,7 +521,7 @@ export default function SessionHistory() {
                   >
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-medium text-slate-900 truncate">
+                        <h3 className="text-sm font-semibold text-slate-900 truncate">
                           {editingSessionId === s.id ? (
                             <input
                               type="text"
