@@ -1,4 +1,4 @@
-# robots.txt for ai-case-learning-assistant
+# robots.txt for CasePilot
 # Allow all crawlers full access. Adjust if you need to block paths.
 User-agent: *
 Disallow:
