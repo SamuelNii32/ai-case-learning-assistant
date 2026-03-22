@@ -70,13 +70,13 @@ export default function Header() {
               <button
                 type="button"
                 onClick={() => setUserMenuOpen(v => !v)}
-                className="inline-flex items-center gap-2 rounded-full bg-[#C96A08] text-white px-4 py-2 transition-colors duration-200 hover:bg-[#a05506]"
+                className="inline-flex items-center gap-2 h-12 rounded-[10px] bg-[#e58a2a] px-4 text-sm font-semibold text-white transition-colors duration-200 hover:bg-[#dc7f1d]"
               >
-                <span className="text-sm text-slate-900 font-medium">
+                <span className="text-sm text-white font-semibold">
                   {auth.user?.fullName || auth.user?.email || 'Account'}
                 </span>
                 <svg
-                  className="w-3 h-3 text-slate-400"
+                  className="w-3 h-3 text-white"
                   viewBox="0 0 20 20"
                   fill="currentColor"
                   aria-hidden
@@ -192,9 +192,8 @@ export default function Header() {
                       Settings
                     </Button>
                   </Link>
-                  <Button
-                    variant="outline"
-                    className="w-full"
+                  <button
+                    type="button"
                     onClick={() => {
                       try {
                         if (auth?.logout) auth.logout()
@@ -209,9 +208,10 @@ export default function Header() {
                       }
                       navigate('/')
                     }}
+                    className="inline-flex items-center gap-2 rounded-full bg-[#e58a2a] text-white px-4 py-2 transition-colors duration-200 hover:bg-[#dc7f1d]"
                   >
                     Sign out
-                  </Button>
+                  </button>
                 </div>
               ) : (
                 <Link to="login" onClick={() => setIsMenuOpen(false)}>

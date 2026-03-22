@@ -1,10 +1,9 @@
 import React, { useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
-import { FileText } from 'lucide-react'
 import RoleSelector from '../components/auth/RoleSelector'
 import AuthFormFooter from '../components/auth/AuthFormFooter'
 import { API_BASE } from '@/config'
@@ -68,10 +67,19 @@ export default function SignUpPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f5ecde] flex items-stretch">
+    <main className="relative min-h-screen bg-[#f5ecde] flex items-stretch">
+      <Link
+        to="/"
+        className="absolute left-6 top-6 text-[32px] font-semibold text-[#C96A08]"
+        aria-label="Back to landing"
+      >
+        ←
+      </Link>
       <div className="w-full grid min-h-screen grid-cols-1 md:grid-cols-2">
         <section className="flex flex-col justify-center bg-[#f5ecde] px-8 py-12 text-[#2C2218]">
-          <p className="text-xs uppercase tracking-[0.4em] text-[#3c2a1e] font-semibold">AI Case Assistant</p>
+          <p className="text-xs uppercase tracking-[0.4em] text-[#3c2a1e] font-semibold">
+            AI Case Assistant
+          </p>
           <h2 className="mt-3 text-3xl font-semibold">Guided Case Learning</h2>
           <p className="mt-4 text-sm text-[#5c4c3c]">
             Build confidence with every case. Breakthroughs come faster when every note, insight,
@@ -96,11 +104,11 @@ export default function SignUpPage() {
         <section className="flex items-center justify-center bg-[#f8f5ef] px-8 py-12 md:border-l md:border-[#ecdccf]">
           <div className="w-full max-w-md space-y-6">
             <div className="flex flex-col items-center gap-2">
-              <div className="w-12 h-12 rounded-xl bg-[#C96A08] flex items-center justify-center">
-                <FileText className="w-7 h-7 text-white" />
-              </div>
+              <img src="/fav.png" alt="CasePilot logo" className="h-12 w-12" />
               <h1 className="text-2xl font-semibold text-[#2C2218]">Create Account</h1>
-              <p className="text-center text-sm text-[#5c4c3c]">Start your case learning journey today</p>
+              <p className="text-center text-sm text-[#5c4c3c]">
+                Start your case learning journey today
+              </p>
             </div>
 
             <form onSubmit={handleSignUp} className="space-y-4">
@@ -155,7 +163,7 @@ export default function SignUpPage() {
 
               <Button
                 type="submit"
-                className="w-full bg-[#C96A08] hover:bg-[#9c5306]"
+                className="w-full h-12 rounded-[10px] bg-[#C96A08] px-4 text-sm font-semibold text-white hover:bg-[#9c5306]"
                 disabled={loading}
               >
                 {loading ? 'Creating…' : 'Create Account'}

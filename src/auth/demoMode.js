@@ -49,7 +49,9 @@ export function getDemoUser() {
   try {
     if (typeof window === 'undefined') return null
     const raw = localStorage.getItem('demo_user')
-    return raw ? JSON.parse(raw) : { userId: 'demo-user', email: '', fullName: 'Demo User', role: 'instructor' }
+    return raw
+      ? JSON.parse(raw)
+      : { userId: 'demo-user', email: '', fullName: 'Demo User', role: 'instructor' }
   } catch {
     return { userId: 'demo-user', email: '', fullName: 'Demo User', role: 'instructor' }
   }

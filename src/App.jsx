@@ -4,6 +4,11 @@ import Header from './components/Header'
 import DeployConfigWarning from './components/DeployConfigWarning'
 import { Footer } from './components/Footer'
 import Landing from './pages/Landing'
+const FeaturesPage = lazy(() => import('./pages/Features'))
+const AboutPage = lazy(() => import('./pages/About'))
+const SupportPage = lazy(() => import('./pages/Support'))
+const PrivacyPage = lazy(() => import('./pages/Privacy'))
+const ContactPage = lazy(() => import('./pages/Contact'))
 const SignInPage = lazy(() => import('./pages/SignIn'))
 const SignUpPage = lazy(() => import('./pages/SignUp'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
@@ -148,16 +153,33 @@ function App() {
 
           {/* Instructor dashboard route moved into AppLayout (actual component) */}
           <Route
+            path="/features"
+            element={
+              <>
+                <main>
+                  <FeaturesPage />
+                </main>
+                <Footer />
+              </>
+            }
+          />
+          <Route
             path="/about"
             element={
               <>
                 <main>
-                  <div className="max-w-4xl mx-auto px-6 py-12">
-                    <h1 className="text-3xl font-bold text-gray-900 mb-6">About</h1>
-                    <p className="text-gray-600">
-                      Learn more about our AI Case Learning Assistant.
-                    </p>
-                  </div>
+                  <AboutPage />
+                </main>
+                <Footer />
+              </>
+            }
+          />
+          <Route
+            path="/support"
+            element={
+              <>
+                <main>
+                  <SupportPage />
                 </main>
                 <Footer />
               </>
@@ -168,10 +190,7 @@ function App() {
             element={
               <>
                 <main>
-                  <div className="max-w-4xl mx-auto px-6 py-12">
-                    <h1 className="text-3xl font-bold text-gray-900 mb-6">Privacy Policy</h1>
-                    <p className="text-gray-600">Your privacy is important to us.</p>
-                  </div>
+                  <PrivacyPage />
                 </main>
                 <Footer />
               </>
@@ -182,10 +201,7 @@ function App() {
             element={
               <>
                 <main>
-                  <div className="max-w-4xl mx-auto px-6 py-12">
-                    <h1 className="text-3xl font-bold text-gray-900 mb-6">Contact Us</h1>
-                    <p className="text-gray-600">Get in touch with our team.</p>
-                  </div>
+                  <ContactPage />
                 </main>
                 <Footer />
               </>

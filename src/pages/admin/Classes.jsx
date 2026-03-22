@@ -84,7 +84,9 @@ export default function Classes() {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-[#2c2218]">Classes</h1>
-              <p className="text-sm text-[#5C4C3C] mt-1">Manage your classes, students, and assignments.</p>
+              <p className="text-sm text-[#5C4C3C] mt-1">
+                Manage your classes, students, and assignments.
+              </p>
             </div>
             <Button
               onClick={() => setShowCreateModal(true)}
@@ -98,10 +100,7 @@ export default function Classes() {
 
           <div className="border-b border-[#E8DDD0] bg-white px-1">
             <div className="flex flex-wrap gap-6 text-sm font-semibold text-[#5C4C3C]">
-              <button
-                type="button"
-                className="pb-3 text-[#C96A08] border-b-2 border-[#C96A08]"
-              >
+              <button type="button" className="pb-3 text-[#C96A08] border-b-2 border-[#C96A08]">
                 My Classes
               </button>
               <button type="button" className="pb-3 text-[#7a5c3e]">
@@ -116,7 +115,9 @@ export default function Classes() {
             </div>
           ) : classes.length === 0 ? (
             <div className="bg-white border border-[#f3e0ce] rounded-2xl p-6 md:p-8 text-center shadow-sm">
-              <p className="text-[#7a5c3e]">No classes yet. Create your first class to get started.</p>
+              <p className="text-[#7a5c3e]">
+                No classes yet. Create your first class to get started.
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -135,7 +136,9 @@ export default function Classes() {
                     <div className="flex flex-wrap items-center gap-6 text-sm text-[#5C4C3C]">
                       <div className="flex items-center gap-2">
                         <Users size={16} className="text-[#C96A08]" />
-                        <span className="font-semibold text-[#2c2218]">{cls.studentCount || 0}</span>
+                        <span className="font-semibold text-[#2c2218]">
+                          {cls.studentCount || 0}
+                        </span>
                         <span>students</span>
                       </div>
                       <div className="flex items-center gap-2">
@@ -195,7 +198,10 @@ export default function Classes() {
 
             <form onSubmit={handleCreateClass} className="p-4 md:p-6 space-y-4">
               <div>
-                <label htmlFor="className" className="block text-sm font-medium mb-1.5 text-[#2c2218]">
+                <label
+                  htmlFor="className"
+                  className="block text-sm font-medium mb-1.5 text-[#2c2218]"
+                >
                   Class Name <span className="text-red-500">*</span>
                 </label>
                 <Input
@@ -211,7 +217,10 @@ export default function Classes() {
               </div>
 
               <div>
-                <label htmlFor="classDescription" className="block text-sm font-medium mb-1.5 text-[#2c2218]">
+                <label
+                  htmlFor="classDescription"
+                  className="block text-sm font-medium mb-1.5 text-[#2c2218]"
+                >
                   Description (optional)
                 </label>
                 <Textarea
@@ -234,7 +243,12 @@ export default function Classes() {
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={creating} className="w-full sm:w-auto" variant="warm">
+                <Button
+                  type="submit"
+                  disabled={creating}
+                  className="w-full sm:w-auto"
+                  variant="warm"
+                >
                   {creating ? 'Creating...' : 'Create Class'}
                 </Button>
               </div>

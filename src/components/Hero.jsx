@@ -13,7 +13,9 @@ export function Hero() {
         <span className="block whitespace-nowrap">Master Complex Cases</span>
         <span className="block whitespace-nowrap text-[#2c2218]">
           <span className="font-medium">With</span>{' '}
-          <span className="text-[#C96A08] font-semibold italic tracking-tight">AI Powered Learning</span>
+          <span className="text-[#C96A08] font-semibold italic tracking-tight">
+            AI Powered Learning
+          </span>
         </span>
       </h1>
       <p className="mx-auto max-w-2xl text-lg text-[#5a3c25] leading-relaxed px-4 sm:px-0">

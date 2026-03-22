@@ -40,7 +40,9 @@ export default function Landing() {
             </article>
 
             <article className="bg-[#8B735E] rounded-[28px] shadow-[0_16px_34px_rgba(15,10,7,0.32)] px-5 py-4 border border-[#6c4c38] text-white max-w-[280px] md:mx-auto">
-              <h2 className="text-[22px] font-semibold leading-tight tracking-[-0.01em]">Session History &amp; Notes</h2>
+              <h2 className="text-[22px] font-semibold leading-tight tracking-[-0.01em]">
+                Session History &amp; Notes
+              </h2>
               <p className="mt-3 text-sm text-neutral-200 leading-snug">
                 Review every insight and annotation in one warm, centralized place.
               </p>
@@ -64,7 +66,7 @@ export default function Landing() {
               <h2 className="text-[22px] font-semibold leading-snug tracking-[-0.01em]">
                 Private by <span className="text-[#2c2218] font-black">DESIGN</span>
               </h2>
-              <p className="mt-3 text-sm text-[#5c4c3c] leading-relaxed">
+              <p className="mt-3 text-sm text-white leading-relaxed">
                 Case data stays encrypted and auditable, with privacy baked into every workflow.
               </p>
             </article>

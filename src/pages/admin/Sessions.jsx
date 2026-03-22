@@ -49,9 +49,7 @@ function AccessDenied() {
   return (
     <div className="p-6 md:p-8 bg-white border border-[#f3e0ce] rounded-[12px] shadow-sm">
       <h2 className="text-2xl font-bold text-[#2c2218]">Access denied — supervisor only</h2>
-      <p className="mt-2 text-sm text-[#7a5c3c]">
-        You do not have permission to view this page.
-      </p>
+      <p className="mt-2 text-sm text-[#7a5c3c]">You do not have permission to view this page.</p>
     </div>
   )
 }
@@ -155,7 +153,9 @@ export default function AdminSessions() {
         <div className="bg-white border border-[#f4e7d8] shadow-[0_25px_45px_rgba(32,20,8,0.08)] rounded-[12px] p-6 md:p-8 space-y-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-[#2c2218]">Supervisor — Sessions</h1>
+              <h1 className="text-2xl md:text-3xl font-bold text-[#2c2218]">
+                Supervisor — Sessions
+              </h1>
               <p className="text-sm text-[#5C4C3C] mt-1">
                 View and export session activity across learners.
               </p>
@@ -201,7 +201,9 @@ export default function AdminSessions() {
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <div className="text-lg font-semibold text-[#2c2218]">{group.userFullName}</div>
+                        <div className="text-lg font-semibold text-[#2c2218]">
+                          {group.userFullName}
+                        </div>
                         {group.userEmail && (
                           <div className="text-sm text-[#7a5c3c]">{group.userEmail}</div>
                         )}
@@ -237,7 +239,9 @@ export default function AdminSessions() {
                                 {s.caseName &&
                                   s.originalFileName &&
                                   s.caseName !== s.originalFileName && (
-                                    <div className="text-xs text-[#7a5c3c]">{s.originalFileName}</div>
+                                    <div className="text-xs text-[#7a5c3c]">
+                                      {s.originalFileName}
+                                    </div>
                                   )}
                               </div>
 
@@ -248,7 +252,9 @@ export default function AdminSessions() {
                                 </div>
                                 <div className="mt-2 text-xs text-[#7a5c3c]">Last message</div>
                                 <div className="text-sm text-[#2c2218]">
-                                  {s.lastMessageAt ? new Date(s.lastMessageAt).toLocaleString() : '—'}
+                                  {s.lastMessageAt
+                                    ? new Date(s.lastMessageAt).toLocaleString()
+                                    : '—'}
                                 </div>
                               </div>
 

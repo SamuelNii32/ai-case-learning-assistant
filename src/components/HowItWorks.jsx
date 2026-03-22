@@ -1,147 +1,168 @@
-import { Upload, MessageSquare, Lightbulb, FileText } from 'lucide-react'
+import { MessageSquare, Lightbulb, FileText } from 'lucide-react'
 
 export function HowItWorks() {
   return (
-    <section className="bg-[#f8f5ef] py-20">
-      <div className="container mx-auto px-6">
-        <div className="text-center mb-16">
-          <h2 className="text-4xl font-bold text-[#2C2218] mb-4">How It Works</h2>
-          <p className="text-lg text-[#5C4C3C]">Get started in three structured steps</p>
-        </div>
+    <section className="bg-[#f8f5ef] py-12">
+      <div className="relative mx-auto max-w-[1180px] px-4">
+        <div className="absolute inset-x-4 top-4 h-[430px] rounded-[38px] bg-[#d8cfc3]" />
 
-        <div className="grid md:grid-cols-3 gap-12">
-          {/* Step 1: Upload */}
-          <div className="space-y-6">
-            <div className="relative rounded-xl overflow-hidden shadow-lg border border-[#f4e7d8] bg-white">
-              <div className="h-60 bg-[#fff6ed] p-6 flex flex-col items-center justify-center">
-                <div className="w-full max-w-sm space-y-4">
-                  <div className="border-2 border-dashed border-[#e4c6a1] rounded-lg p-8 bg-white/60 flex flex-col items-center gap-3">
-                    <div className="w-12 h-12 bg-[#C96A08] rounded-full flex items-center justify-center shadow-sm">
-                      <FileText className="w-6 h-6 text-white" />
-                    </div>
-                    <div className="text-center">
-                      <div className="text-sm font-medium text-[#2C2218] flex items-center justify-center gap-1">
-                        Drop or receive a case
-                      </div>
-                      <div className="text-xs text-[#6A3A0A]">PDF upload or instructor assignment</div>
-                    </div>
-                  </div>
-                  <div className="text-xs text-[#6A3A0A] text-center">Supports PDFs up to 50MB with class sync</div>
-                </div>
-              </div>
-              <div className="absolute top-4 left-4 w-10 h-10 bg-[#C96A08] text-white rounded-full flex items-center justify-center font-bold shadow-lg">
-                1
-              </div>
-            </div>
-            <div className="text-center space-y-3">
-              <div className="w-12 h-12 bg-[#f6efe3] rounded-full flex items-center justify-center mx-auto">
-                <FileText className="w-6 h-6 text-[#C96A08]" />
-              </div>
-              <h3 className="text-xl font-semibold text-[#2C2218]">Upload or Get Assigned a Case</h3>
-              <p className="text-[#5C4C3C]">
-                Upload your own PDF case study or get a case assigned by your instructor through
-                your class workspace.
-              </p>
-            </div>
+        <div className="relative z-10">
+          <div className="pt-12 text-center">
+            <h2 className="text-[38px] font-medium leading-none text-[#2C2218] md:text-[50px]">
+              How It <span className="font-black italic text-[#C96A08]">WORKS</span>
+            </h2>
+
+            <p className="mx-auto mt-4 max-w-[780px] text-[16px] leading-[1.35] text-[#b06717] md:text-[18px]">
+              Lorem ipsum dolor sit amet consectetur. Nam hendrerit mi lectus odio semper. Amet sit
+              tellus mauris morbi sit aliquam cras fermentum posuere.
+            </p>
           </div>
 
-          {/* Step 2: Notes & Highlights (replaced Choose Your Mode) */}
-          <div className="space-y-6">
-            <div className="relative rounded-xl overflow-hidden shadow-lg border border-[#f4e7d8] bg-white">
-              <div className="h-60 bg-white p-4 flex flex-col">
-                <div className="flex-1 flex gap-2">
-                  <div className="w-1/2 bg-[#fff6ed] rounded p-2 text-[8px] leading-tight text-[#6A3A0A]">
-                    <div className="font-semibold text-[#2C2218] mb-1">Case Document</div>
-                    <div className="space-y-1">
-                      <div className="h-1 bg-[#f4e3d4] rounded w-full"></div>
-                      <div className="h-1 bg-[#f4e3d4] rounded w-5/6"></div>
-                      <div className="h-1 bg-[#f4e3d4] rounded w-full"></div>
-                      <div className="h-1 bg-[#f4e3d4] rounded w-4/5"></div>
-                      <div className="h-1 bg-[#f4e3d4] rounded w-3/4"></div>
-                    </div>
+          <div className="mt-20 flex flex-col items-center gap-6 md:flex-row md:items-start md:justify-center">
+            {/* Step 1 */}
+            <div className="w-[350px] shrink-0">
+              <div className="relative">
+                <div className="absolute bottom-[-16px] left-5 h-[220px] w-[350px] rounded-[24px] bg-[#cdbfaf]" />
+                <div className="relative h-[220px] w-[350px] rounded-[24px] bg-[#f4efe9] p-4 shadow-[0_10px_18px_rgba(44,34,24,0.08)]">
+                  <div className="absolute left-3 top-3 flex h-10 w-10 items-center justify-center rounded-full bg-[#E58A2A] text-[18px] font-bold text-white">
+                    1
                   </div>
-                  <div className="w-1/2 bg-white rounded border border-[#f4e3d4] p-2 flex flex-col">
-                    <div className="font-semibold text-[#2C2218] mb-2 text-[10px]">Notes</div>
-                    <div className="flex-1 overflow-auto space-y-2">
-                      <div className="p-2 bg-[#faf4eb] rounded border border-[#f4e3d4] text-sm">
-                        <div className="text-xs text-[#5C4C3C] font-medium">Triage delay impact</div>
-                        <div className="text-xs text-[#7a5c3e]">
-                          Key metrics show a 40% increase in wait time.
-                        </div>
-                      </div>
-                      <div className="p-2 bg-[#faf4eb] rounded border border-[#f4e3d4] text-sm">
-                        <div className="text-xs text-[#5C4C3C] font-medium">Data gaps</div>
-                        <div className="text-xs text-[#7a5c3e]">
-                          Missing bed availability logs on pages 4–6.
-                        </div>
-                      </div>
-                    </div>
-                    <div className="mt-2 text-[11px] text-[#7a5c3e]">
-                      Highlights sync with sessions and can be exported.
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="absolute top-4 left-4 w-10 h-10 bg-[#f6efe3] text-[#C96A08] rounded-full flex items-center justify-center font-bold shadow-lg border border-[#e4c6a1]">
-                2
-              </div>
-            </div>
-            <div className="text-center space-y-3">
-              <div className="w-12 h-12 bg-[#f6efe3] rounded-full flex items-center justify-center mx-auto">
-                <MessageSquare className="w-6 h-6 text-[#C96A08]" />
-              </div>
-              <h3 className="text-xl font-semibold text-[#2C2218]">Notes & Highlights</h3>
-              <p className="text-[#5C4C3C]">
-                Capture highlights and structured notes tied to exact passages — review them
-                alongside your session history for faster learning.
-              </p>
-            </div>
-          </div>
 
-          {/* Step 3: Get Insights */}
-          <div className="space-y-6">
-            <div className="relative rounded-xl overflow-hidden shadow-lg border border-[#f4e7d8] bg-white">
-              <div className="h-60 bg-white p-4 flex flex-col">
-                <div className="flex-1 flex gap-2">
-                  <div className="w-1/2 bg-[#fff6ed] rounded p-2 text-[8px] leading-tight text-[#6A3A0A]">
-                    <div className="font-semibold text-[#2C2218] mb-1">Supply Chain Analysis</div>
-                    <div className="space-y-1 text-[#7a5c3e]">
-                      <div>The global supply chain has</div>
-                      <div className="bg-[#f6efe3] px-0.5 inline-block">experienced disruptions due to</div>
-                      <div className="bg-[#ffe4c3] px-0.5 inline-block">pandemic-related shutdowns</div>
-                      <div>and geopolitical tensions.</div>
+                  <div className="h-[180px] rounded-[18px] border border-dashed border-[#7d7368] px-6 py-8">
+                    <div className="flex h-full flex-col items-center justify-center text-center">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#E58A2A] shadow-sm">
+                        <FileText className="h-7 w-7 text-white" />
+                      </div>
+
+                      <p className="mt-5 text-[15px] font-medium leading-tight text-[#b06717]">
+                        Drop Your PDF Here
+                      </p>
+                      <p className="text-[15px] leading-tight text-[#b06717]">Or Click to Browse</p>
+
+                      <p className="mt-5 text-[12px] text-[#cabfb2]">Supports PDF upto 50MB</p>
                     </div>
-                    <div className="mt-2 text-[7px] text-[#80705e]">Page 3</div>
                   </div>
-                  <div className="w-1/2 bg-white rounded border border-[#f4e3d4] p-2 space-y-2">
-                    <div className="flex gap-1.5">
-                      <div className="w-4 h-4 bg-[#C96A08] rounded-full flex-shrink-0"></div>
-                      <div className="flex-1 space-y-1">
-                        <div className="text-[7px] text-[#5C4C3C] leading-tight">
-                          The main challenge is pandemic-related supply chain disruptions...
+                </div>
+              </div>
+
+              <div className="mt-9 text-center">
+                <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#efe7db]">
+                  <FileText className="h-5 w-5 text-[#C96A08]" />
+                </div>
+
+                <h3 className="mt-5 text-[22px] font-semibold text-[#2C2218]">
+                  Upload or Get Assigned a Case
+                </h3>
+
+                <p className="mx-auto mt-4 max-w-[330px] text-[15px] leading-[1.45] text-[#5C4C3C]">
+                  Upload your own PDF case study or get a case assigned by your instructor through
+                  your class workspace.
+                </p>
+              </div>
+            </div>
+
+            {/* Step 2 */}
+            <div className="w-[350px] shrink-0">
+              <div className="relative">
+                <div className="absolute bottom-[-16px] left-5 h-[220px] w-[350px] rounded-[24px] bg-[#cdbfaf]" />
+                <div className="relative h-[220px] w-[350px] rounded-[24px] bg-[#f4efe9] p-4 shadow-[0_10px_18px_rgba(44,34,24,0.08)]">
+                  <div className="absolute left-3 top-3 flex h-10 w-10 items-center justify-center rounded-full bg-[#E58A2A] text-[18px] font-bold text-white">
+                    2
+                  </div>
+
+                  <div className="h-[180px] rounded-[18px] border border-dashed border-[#7d7368] px-4 py-4 pt-11">
+                    <div className="flex h-full gap-3">
+                      <div className="w-[42%] bg-[#e7ddd0] p-3">
+                        <div className="text-[12px] font-semibold text-[#a65f17]">Case Study</div>
+                        <p className="mt-2 text-[6px] leading-[1.3] text-[#2C2218]">
+                          Lorem ipsum dolor sit amet consectetur. Adipiscing nulla duis congue eu
+                          augue. Et interdum convallis id aliquam urna. Ultrices urna senectus
+                          cursus amet auctor at massa iaculis ultrices.
+                        </p>
+                      </div>
+
+                      <div className="flex-1">
+                        <div className="text-center text-[14px] font-semibold text-[#b06717]">
+                          NOTES
                         </div>
-                        <div className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-[#fff6ed] text-[#C96A08] rounded text-[6px] border border-[#f4e3d4]">
-                          <FileText className="w-2 h-2" />
-                          Page 3
+
+                        <div className="mt-2 space-y-2">
+                          <div className="rounded-[14px] bg-[#d8cfc3] p-3 text-[11px] leading-[1.35] text-[#5C4C3C]">
+                            Key metrics show a 40% increase in wait time.
+                          </div>
+                          <div className="rounded-[14px] bg-[#d8cfc3] p-3 text-[11px] leading-[1.35] text-[#5C4C3C]">
+                            Missing bed availability logs on pages 4–6.
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-              <div className="absolute top-4 left-4 w-10 h-10 bg-[#f6efe3] text-[#C96A08] rounded-full flex items-center justify-center font-bold shadow-lg border border-[#e4c6a1]">
-                3
+
+              <div className="mt-9 text-center">
+                <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#efe7db]">
+                  <MessageSquare className="h-5 w-5 text-[#C96A08]" />
+                </div>
+
+                <h3 className="mt-5 text-[22px] font-semibold text-[#2C2218]">
+                  Notes & Highlights
+                </h3>
+
+                <p className="mx-auto mt-4 max-w-[340px] text-[15px] leading-[1.45] text-[#5C4C3C]">
+                  Capture highlights and structured notes tied to exact passages — review them
+                  alongside your session history for faster learning.
+                </p>
               </div>
             </div>
-            <div className="text-center space-y-3">
-              <div className="w-12 h-12 bg-[#f6efe3] rounded-full flex items-center justify-center mx-auto">
-                <Lightbulb className="w-6 h-6 text-[#C96A08]" />
+
+            {/* Step 3 */}
+            <div className="w-[350px] shrink-0">
+              <div className="relative">
+                <div className="absolute bottom-[-16px] left-5 h-[220px] w-[350px] rounded-[24px] bg-[#cdbfaf]" />
+                <div className="relative h-[220px] w-[350px] rounded-[24px] bg-[#f4efe9] p-4 shadow-[0_10px_18px_rgba(44,34,24,0.08)]">
+                  <div className="absolute left-3 top-3 flex h-10 w-10 items-center justify-center rounded-full bg-[#E58A2A] text-[18px] font-bold text-white">
+                    3
+                  </div>
+
+                  <div className="h-[180px] rounded-[18px] border border-dashed border-[#7d7368] px-4 py-4 pt-11">
+                    <div className="flex h-full gap-3">
+                      <div className="w-[43%] bg-[#e7ddd0] p-3">
+                        <div className="text-[12px] font-semibold text-[#2C2218]">Analysis</div>
+                        <p className="mt-2 text-[6px] leading-[1.28] text-[#2C2218]">
+                          Lorem ipsum dolor sit amet consectetur. Adipiscing nulla duis congue eu
+                          augue. Et interdum convallis id aliquam urna.
+                        </p>
+                      </div>
+
+                      <div className="flex-1 bg-white p-3">
+                        <div className="flex gap-2">
+                          <div className="mt-1 h-3 w-3 rounded-full bg-[#C96A08]" />
+                          <div>
+                            <p className="text-[6px] leading-[1.28] text-[#2C2218]">
+                              Lorem ipsum dolor sit amet consectetur. Adipiscing nulla duis congue
+                              eu augue. Et interdum convallis id aliquam urna.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <h3 className="text-xl font-semibold text-[#2C2218]">Get AI Insights</h3>
-              <p className="text-[#5C4C3C]">
-                Receive evidence-grounded answers with direct citations to the source document,
-                helping you learn effectively.
-              </p>
+
+              <div className="mt-9 text-center">
+                <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#efe7db]">
+                  <Lightbulb className="h-5 w-5 text-[#C96A08]" />
+                </div>
+
+                <h3 className="mt-5 text-[22px] font-semibold text-[#2C2218]">Get AI Insights</h3>
+
+                <p className="mx-auto mt-4 max-w-[330px] text-[15px] leading-[1.45] text-[#5C4C3C]">
+                  Receive evidence-grounded answers with direct citations to the source document,
+                  helping you learn effectively.
+                </p>
+              </div>
             </div>
           </div>
         </div>
