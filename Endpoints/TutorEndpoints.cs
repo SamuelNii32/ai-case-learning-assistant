@@ -58,6 +58,15 @@ LIMIT 1;
                 category = DocType.UnsupportedOther;
             }
 
+            if (category is not DocType.AcademicResearch and not DocType.BusinessCase)
+            {
+                return Results.BadRequest(new
+                {
+                    error = "Guided Tutor is only available for academic research papers and business cases.",
+                    docType = category.ToString()
+                });
+            }
+
             var focus = request?.Focus ?? "overview";
             var sessionId = Guid.NewGuid().ToString("N");
 
