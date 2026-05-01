@@ -11,6 +11,11 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<Content Remove="uploads\**;artifacts\**" />
+		<None Remove="uploads\**;artifacts\**" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<PackageReference Include="Adobe.PDFServicesSDK" Version="4.3.1" />
 		<PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
 		<PackageReference Include="Dapper" Version="2.1.66" />
