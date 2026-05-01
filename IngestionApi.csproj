@@ -11,6 +11,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<Compile Remove="uploads\**;artifacts\**" />
 		<Content Remove="uploads\**;artifacts\**" />
 		<None Remove="uploads\**;artifacts\**" />
 	</ItemGroup>

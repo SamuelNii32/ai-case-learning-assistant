@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -24,157 +24,50 @@ public record DocTypeResult(
 
 public static class DocTypeClassifier
 {
-    const int MAX_PAGES = 8;
-    const float MIN_SCORE_TO_ACCEPT = 2.0f;
-    const float MIN_CONFIDENCE = 0.50f;
+    const int MIN_SAMPLE_CHARS = 400;
+    const int MAX_CHUNKS_PER_PAGE = 18;
 
     public static DocTypeResult Evaluate(IEnumerable<dynamic> chunks)
     {
-        var first = chunks
-            .Where(x => (int)x.Page >= 1 && (int)x.Page <= MAX_PAGES)
-            .OrderBy(x => (int)x.Page)
-            .Take(250)
-            .Select(x => $"{x.Preview}\n")
-            .ToList();
-
-        var sample = string.Join("\n", first);
+        var sampled = BuildSample(chunks);
+        var sample = sampled.Text;
         var sampleLower = sample.ToLowerInvariant();
         var compact = Regex.Replace(sampleLower, @"[^a-z0-9]+", "");
 
-        if (string.IsNullOrWhiteSpace(sample) || sample.Length < 400)
+        var evidence = new Evidence();
+
+        evidence.AcademicStructure += Score(sampleLower, AcademicStructureRules, evidence.AcademicHits);
+        evidence.AcademicLanguage += Score(sampleLower, AcademicLanguageRules, evidence.AcademicHits);
+        evidence.AcademicCs += Score(sampleLower, AcademicCsRules, evidence.AcademicHits);
+        evidence.AcademicCitation += Score(sampleLower, AcademicCitationRules, evidence.AcademicHits);
+        evidence.AcademicStructure += ScoreLoose(compact, LooseAcademicStructure, evidence.AcademicHits);
+        evidence.AcademicCs += ScoreLoose(compact, LooseAcademicCs, evidence.AcademicHits);
+
+        evidence.BusinessIdentity += Score(sampleLower, BusinessIdentityRules, evidence.BusinessHits);
+        evidence.BusinessLanguage += Score(sampleLower, BusinessLanguageRules, evidence.BusinessHits);
+        evidence.LegalIdentity += Score(sampleLower, LegalIdentityRules, evidence.LegalHits);
+        evidence.LegalLanguage += Score(sampleLower, LegalLanguageRules, evidence.LegalHits);
+        evidence.Unsupported += Score(sampleLower, UnsupportedRules, evidence.UnsupportedHits);
+
+        var scoreAcademic = evidence.AcademicScore;
+        var scoreBusiness = evidence.BusinessScore;
+        var scoreLegal = evidence.LegalScore;
+        var scoreUnsupported = evidence.Unsupported;
+
+        var strongBusinessIdentity = evidence.BusinessIdentity >= 4;
+        var strongLegalIdentity = evidence.LegalIdentity >= 5;
+
+        // A business case needs case-study identity. Otherwise strategy/market language in
+        // academic papers should not pull the result away from AcademicResearch.
+        if (!strongBusinessIdentity)
         {
-            return Unsupported("Very short/empty front matter.");
+            scoreBusiness = Math.Min(scoreBusiness, evidence.BusinessLanguage >= 5 ? 2 : 1);
         }
 
-        var academic = new (string pat, int w)[]
-        {
-            // Academic structure
-            (@"\babstract\b", 3),
-            (@"\bworking\s+paper\b", 4),
-            (@"\bnber\b", 4),
-            (@"\bkeywords?\b", 2),
-            (@"\b(introduction|background)\b", 2),
-            (@"\bmethods?\b|\bmethodology\b|\bmaterials?\s+and\s+methods?\b", 3),
-            (@"\b(data\s+and\s+methods?|empirical\s+strategy)\b", 3),
-            (@"\b(results?|findings?)\b", 3),
-            (@"\bdiscussion\b", 3),
-            (@"\bconclusions?\b|\blimitations?\b|\bfuture\s+work\b", 2),
-            (@"\breferences\b|\bbibliography\b|\bworks\s+cited\b", 3),
-
-            // Research / analysis language
-            (@"\bstudy\b|\bpaper\b|\bresearch\b", 2),
-            (@"\bmodel(s)?\b|\btheory\b|\bframework\b", 2),
-            (@"\bempirical\b|\banalysis\b|\bevidence\b", 2),
-            (@"\bexperiment(s)?\b|\bevaluation(s)?\b", 2),
-            (@"\bhypothesis\b|\bvariable(s)?\b|\bsample\b", 2),
-
-            // Economics / policy academic signals
-            (@"\beconomic(s)?\b|\beconometric(s)?\b", 3),
-            (@"\bmonetary\s+policy\b|\btrade\b|\bproductivity\b|\bindustry\b", 3),
-            (@"\bpolicy\b|\bmarket(s)?\b|\baggregate\b", 1),
-
-            // CS / technical research signals
-            (@"\barchitecture\b|\balgorithm\b", 2),
-            (@"\bneural\s+network(s)?\b|\btransformer(s)?\b|\bconvolutional\b|\bresidual\b", 2),
-            (@"\bdataset(s)?\b|\bdata\s+set(s)?\b|\btraining\b|\bvalidation\b|\btest\s+set\b", 1),
-            (@"\baccuracy\b|\bprecision\b|\brecall\b|\bf1[-\s]?score\b|\brmse\b|\bmse\b|\bauroc\b|\bbleu\b", 1),
-
-            // Publication / citation signals
-            (@"doi:\s*\S+", 2),
-            (@"arxiv:\s*\S+", 2),
-            (@"\([A-Z][A-Za-z\-]+,\s*20\d{2}\)", 2),
-            (@"\[\d+\]", 1),
-            (@"\breceived\b.*\baccepted\b", 1),
-            (@"\baffiliations?\b|\bcorresponding\s+author\b", 1),
-        };
-
-        var business = new (string pat, int w)[]
-        {
-            // Strong business case identity
-            (@"\bexhibit\s+\d+\b", 4),
-            (@"\b(teaching\s+note|learning\s+objectives?)\b", 4),
-            (@"\bcase\s+questions?\b|\bdiscussion\s+questions?\b", 4),
-            (@"\byou are\b.*(manager|ceo|analyst|consultant)", 4),
-
-            // Business decision framing
-            (@"\b(alternatives?|options?)\b", 2),
-            (@"\brecommendation(s)?\b", 3),
-            (@"\bcompany\s+overview\b", 3),
-            (@"\bdecision\s+maker\b|\bmanagerial\b", 3),
-
-            // Business context
-            (@"\bas of\s+\w+\s+\d{4}\b", 2),
-            (@"\brevenue\b|\bcost(s)?\b|\bprofit(s)?\b|\bmarket\s+share\b", 1),
-            (@"\bstrategy\b|\bcompetitive\b|\bcustomer(s)?\b", 1)
-        };
-
-        var legal = new (string pat, int w)[]
-        {
-            // Strong legal identity
-            (@"\bv\.\b", 5),
-            (@"\b(plaintiff|defendant|appellant|appellee|respondent|petitioner)\b", 5),
-            (@"\bcourt\b|\bjudge\b|\bjustice\b|\bjury\b", 4),
-            (@"\bstatute\b|\bprecedent\b|\bcase\s+law\b", 4),
-            (@"\bheld\b|\bholding\b|\bdisposition\b", 3),
-            (@"\bopinion\b|\bappeal\b|\bruling\b|\bjudgment\b", 3),
-
-            // Reporter cites
-            (@"\b\d{1,3}\s+(u\.s\.|f\.3d|f\.2d|s\.ct\.|scc|n\.y\.s\.\d)\b", 3)
-        };
-
-        var unsupported = new (string pat, int w)[]
-        {
-            (@"\bcurriculum\s+vitae\b|\bcv\b", 4),
-            (@"\bresume\b", 4),
-            (@"\bexperience\b", 2),
-            (@"\beducation\b", 2),
-            (@"\bskills?\b", 2),
-            (@"\bprojects?\b", 2),
-            (@"\bcertifications?\b", 2),
-            (@"\blanguages?\b", 1),
-            (@"\bagenda\b", 2),
-            (@"\b(invoice|brochure|flyer)\b", 2)
-        };
-
-        int scoreAcademic = Score(sampleLower, academic);
-        int scoreBusiness = Score(sampleLower, business);
-        int scoreLegal = Score(sampleLower, legal);
-        int scoreBlock = Score(sampleLower, unsupported);
-
-        // Handle smashed PDF text like "AbstractThe..." or "1.Introduction..."
-        if (HasLoose(compact, "abstract")) scoreAcademic += 3;
-        if (HasLoose(compact, "introduction")) scoreAcademic += 2;
-        if (HasLoose(compact, "references")) scoreAcademic += 3;
-        if (HasLoose(compact, "workingpaper")) scoreAcademic += 4;
-        if (HasLoose(compact, "nberworkingpaper")) scoreAcademic += 4;
-        if (HasLoose(compact, "neuralnetwork") || HasLoose(compact, "residuallearning")) scoreAcademic += 2;
-
-        bool strongLegalIdentity =
-            Regex.IsMatch(sampleLower, @"\bv\.\b", RegexOptions.IgnoreCase) ||
-            Regex.IsMatch(sampleLower, @"\b(plaintiff|defendant|appellant|appellee|respondent|petitioner)\b", RegexOptions.IgnoreCase) ||
-            Regex.IsMatch(sampleLower, @"\b(court|judge|justice|statute|precedent|case\s+law|ruling|judgment)\b", RegexOptions.IgnoreCase);
-
-        bool strongBusinessIdentity =
-            Regex.IsMatch(sampleLower, @"\bexhibit\s+\d+\b", RegexOptions.IgnoreCase) ||
-            Regex.IsMatch(sampleLower, @"\b(teaching\s+note|case\s+questions?|discussion\s+questions?)\b", RegexOptions.IgnoreCase) ||
-            Regex.IsMatch(sampleLower, @"\byou are\b.*(manager|ceo|analyst|consultant)", RegexOptions.IgnoreCase);
-
-        // Legal must have legal identity. Words like "rules", "policy", "analysis" are not enough.
+        // Legal classification requires legal identity, not just words like "rule" or "analysis".
         if (!strongLegalIdentity)
         {
             scoreLegal = 0;
-        }
-
-        // Business case needs case-study identity. Otherwise management papers should remain academic.
-        if (!strongBusinessIdentity && scoreBusiness < 5)
-        {
-            scoreBusiness = Math.Min(scoreBusiness, 1);
-        }
-
-        // Strong unsupported documents should still be blocked.
-        if (scoreBlock >= 6 && scoreBlock >= Math.Max(scoreAcademic, Math.Max(scoreBusiness, scoreLegal)))
-        {
-            return Unsupported($"Unsupported patterns dominated (score={scoreBlock}).");
         }
 
         var raw = new List<(string label, int score)>
@@ -186,12 +79,58 @@ public static class DocTypeClassifier
 
         var top = raw[0];
         var second = raw[1];
+        var conf = SoftmaxTop(new float[] { scoreAcademic, scoreBusiness, scoreLegal });
+        var top2 = raw.Take(2).Select(x => (x.label, (float)x.score)).ToList();
+        var signals = BuildSignals(evidence, sampled.Pages);
 
-        float conf = SoftmaxTop(new float[] { scoreAcademic, scoreBusiness, scoreLegal });
-
-        if (top.score < MIN_SCORE_TO_ACCEPT || conf < MIN_CONFIDENCE)
+        if (scoreUnsupported >= 6 && scoreUnsupported >= Math.Max(scoreAcademic, Math.Max(scoreBusiness, scoreLegal)))
         {
-            return Unsupported($"Low separation or weak signals (top={top.label} score={top.score}, conf={conf:0.00}).");
+            return Unsupported(
+                $"Unsupported document signals dominated (unsupported={scoreUnsupported}, top={top.label} score={top.score}).",
+                conf,
+                signals,
+                top2);
+        }
+
+        var acceptedAcademic =
+            top.label == "academic_research" &&
+            (
+                scoreAcademic >= 5 ||
+                evidence.AcademicStructure >= 3 ||
+                evidence.AcademicCitation >= 3 ||
+                (evidence.AcademicCs >= 3 && evidence.AcademicLanguage >= 1) ||
+                (evidence.AcademicCs >= 4 && conf >= 0.55f)
+            );
+
+        var acceptedBusiness =
+            top.label == "business_case" &&
+            strongBusinessIdentity &&
+            scoreBusiness >= 6;
+
+        var acceptedLegal =
+            top.label == "legal_case" &&
+            strongLegalIdentity &&
+            scoreLegal >= 7;
+
+        if ((string.IsNullOrWhiteSpace(sample) || sample.Length < MIN_SAMPLE_CHARS) &&
+            !acceptedAcademic &&
+            !acceptedBusiness &&
+            !acceptedLegal)
+        {
+            return Unsupported(
+                $"Very short/empty classification sample with weak evidence (chars={sample.Length}).",
+                conf,
+                signals,
+                top2);
+        }
+
+        if (!acceptedAcademic && !acceptedBusiness && !acceptedLegal)
+        {
+            return Unsupported(
+                $"Weak or incomplete document-type evidence (top={top.label} score={top.score}, second={second.label} score={second.score}, conf={conf:0.00}).",
+                conf,
+                signals,
+                top2);
         }
 
         var docType = top.label switch
@@ -202,53 +141,258 @@ public static class DocTypeClassifier
             _ => DocType.UnsupportedOther
         };
 
-        var signals = new List<string>();
-        if (scoreAcademic > 0) signals.Add($"Academic:{scoreAcademic}");
-        if (scoreBusiness > 0) signals.Add($"Business:{scoreBusiness}");
-        if (scoreLegal > 0) signals.Add($"Legal:{scoreLegal}");
-        if (scoreBlock > 0) signals.Add($"Unsupported:{scoreBlock}");
-        if (strongLegalIdentity) signals.Add("StrongLegalIdentity");
-        if (strongBusinessIdentity) signals.Add("StrongBusinessIdentity");
+        var reason =
+            $"Top={top.label} (score {top.score}) over {second.label} (score {second.score}); " +
+            $"conf={conf:0.00}; pages={string.Join(",", sampled.Pages)}.";
 
-        string reason =
-            $"Top={top.label} (score {top.score}) over {second.label} (score {second.score}); conf={conf:0.00}.";
-
-        return new DocTypeResult(
-            docType,
-            conf,
-            signals,
-            reason,
-            raw.Take(2).Select(x => (x.label, (float)x.score)).ToList()
-        );
+        return new DocTypeResult(docType, conf, signals, reason, top2);
     }
 
-    static int Score(string text, (string pat, int w)[] rules)
+    private static Sample BuildSample(IEnumerable<dynamic> chunks)
     {
-        int s = 0;
-        foreach (var (pat, w) in rules)
+        var rows = chunks
+            .Select(x => new
+            {
+                Page = (int)x.Page,
+                Text = ((string?)x.Preview ?? "").Trim()
+            })
+            .Where(x => x.Page > 0 && !string.IsNullOrWhiteSpace(x.Text))
+            .GroupBy(x => x.Page)
+            .OrderBy(g => g.Key)
+            .ToList();
+
+        if (rows.Count == 0)
         {
-            if (Regex.IsMatch(text, pat, RegexOptions.IgnoreCase | RegexOptions.Multiline))
-                s += w;
+            return new Sample("", new List<int>());
         }
-        return s;
+
+        var pages = rows.Select(g => g.Key).OrderBy(x => x).ToList();
+        var selectedPages = SelectRepresentativePages(pages);
+        var selected = rows
+            .Where(g => selectedPages.Contains(g.Key))
+            .SelectMany(g => g.Take(MAX_CHUNKS_PER_PAGE).Select(x => $"-- Page {g.Key} --\n{x.Text}"))
+            .ToList();
+
+        return new Sample(string.Join("\n\n", selected), selectedPages.OrderBy(x => x).ToList());
     }
 
-    static bool HasLoose(string compact, string term)
+    private static HashSet<int> SelectRepresentativePages(List<int> pages)
     {
-        var clean = Regex.Replace(term.ToLowerInvariant(), @"[^a-z0-9]+", "");
-        return compact.Contains(clean);
+        var selected = new HashSet<int>();
+        foreach (var p in pages.Take(4)) selected.Add(p);
+        foreach (var p in pages.TakeLast(4)) selected.Add(p);
+
+        if (pages.Count > 8)
+        {
+            var mid = pages.Count / 2;
+            foreach (var p in pages.Skip(Math.Max(0, mid - 2)).Take(4)) selected.Add(p);
+        }
+
+        return selected;
     }
 
-    static float SoftmaxTop(float[] xs)
+    private static int Score(string text, Rule[] rules, List<string> hits)
     {
-        float max = xs.Max();
+        var score = 0;
+        foreach (var rule in rules)
+        {
+            if (Regex.IsMatch(text, rule.Pattern, RegexOptions.IgnoreCase | RegexOptions.Multiline))
+            {
+                score += rule.Weight;
+                hits.Add(rule.Label);
+            }
+        }
+
+        return score;
+    }
+
+    private static int ScoreLoose(string compact, Rule[] rules, List<string> hits)
+    {
+        var score = 0;
+        foreach (var rule in rules)
+        {
+            if (compact.Contains(rule.Pattern))
+            {
+                score += rule.Weight;
+                hits.Add(rule.Label);
+            }
+        }
+
+        return score;
+    }
+
+    private static List<string> BuildSignals(Evidence e, List<int> pages)
+    {
+        var signals = new List<string>
+        {
+            $"SamplePages:{string.Join(",", pages)}",
+            $"AcademicStructure:{e.AcademicStructure}",
+            $"AcademicLanguage:{e.AcademicLanguage}",
+            $"AcademicCs:{e.AcademicCs}",
+            $"AcademicCitation:{e.AcademicCitation}",
+            $"BusinessIdentity:{e.BusinessIdentity}",
+            $"BusinessLanguage:{e.BusinessLanguage}",
+            $"LegalIdentity:{e.LegalIdentity}",
+            $"LegalLanguage:{e.LegalLanguage}",
+            $"Unsupported:{e.Unsupported}"
+        };
+
+        signals.AddRange(e.AcademicHits.Distinct().Take(8).Select(x => $"AcademicHit:{x}"));
+        signals.AddRange(e.BusinessHits.Distinct().Take(5).Select(x => $"BusinessHit:{x}"));
+        signals.AddRange(e.LegalHits.Distinct().Take(5).Select(x => $"LegalHit:{x}"));
+        signals.AddRange(e.UnsupportedHits.Distinct().Take(5).Select(x => $"UnsupportedHit:{x}"));
+        return signals;
+    }
+
+    private static float SoftmaxTop(float[] xs)
+    {
+        var max = xs.Max();
         var exps = xs.Select(v => MathF.Exp(v - max)).ToArray();
-        float sum = exps.Sum();
+        var sum = exps.Sum();
         return sum == 0 ? 0f : exps.Max() / sum;
     }
 
-    static DocTypeResult Unsupported(string why) =>
-        new DocTypeResult(DocType.UnsupportedOther, 0.0f, new List<string>(), why, new List<(string, float)>());
+    private static DocTypeResult Unsupported(
+        string why,
+        float confidence,
+        List<string> signals,
+        List<(string label, float score)> top2) =>
+        new(DocType.UnsupportedOther, confidence, signals, why, top2);
+
+    private record Rule(string Label, string Pattern, int Weight);
+    private record Sample(string Text, List<int> Pages);
+
+    private sealed class Evidence
+    {
+        public int AcademicStructure { get; set; }
+        public int AcademicLanguage { get; set; }
+        public int AcademicCs { get; set; }
+        public int AcademicCitation { get; set; }
+        public int BusinessIdentity { get; set; }
+        public int BusinessLanguage { get; set; }
+        public int LegalIdentity { get; set; }
+        public int LegalLanguage { get; set; }
+        public int Unsupported { get; set; }
+        public int AcademicScore => AcademicStructure + AcademicLanguage + AcademicCs + AcademicCitation;
+        public int BusinessScore => BusinessIdentity + BusinessLanguage;
+        public int LegalScore => LegalIdentity + LegalLanguage;
+        public List<string> AcademicHits { get; } = new();
+        public List<string> BusinessHits { get; } = new();
+        public List<string> LegalHits { get; } = new();
+        public List<string> UnsupportedHits { get; } = new();
+    }
+
+    private static readonly Rule[] AcademicStructureRules =
+    {
+        new("abstract", @"\babstract\b", 4),
+        new("keywords", @"\bkeywords?\b", 2),
+        new("introduction", @"\b(?:\d+\.?\s*)?introduction\b", 3),
+        new("related_work", @"\brelated\s+work\b|\bprior\s+work\b", 2),
+        new("methodology", @"\bmethods?\b|\bmethodology\b|\bmaterials?\s+and\s+methods?\b|\bapproach\b", 2),
+        new("experiments_section", @"\bexperiments?\b|\bexperimental\s+(setup|results)\b", 3),
+        new("results_section", @"\bresults?\b|\bfindings?\b|\bevaluation\b", 2),
+        new("discussion", @"\bdiscussion\b", 2),
+        new("conclusion", @"\bconclusions?\b|\blimitations?\b|\bfuture\s+work\b", 3),
+        new("references", @"\breferences\b|\bbibliography\b|\bworks\s+cited\b", 4)
+    };
+
+    private static readonly Rule[] AcademicLanguageRules =
+    {
+        new("paper_study_research", @"\bstudy\b|\bpaper\b|\bresearch\b", 2),
+        new("model_framework", @"\bmodels?\b|\bframework\b|\barchitecture\b", 2),
+        new("analysis_evidence", @"\bempirical\b|\banalysis\b|\bevidence\b", 2),
+        new("hypothesis_variable_sample", @"\bhypothes(?:is|es)\b|\bvariables?\b|\bsample\b", 2),
+        new("dataset_training", @"\bdatasets?\b|\bdata\s+sets?\b|\btraining\b|\bvalidation\b|\btest\s+sets?\b", 2),
+        new("metrics", @"\baccuracy\b|\bprecision\b|\brecall\b|\bf1[-\s]?score\b|\brmse\b|\bmse\b|\bauroc\b|\bperplexity\b", 1),
+        new("working_paper", @"\bworking\s+paper\b|\bnber\b", 4)
+    };
+
+    private static readonly Rule[] AcademicCsRules =
+    {
+        new("transformer", @"\btransformers?\b", 4),
+        new("attention", @"\bself[-\s]?attention\b|\bmulti[-\s]?head\s+attention\b|\battention\s+(mechanism|heads?|layers?)\b", 4),
+        new("encoder_decoder", @"\bencoders?\b|\bdecoders?\b|\bencoder[-\s]?decoder\b", 3),
+        new("translation", @"\bmachine\s+translation\b|\btranslation\s+quality\b|\bsequence\s+transduction\b|\bneural\s+machine\s+translation\b", 3),
+        new("nlp_benchmarks", @"\bbleu\b|\bwmt\b|\benglish[-\s]?to[-\s]?german\b|\benglish[-\s]?to[-\s]?french\b", 2),
+        new("neural_network", @"\bneural\s+networks?\b|\bconvolutional\b|\brecurrent\b|\blstm\b|\bgru\b", 2),
+        new("ablations_baselines", @"\bablation\b|\bbaselines?\b|\bstate[-\s]?of[-\s]?the[-\s]?art\b", 2),
+        new("optimization", @"\bgradient\b|\boptimizer\b|\badam\b|\blearning\s+rate\b|\bepochs?\b", 1)
+    };
+
+    private static readonly Rule[] AcademicCitationRules =
+    {
+        new("doi", @"doi:\s*\S+", 2),
+        new("arxiv", @"arxiv:\s*\S+", 2),
+        new("apa_citation", @"\([A-Z][A-Za-z\-]+,\s*(?:19|20)\d{2}\)", 2),
+        new("numeric_citation", @"\[(?:\d{1,3}|[A-Za-z][^\]]+,\s*(?:19|20)\d{2})\]", 1),
+        new("author_affiliation", @"\baffiliations?\b|\bcorresponding\s+author\b|\bdepartment\s+of\b|\buniversity\b", 1),
+        new("received_accepted", @"\breceived\b.*\baccepted\b", 1)
+    };
+
+    private static readonly Rule[] LooseAcademicStructure =
+    {
+        new("loose_abstract", "abstract", 4),
+        new("loose_introduction", "introduction", 3),
+        new("loose_related_work", "relatedwork", 2),
+        new("loose_experiments", "experiments", 3),
+        new("loose_conclusion", "conclusion", 3),
+        new("loose_references", "references", 4)
+    };
+
+    private static readonly Rule[] LooseAcademicCs =
+    {
+        new("loose_self_attention", "selfattention", 4),
+        new("loose_multi_head_attention", "multiheadattention", 4),
+        new("loose_encoder_decoder", "encoderdecoder", 3),
+        new("loose_machine_translation", "machinetranslation", 3),
+        new("loose_transformer", "transformer", 4)
+    };
+
+    private static readonly Rule[] BusinessIdentityRules =
+    {
+        new("exhibit", @"\bexhibit\s+\d+\b", 4),
+        new("teaching_note", @"\bteaching\s+note\b|\blearning\s+objectives?\b", 4),
+        new("case_questions", @"\bcase\s+questions?\b|\bdiscussion\s+questions?\b", 4),
+        new("decision_role", @"\byou\s+are\b.*\b(manager|ceo|analyst|consultant|director)\b", 4),
+        new("case_framing", @"\bcase\s+study\b|\bcase\s+analysis\b", 3)
+    };
+
+    private static readonly Rule[] BusinessLanguageRules =
+    {
+        new("alternatives", @"\balternatives?\b|\boptions?\b|\bscenarios?\b", 2),
+        new("recommendation", @"\brecommendation(s)?\b|\brecommended\s+course\b", 3),
+        new("company_overview", @"\bcompany\s+overview\b|\bcompany\s+background\b", 3),
+        new("decision_maker", @"\bdecision\s+maker\b|\bmanagerial\b|\bstrategic\s+decision\b", 3),
+        new("financials", @"\brevenue\b|\bcosts?\b|\bprofits?\b|\bmarket\s+share\b|\bnpv\b|\birr\b|\bcash\s+flow\b", 1),
+        new("strategy", @"\bstrategy\b|\bcompetitive\b|\bcustomers?\b|\bmarket\b", 1)
+    };
+
+    private static readonly Rule[] LegalIdentityRules =
+    {
+        new("versus", @"\bv\.\b|\bversus\b", 5),
+        new("parties", @"\bplaintiff\b|\bdefendant\b|\bappellant\b|\bappellee\b|\brespondent\b|\bpetitioner\b", 5),
+        new("court", @"\bcourt\b|\bjudge\b|\bjustice\b|\bjury\b", 4),
+        new("legal_authority", @"\bstatute\b|\bprecedent\b|\bcase\s+law\b|\bregulation\b", 4),
+        new("reporter_cite", @"\b\d{1,3}\s+(u\.s\.|f\.3d|f\.2d|s\.ct\.|scc|n\.y\.s\.\d)\b", 4)
+    };
+
+    private static readonly Rule[] LegalLanguageRules =
+    {
+        new("holding", @"\bheld\b|\bholding\b|\bdisposition\b", 3),
+        new("opinion", @"\bopinion\b|\bappeal\b|\bruling\b|\bjudgment\b", 3),
+        new("facts_issues_rule", @"\bfacts?\b|\bissues?\b|\brules?\b|\breasoning\b", 1)
+    };
+
+    private static readonly Rule[] UnsupportedRules =
+    {
+        new("cv", @"\bcurriculum\s+vitae\b|\bcv\b", 4),
+        new("resume", @"\bresume\b", 4),
+        new("work_history", @"\bexperience\b|\bemployment\b|\bwork\s+history\b", 2),
+        new("education", @"\beducation\b|\bdegree\b|\bgpa\b", 2),
+        new("skills", @"\bskills?\b|\bcertifications?\b|\blanguages?\b", 2),
+        new("invoice", @"\binvoice\b|\breceipt\b|\bbill\s+to\b|\bamount\s+due\b", 4),
+        new("marketing", @"\bbrochure\b|\bflyer\b|\bagenda\b|\bevent\s+schedule\b", 3)
+    };
 }
 
 public static class DocTypePersistence
