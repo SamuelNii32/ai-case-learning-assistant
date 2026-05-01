@@ -6,6 +6,7 @@
 # Build output
 bin/
 obj/
+artifacts/
 
 # Local SQLite DBs (keep DB out of repo)
 *.db
@@ -13,5 +14,11 @@ obj/
 *.db-wal
 *.db-journal
 
+# Runtime uploads and generated document indexes
+uploads/
+
 # Logs
 *.log
+
+# Local publish profile user settings
+*.pubxml.user
