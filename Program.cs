@@ -1,41 +1,24 @@
-﻿using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using System;
-using System.IO;
-using System.Text.Json;
-using OpenAI.Chat;
-using OpenAI.Responses;
-using System.Linq;
-using OpenAI.Embeddings;
-using UglyToad.PdfPig;
-using UglyToad.PdfPig.Content;
-using System.Numerics.Tensors;
-using System.Text.RegularExpressions;
-using System.Collections.Concurrent;
-using PdfPigDoc = UglyToad.PdfPig.PdfDocument;
-using Microsoft.Data.Sqlite;
-
-using System.IdentityModel.Tokens.Jwt;
-using Microsoft.IdentityModel.Tokens;
-using System.Security.Claims;
-
-
-
+﻿using System.Collections.Concurrent;
 using System.Data;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using Api.Endpoints;
+using Api.Extensions;
 using Dapper;
-
-
-
-
-
-
 // iText7 for page count + raster image counting
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas.Parser; 
 using iText.Kernel.Pdf.Canvas.Parser.Data;
 using iText.Kernel.Pdf.Canvas.Parser.Listener;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.IdentityModel.Tokens;
+using OpenAI.Chat;
+using PdfPigDoc = UglyToad.PdfPig.PdfDocument;
 
 
 
@@ -89,8 +72,10 @@ const string JwtAudience = "IngestionClient";
 
 
 
+
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddAppServices(builder.Configuration);
 // Read OpenAI config (API key + models)
 var openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
     ?? throw new InvalidOperationException("OPENAI_API_KEY not set.");
@@ -103,39 +88,21 @@ var answerModel = Environment.GetEnvironmentVariable("OPENAI_ANSWER_MODEL")
 var classifierModel = Environment.GetEnvironmentVariable("OPENAI_CLASSIFIER_MODEL")
     ?? "gpt-5-mini";
 
-// OpenAI Chat client for answers (we'll also new up a separate client for the classifier later)
-builder.Services.AddSingleton<ChatClient>(_ =>
-{
-    return new ChatClient(model: answerModel, openAiApiKey);
-});
 
 
 
 
 
-// Swagger (optional)
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
 
 
 
 
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("FrontendDev", p => p
-        .WithOrigins("http://localhost:5174", "http://localhost:3000", "http://localhost:4173", "https://ai-case-learning-assistant.vercel.app", "https://ai-case-learning-assistant-rku540uom.vercel.app")
-        .AllowAnyHeader()
-        .AllowAnyMethod()
-        .AllowCredentials());
-});
 
 
 
 
 var app = builder.Build();
-app.UseCors("FrontendDev");
-// app.UseHttpsRedirection();
-
+app.UseAppPipeline();
 
 // Choose a writable folder for SQLite (works on Windows + Azure)
 var home = Environment.GetEnvironmentVariable("HOME")
@@ -224,6 +191,23 @@ CREATE TABLE IF NOT EXISTS ClassCases (
   PRIMARY KEY (ClassId, UploadId)
 );
 
+CREATE TABLE IF NOT EXISTS TutorSessions (
+  SessionId TEXT PRIMARY KEY,
+  UserId TEXT NOT NULL,
+  UploadId TEXT NOT NULL,
+  Category TEXT NOT NULL,
+  Focus TEXT NULL,
+  CurrentNode TEXT NOT NULL,
+  VisitedTopicsJson TEXT NOT NULL,
+  VisitedPagesJson TEXT NOT NULL,
+  HistoryJson TEXT NOT NULL,
+  LastStepSummary TEXT NULL,
+  DrillPathJson TEXT NULL,
+  PendingDrillChoicesJson TEXT NULL,
+  CreatedAt TEXT NOT NULL,
+  UpdatedAt TEXT NOT NULL
+);
+
 
 
 ";
@@ -287,115 +271,10 @@ CREATE TABLE IF NOT EXISTS ClassCases (
     cmd.ExecuteNonQuery();
 }
 
-
-// --- JWT auth gate (protect everything except /ping and /auth/*) ---
-var openPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-{
-    "/ping",
-    "/debug/db-sanity"
-};
-
-
-app.Use(async (ctx, next) =>
-
-{
-
-    // Let CORS handle preflight (do NOT short-circuit)
-    if (string.Equals(ctx.Request.Method, "OPTIONS", StringComparison.OrdinalIgnoreCase))
-    {
-        await next();
-        return;
-    }
-
-    var path = ctx.Request.Path.Value ?? "";
-    if (path.StartsWith("/auth/", StringComparison.OrdinalIgnoreCase) || openPaths.Contains(path))
-    {
-        await next();
-        return;
-    }
-
-    var auth = ctx.Request.Headers["Authorization"].FirstOrDefault();
-    if (string.IsNullOrWhiteSpace(auth) || !auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-    {
-        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        await ctx.Response.WriteAsJsonAsync(new { error = "missing bearer token" });
-        return;
-    }
-
-    var token = auth.Substring("Bearer ".Length).Trim();
-
-    // Use the hard-coded JWT constants so the key is long enough everywhere
-    var secret = JwtSecret;
-    var issuer = JwtIssuer;
-    var audience = JwtAudience;
-
-    try
-    {
-        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
-        var claims = handler.ValidateToken(
-            token,
-            new Microsoft.IdentityModel.Tokens.TokenValidationParameters
-            {
-                ValidIssuer = issuer,
-                ValidAudience = audience,
-                IssuerSigningKey =
-                    new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
-                        System.Text.Encoding.UTF8.GetBytes(secret)),
-                ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidateIssuerSigningKey = true,
-                ValidateLifetime = true,
-                // Allow small client/server clock differences (mobile devices, Azure infra)
-                ClockSkew = TimeSpan.FromMinutes(5),
-            },
-            out var validatedToken);
-
-
-        var userId =
-        claims.FindFirst("sub")?.Value ??
-        claims.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            await ctx.Response.WriteAsJsonAsync(new { error = "invalid token (no sub)" });
-            return;
-        }
-
-        ctx.Items["userId"] = userId;
-
-        var isSuperClaim = claims.FindFirst("isSuperUser")?.Value;
-        bool isSuperUserFlag =
-            string.Equals(isSuperClaim, "true", StringComparison.OrdinalIgnoreCase) ||
-            isSuperClaim == "1";
-
-        ctx.Items["isSuperUser"] = isSuperUserFlag;
-
-        await next();
-    }
-    catch (Exception ex)
-    {
-        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        await ctx.Response.WriteAsJsonAsync(new
-        {
-            error = "invalid token",
-            details = ex.Message
-        });
-    }
-
-});
-
-
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
-
-
-
-// put this near the top of Program.cs, before any app.MapPost(...)
+app.MapAuthEndpoints(connString, JwtSecret, JwtIssuer, JwtAudience);
+app.MapDebugEndpoints(connString);
+app.MapUploadEndpoints(connString);
+app.MapTutorEndpoints(connString);
 
 
 
@@ -411,17 +290,12 @@ string MapDocTypeToString(DocType t) => t switch
 
 bool IsInstructor(HttpContext ctx)
 {
-    return ctx.Items.TryGetValue("isSuperUser", out var val)
-        && val is bool isSuper
-        && isSuper == true;
+    return ctx.User.HasClaim("role", "instructor");
 }
 
 bool IsStudent(HttpContext ctx)
 {
-    // Student = logged in but NOT instructor
-    return ctx.Items.TryGetValue("isSuperUser", out var val)
-        && val is bool isSuper
-        && isSuper == false;
+    return ctx.User.HasClaim("role", "student");
 }
 
 IResult RequireInstructor(HttpContext ctx)
@@ -444,430 +318,20 @@ IResult RequireStudent(HttpContext ctx)
 
 
 
-app.MapGet("/ping", () => Results.Ok("pong"));
 
 
-// --- Auth: signup (create user) ---
-app.MapPost("/auth/signup", async (HttpContext ctx) =>
-{
-    using var reader = new StreamReader(ctx.Request.Body);
-    var body = await reader.ReadToEndAsync();
 
-    string email = "", password = "", fullName = "";
-    bool isInstructor = false; // NEW: drives IsSuperUser
 
-    try
-    {
-        var obj = System.Text.Json.JsonDocument.Parse(body).RootElement;
-        if (obj.TryGetProperty("email", out var e))
-            email = (e.GetString() ?? "").Trim().ToLowerInvariant();
 
-        if (obj.TryGetProperty("password", out var p))
-            password = p.GetString() ?? "";
 
-        if (obj.TryGetProperty("fullName", out var n))
-            fullName = (n.GetString() ?? "").Trim();
 
-        // NEW: optional flag from frontend
-        // Frontend: send { ..., "isInstructor": true } if they chose Instructor
-        if (obj.TryGetProperty("isInstructor", out var inst))
-        {
-            try
-            {
-                isInstructor = inst.GetBoolean();
-            }
-            catch
-            {
-                // invalid type? treat as false
-                isInstructor = false;
-            }
-        }
-    }
-    catch
-    {
-        // bad JSON → will fail validation below
-    }
 
-    if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
-        return Results.BadRequest(new { error = "email and password required" });
 
-    if (password.Length < 8)
-        return Results.BadRequest(new { error = "password must be at least 8 characters" });
 
-    var userId = Guid.NewGuid().ToString("N");
-    var hash = BCrypt.Net.BCrypt.HashPassword(password);
 
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
-    await conn.OpenAsync();
 
-    // Enforce unique email
-    var check = conn.CreateCommand();
-    check.CommandText = "SELECT 1 FROM Users WHERE Email = $e LIMIT 1";
-    check.Parameters.AddWithValue("$e", email);
-    var exists = (await check.ExecuteScalarAsync()) != null;
-    if (exists)
-        return Results.Conflict(new { error = "email already exists" });
 
-    var cmd = conn.CreateCommand();
-    cmd.CommandText = @"
-        INSERT INTO Users (Id, Email, PasswordHash, FullName, CreatedAt, IsSuperUser)
-        VALUES ($id,$e,$h,$n,$t,$su)";
-    cmd.Parameters.AddWithValue("$id", userId);
-    cmd.Parameters.AddWithValue("$e", email);
-    cmd.Parameters.AddWithValue("$h", hash);
-    cmd.Parameters.AddWithValue("$n", string.IsNullOrWhiteSpace(fullName) ? DBNull.Value : fullName);
-    cmd.Parameters.AddWithValue("$t", DateTime.UtcNow.ToString("o"));
-    cmd.Parameters.AddWithValue("$su", isInstructor ? 1 : 0); // NEW: instructor ⇒ superuser
 
-    await cmd.ExecuteNonQueryAsync();
-
-    return Results.Ok(new { userId, email, fullName });
-
-});
-
-
-app.MapPost("/auth/login", async (HttpContext ctx) =>
-{
-    // ⭐ Allow body to be read multiple times
-    ctx.Request.EnableBuffering();
-    ctx.Request.Body.Position = 0;
-
-    using var reader = new StreamReader(ctx.Request.Body, leaveOpen: true);
-    var body = await reader.ReadToEndAsync();
-
-    // ⭐ Reset again so downstream can read body if needed
-    ctx.Request.Body.Position = 0;
-
-    string email = "", password = "";
-    try
-    {
-        var obj = System.Text.Json.JsonDocument.Parse(body).RootElement;
-        if (obj.TryGetProperty("email", out var e)) email = (e.GetString() ?? "").Trim().ToLowerInvariant();
-        if (obj.TryGetProperty("password", out var p)) password = p.GetString() ?? "";
-    }
-    catch { }
-
-    if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
-        return Results.BadRequest(new { error = "email and password required" });
-
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
-    await conn.OpenAsync();
-
-    string? userId = null, hash = null, fullName = null;
-    bool isSuperUser = false;
-    int rawIsSuperUser = -999;
-
-    var cmd = conn.CreateCommand();
-    cmd.CommandText = "SELECT Id, PasswordHash, IFNULL(FullName,''), IFNULL(IsSuperUser,0) FROM Users WHERE Email = $e LIMIT 1";
-    cmd.Parameters.AddWithValue("$e", email);
-    using (var r = await cmd.ExecuteReaderAsync())
-    {
-        if (await r.ReadAsync())
-        {
-            userId = r.GetString(0);
-            hash = r.GetString(1);
-            fullName = r.GetString(2);
-            rawIsSuperUser = r.GetInt32(3);
-            isSuperUser = rawIsSuperUser != 0;
-        }
-    }
-
-    if (email == "timothywong@gmail.com")
-        isSuperUser = true;
-
-    Console.WriteLine($"[LOGIN DEBUG] email={email}, rawIsSuperUser={rawIsSuperUser}, isSuperUserBool={isSuperUser}");
-
-    if (userId is null || hash is null || !BCrypt.Net.BCrypt.Verify(password, hash))
-        return Results.Unauthorized();
-
-    var key = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
-        System.Text.Encoding.UTF8.GetBytes(JwtSecret));
-
-    var creds = new Microsoft.IdentityModel.Tokens.SigningCredentials(
-        key,
-        Microsoft.IdentityModel.Tokens.SecurityAlgorithms.HmacSha256
-    );
-
-    var claims = new[]
-    {
-        new System.Security.Claims.Claim("sub", userId),
-        new System.Security.Claims.Claim("email", email),
-        new System.Security.Claims.Claim("isSuperUser", isSuperUser ? "true" : "false"),
-    };
-
-    var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
-        issuer: JwtIssuer,
-        audience: JwtAudience,
-        claims: claims,
-        notBefore: DateTime.UtcNow,
-        expires: DateTime.UtcNow.AddMinutes(60),
-        signingCredentials: creds
-    );
-
-    var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler()
-        .WriteToken(token);
-
-    return Results.Ok(new { token = jwt, userId, email, fullName, isSuperUser });
-});
-
-
-app.MapGet("/me", async (HttpContext ctx) =>
-{
-    var userId = ctx.Items["userId"] as string;
-    if (string.IsNullOrWhiteSpace(userId))
-    {
-        return Results.Unauthorized();
-    }
-
-    bool tokenIsSuper =
-        ctx.Items.TryGetValue("isSuperUser", out var isSuperObj) &&
-        isSuperObj is bool b && b;
-
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
-    await conn.OpenAsync();
-
-    using var cmd = conn.CreateCommand();
-    cmd.CommandText = @"
-        SELECT Email,
-               IFNULL(FullName, ''),
-               IFNULL(IsSuperUser, 0)
-        FROM Users
-        WHERE Id = $id
-        LIMIT 1;";
-    cmd.Parameters.AddWithValue("$id", userId);
-
-    using var r = await cmd.ExecuteReaderAsync();
-    if (!await r.ReadAsync())
-    {
-        // Token might be valid but user row missing; treat as unauthorized
-        return Results.Unauthorized();
-    }
-
-    var email = r.GetString(0);
-    var fullName = r.GetString(1);
-    var dbIsSuper = r.GetInt32(2) != 0;
-
-
-    var isSuperUser = dbIsSuper || tokenIsSuper;
-
-
-    var role = isSuperUser ? "instructor" : "student";
-
-    return Results.Ok(new
-    {
-        userId,
-        email,
-        fullName,
-        role
-    });
-});
-
-
-
-
-
-
-// POST /uploads  (save PDF + minimal summary) — uses ABSOLUTE uploads path
-app.MapPost("/uploads", async (HttpRequest request, HttpContext ctx, IWebHostEnvironment env) =>
-{
-    if (!request.HasFormContentType)
-        return Results.BadRequest("Use multipart/form-data.");
-
-    var form = await request.ReadFormAsync();
-    var file = form.Files.GetFile("file") ?? (form.Files.Count > 0 ? form.Files[0] : null);
-    if (file is null || file.Length == 0)
-    {
-        Console.WriteLine($"[UPLOAD DEBUG] ContentType={request.ContentType} Keys=[{string.Join(",", form.Keys)}] Files={form.Files.Count}");
-        return Results.BadRequest($"No file. ContentType={request.ContentType}; Keys=[{string.Join(",", form.Keys)}]; Files={form.Files.Count}");
-    }
-
-    // PDF-only guard
-    var isPdf = string.Equals(file.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase)
-                || Path.GetExtension(file.FileName).Equals(".pdf", StringComparison.OrdinalIgnoreCase);
-    if (!isPdf)
-        return Results.StatusCode(StatusCodes.Status415UnsupportedMediaType);
-
-    var uploadId = Guid.NewGuid();
-
-    // ABSOLUTE uploads folder
-    var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
-    Directory.CreateDirectory(uploadsRoot);
-
-    var filePath = Path.Combine(uploadsRoot, $"{uploadId}.pdf");
-
-    // Save file
-    await using (var outStream = File.Open(filePath, FileMode.Create, FileAccess.Write, FileShare.Read))
-    {
-        await file.CopyToAsync(outStream);
-    }
-
-    // --- Minimal analysis: pages + raster images + file size + uploadedAt ---
-    var uploadedAt = DateTime.UtcNow;
-
-    var fi = new FileInfo(filePath);
-    long fileSizeBytes = fi.Length;
-    double fileSizeMB = Math.Round(fileSizeBytes / (1024.0 * 1024.0), 2);
-
-    int pages;
-    using (var doc = new iText.Kernel.Pdf.PdfDocument(new iText.Kernel.Pdf.PdfReader(filePath)))
-    {
-        pages = doc.GetNumberOfPages();
-    }
-
-    int images = PdfImageUtils.CountRasterImagesExact(filePath);
-
-    var summary = new
-    {
-        uploadId,
-        fileName = file.FileName,
-        fileSizeBytes,
-        fileSizeMB,
-        pages,
-        counts = new { images },
-        uploadedAt = uploadedAt.ToString("o"),
-        generatedAt = DateTime.UtcNow.ToString("o")
-    };
-
-    var summaryPath = Path.Combine(uploadsRoot, $"{uploadId}.summary.json");
-    await File.WriteAllTextAsync(summaryPath, JsonSerializer.Serialize(summary));
-
-    // Use the original filename from the upload (e.g. "Healthcare Case.pdf")
-    var originalFileName = Path.GetFileName(file.FileName);
-
-
-    // persist ownership (per-user scoping)
-    var ownerId = (string?)ctx.Items["userId"] ?? "";
-    using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString))
-    {
-        await conn.OpenAsync();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO Uploads (UploadId, UserId, FilePath, OriginalFileName, CreatedAt)
-                        VALUES ($u, $usr, $path, $name, $ts)";
-        cmd.Parameters.AddWithValue("$u", uploadId);
-        cmd.Parameters.AddWithValue("$usr", ownerId);
-        cmd.Parameters.AddWithValue("$path", filePath);
-        cmd.Parameters.AddWithValue("$name", originalFileName ?? "");
-        cmd.Parameters.AddWithValue("$ts", DateTime.UtcNow.ToString("o"));
-        await cmd.ExecuteNonQueryAsync();
-    }
-
-
-    return Results.Json(new { uploadId });
-})
-.Accepts<IFormFile>("multipart/form-data")
-.Produces(StatusCodes.Status200OK)
-.Produces(StatusCodes.Status400BadRequest)
-.Produces(StatusCodes.Status415UnsupportedMediaType);
-
-// GET /uploads/{id}/summary — reads from ABSOLUTE path
-app.MapGet("/uploads/{uploadId:guid}/summary", async (Guid uploadId, IWebHostEnvironment env) =>
-{
-    var path = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.summary.json");
-    if (!File.Exists(path)) return Results.NotFound();
-    var json = await File.ReadAllTextAsync(path);
-    return Results.Text(json, "application/json");
-});
-
-// GET /cases — per-user list of uploads
-app.MapGet("/cases", async (HttpContext ctx, IWebHostEnvironment env) =>
-{
-    // 1) Get current userId from JWT middleware
-    var userId = ctx.Items["userId"] as string;
-    if (string.IsNullOrWhiteSpace(userId))
-    {
-        // Should not normally happen because of auth middleware,
-        // but this keeps things explicit.
-        return Results.Unauthorized();
-    }
-
-    // 2) Load this user's uploadIds from the Uploads table
-    var allowedUploadIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-    using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString))
-    {
-        await conn.OpenAsync();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"SELECT UploadId FROM Uploads WHERE UserId = $userId";
-        cmd.Parameters.AddWithValue("$userId", userId);
-
-        using var reader = await cmd.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            if (!reader.IsDBNull(0))
-            {
-                var uploadId = reader.GetString(0);
-                if (!string.IsNullOrWhiteSpace(uploadId))
-                    allowedUploadIds.Add(uploadId);
-            }
-        }
-    }
-
-    // 3) Scan uploads folder as before, but filter to this user's UploadIds
-    var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
-    Directory.CreateDirectory(uploadsRoot);
-
-    var cases = new List<CaseDto>();
-
-    foreach (var path in Directory.EnumerateFiles(uploadsRoot, "*.summary.json"))
-    {
-        try
-        {
-            using var fs = File.OpenRead(path);
-            using var doc = JsonDocument.Parse(fs);
-            var root = doc.RootElement;
-
-            string id = root.TryGetProperty("uploadId", out var pid)
-                ? (pid.ValueKind == JsonValueKind.String ? pid.GetString()! : pid.ToString())
-                : "";
-            if (string.IsNullOrWhiteSpace(id)) continue;
-
-            // 👇 New: if this upload does NOT belong to the current user, skip it
-            if (!allowedUploadIds.Contains(id))
-                continue;
-
-            string name = root.TryGetProperty("fileName", out var pn) ? (pn.GetString() ?? "") : "";
-            int pages = root.TryGetProperty("pages", out var pp) && pp.TryGetInt32(out var p) ? p : 0;
-            double sizeMB = root.TryGetProperty("fileSizeMB", out var ps) && ps.TryGetDouble(out var s) ? s : 0.0;
-
-            int images = 0;
-            if (root.TryGetProperty("counts", out var counts) && counts.TryGetProperty("images", out var ci))
-                ci.TryGetInt32(out images);
-
-            string uploadedAt = root.TryGetProperty("uploadedAt", out var pu) && pu.ValueKind == JsonValueKind.String
-                ? (pu.GetString() ?? "")
-                : File.GetLastWriteTimeUtc(path).ToString("o");
-
-            cases.Add(new CaseDto(id, name, pages, images, sizeMB, uploadedAt));
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[CASES] Skipping '{Path.GetFileName(path)}': {ex.GetType().Name} - {ex.Message}");
-        }
-    }
-
-    var ordered = cases
-        .OrderByDescending(c => DateTime.TryParse(c.UploadedAt, out var dt) ? dt : DateTime.MinValue)
-        .ToList();
-
-    return Results.Json(ordered);
-});
-
-
-// GET/HEAD /uploads/{id}.pdf — serves from ABSOLUTE path (use Results.File)
-app.MapMethods("/uploads/{uploadId:guid}.pdf", new[] { "GET", "HEAD" }, (Guid uploadId, IWebHostEnvironment env) =>
-{
-    try
-    {
-        var path = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.pdf");
-        if (!File.Exists(path)) return Results.NotFound();
-        return Results.File(path, "application/pdf", enableRangeProcessing: true);
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"[PDF GET] {uploadId} failed: {ex.GetType().Name} - {ex.Message}");
-        return Results.StatusCode(500);
-    }
-});
 
 
 // DEV: simple SSE mock stream
@@ -935,33 +399,7 @@ app.MapGet("/api/documents/{caseId}/figures", (string caseId) =>
 });
 
 
-// GET /api/llm/ping — round-trip to model
-app.MapGet("/api/llm/ping", async (OpenAI.Chat.ChatClient chat) =>
-{
-    // Some installs return ClientResult<ChatCompletion>; take .Value to get ChatCompletion
-    var result = await chat.CompleteChatAsync("Reply exactly: hello from CasePilot Q&A");
-    var completion = result.Value;               // <-- the key fix
-    var text = completion.Content.Count > 0
-        ? completion.Content[0].Text ?? ""
-        : "";
 
-    return Results.Json(new { ok = text.Contains("hello from CasePilot Q&A"), reply = text });
-});
-
-// GET /api/embeddings/ping — sanity check: returns vector length
-// GET /api/embeddings/ping — sanity check: returns vector length
-app.MapGet("/api/embeddings/ping", () =>
-{
-    var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
-        ?? throw new InvalidOperationException("OPENAI_API_KEY not set.");
-
-    var client = new OpenAI.Embeddings.EmbeddingClient("text-embedding-3-small", apiKey);
-
-    var result = client.GenerateEmbedding("hello world");  // wrapper + value
-    var dims = result.Value.ToFloats().Length;            // <-- unwrap, then ToFloats()
-
-    return Results.Json(new { dims });
-});
 
 // ---- text extraction helper (PdfPig) ----
 static IEnumerable<(int page, string text)> ExtractPerPageText(string path)
@@ -985,7 +423,7 @@ app.MapGet("/uploads/{uploadId:guid}/pages/preview", (Guid uploadId, IWebHostEnv
         .Select(p => new
         {
             page = p.page,
-            snippet = SafeHead(p.text, 300) + (p.text.Length > 300 ? "…" : "")
+            snippet = TextUtilityHelpers.SafeHead(p.text, 300) + (p.text.Length > 300 ? "…" : "")
         });
 
     return Results.Json(preview);
@@ -994,25 +432,32 @@ app.MapGet("/uploads/{uploadId:guid}/pages/preview", (Guid uploadId, IWebHostEnv
 
 // ---- simple in-memory vector index ----
 
-// POST /index/{uploadId} — embed per-page text into an in-memory index (and persist to disk)
 app.MapPost("/index/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
 {
-
     // ownership check
-    var me = (string?)ctx.Items["userId"] ?? "";
+    var me = (string?)ctx.Items["userId"] ?? ctx.User.FindFirst("sub")?.Value;
+    if (string.IsNullOrWhiteSpace(me))
+    {
+        return Results.Unauthorized();
+    }
+
     using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString))
     {
         await conn.OpenAsync();
         using var chk = conn.CreateCommand();
-        chk.CommandText = "SELECT 1 FROM Uploads WHERE UploadId = $u AND UserId = $me LIMIT 1";
-        chk.Parameters.AddWithValue("$u", uploadId);
+        chk.CommandText = @"
+SELECT 1
+FROM Uploads
+WHERE UPPER(UploadId) = UPPER($u)
+  AND UserId = $me
+LIMIT 1";
+        chk.Parameters.AddWithValue("$u", uploadId.ToString());
         chk.Parameters.AddWithValue("$me", me);
+
         var ok = await chk.ExecuteScalarAsync();
         if (ok is null)
             return Results.NotFound(new { error = "not found" }); // don't leak existence
     }
-
-
 
     var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
         ?? throw new InvalidOperationException("OPENAI_API_KEY not set.");
@@ -1022,8 +467,21 @@ app.MapPost("/index/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWe
     if (!System.IO.File.Exists(pdfPath))
         return Results.NotFound(new { error = "PDF not found" });
 
+    if (IndexPersistence.TryLoad(uploadId, env, out var existingChunks))
+    {
+        return Results.Json(new
+        {
+            uploadId,
+            chunks = existingChunks.Count,
+            pagesIndexed = existingChunks.Select(x => x.Page).Distinct().Count(),
+            sample = existingChunks.Take(3).Select(x => new { page = x.Page, preview = x.Preview }),
+            cached = true
+        });
+    }
+
     var emb = new OpenAI.Embeddings.EmbeddingClient("text-embedding-3-small", apiKey);
     var chunks = new List<IndexedChunk>();
+    var pendingChunks = new List<(int Page, string Text)>();
     int pagesIndexed = 0;
 
     using (var pdf = PdfPigDoc.Open(pdfPath))
@@ -1038,17 +496,28 @@ app.MapPost("/index/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWe
 
             foreach (var c in TextChunking.ChunkBySentences(text, 1200, 200))
             {
-                var vec = emb.GenerateEmbedding(c).Value.ToFloats();
-                var preview = c; // keep full chunk text (no truncation)
-                chunks.Add(new IndexedChunk(page.Number, vec, preview));
+                pendingChunks.Add((page.Number, c));
             }
-
         }
     }
 
-    // store in memory
-    InMemoryStore.VectorIndex[uploadId.ToString()] = chunks;
+    const int embeddingBatchSize = 64;
+    for (var i = 0; i < pendingChunks.Count; i += embeddingBatchSize)
+    {
+        var batch = pendingChunks.Skip(i).Take(embeddingBatchSize).ToList();
+        var embeddings = await emb.GenerateEmbeddingsAsync(
+            batch.Select(x => x.Text),
+            cancellationToken: ctx.RequestAborted);
 
+        var vectors = embeddings.Value.ToList();
+        for (var j = 0; j < batch.Count; j++)
+        {
+            var vec = vectors[j].ToFloats();
+            chunks.Add(new IndexedChunk(batch[j].Page, vec, batch[j].Text));
+        }
+    }
+
+    InMemoryStore.VectorIndex[uploadId.ToString()] = chunks;
 
     try
     {
@@ -1060,7 +529,7 @@ app.MapPost("/index/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWe
     {
         Console.WriteLine($"[CLASSIFY ERROR] {ex.Message}");
     }
-    // persist to disk
+
     Directory.CreateDirectory(uploadsRoot);
     var serializable = chunks.Select(c => new SerializableChunk(c.Page, c.Preview, c.Vec.ToArray())).ToArray();
     var indexPath = Path.Combine(uploadsRoot, $"{uploadId}.index.json");
@@ -1197,8 +666,7 @@ LIMIT 1;
     var questionOriginal = q ?? string.Empty;
 
     // High-level classification: Summary / Fact / Method / Findings / WhyExplain / Other
-    var questionType = await ClassifyQuestionAsync(questionOriginal);
-
+    var questionType = await QuestionClassifier.ClassifyQuestionAsync(questionOriginal);
 
 
     var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
@@ -1367,7 +835,7 @@ LIMIT 1;
             {
                 count = m.Groups["num"].Success
                     ? int.Parse(m.Groups["num"].Value)
-                    : WordToInt(m.Groups["word"].Value);
+                    : QueryWordHelpers.WordToInt(m.Groups["word"].Value);
             }
             count = Math.Min(10, Math.Max(3, count)); // clamp 3..10
 
@@ -1825,8 +1293,7 @@ LIMIT 1;
     var questionOriginal = q ?? string.Empty;
 
     // High-level classification: Summary / Fact / Method / Findings / WhyExplain / Other
-    var questionType = await ClassifyQuestionAsync(questionOriginal);
-
+    var questionType = await QuestionClassifier.ClassifyQuestionAsync(questionOriginal);
 
     var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
         ?? throw new InvalidOperationException("OPENAI_API_KEY not set.");
@@ -2048,14 +1515,13 @@ LIMIT 1;
         if (intent == SectionIntent.Authors)
         {
             var (_, metaAuthor) = PdfMetadataHelper.Read(parsedUploadId, env);
-            if (false && !string.IsNullOrWhiteSpace(metaAuthor) &&
-                !Regex.IsMatch(metaAuthor, @"^\s*(unknown|n/?a|none)\s*$", RegexOptions.IgnoreCase))
+            if (!string.IsNullOrWhiteSpace(metaAuthor) &&
+    !Regex.IsMatch(metaAuthor, @"^\s*(unknown|n/?a|none)\s*$", RegexOptions.IgnoreCase))
             {
                 await ctx.Response.WriteAsync($"event: token\ndata: {System.Text.Json.JsonSerializer.Serialize(new { text = metaAuthor })}\n\n");
                 await ctx.Response.WriteAsync("event: citations\ndata: []\n\n");
 
                 SaveMessage("assistant", metaAuthor, null, null);
-
 
                 await ctx.Response.WriteAsync("event: done\ndata: {}\n\n");
                 await ctx.Response.Body.FlushAsync();
@@ -2363,30 +1829,13 @@ app.MapGet("/index/status/{uploadId:guid}", (Guid uploadId, IWebHostEnvironment 
 });
 
 
-// Tutor endpoints disabled for MVP (kept only to avoid breaking clients/UI).
-app.MapPost("/tutor/start/{uploadId:guid}", (Guid uploadId) =>
-{
-    return Results.Ok(new
-    {
-        status = "disabled",
-        message = "Guided mode is disabled for this version. Use the Chat Q&A endpoints (/ask or /ask/stream) instead.",
-        uploadId
-    });
-});
 
-app.MapPost("/tutor/step", () =>
-{
-    return Results.Ok(new
-    {
-        status = "disabled",
-        message = "Guided mode is disabled. Continue with the Chat Q&A endpoints for questions about the document."
-    });
-});
 
 
 app.MapGet("/uploads/mine", async (HttpContext ctx) =>
 {
-    var me = (string?)ctx.Items["userId"] ?? "";
+    var me = (string?)ctx.Items["userId"] ?? ctx.User.FindFirst("sub")?.Value ?? "";
+
     using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
     using var cmd = conn.CreateCommand();
@@ -2415,7 +1864,6 @@ app.MapGet("/uploads/mine", async (HttpContext ctx) =>
     }
     return Results.Json(list);
 });
-
 
 
 // GET /sessions/mine -> list sessions for current user (with stats + lastMessagePreview)
@@ -3179,7 +2627,6 @@ ORDER BY Id ASC;
 
 
 
-
 app.MapPost("/classes", async (HttpContext ctx) =>
 {
     var deny = RequireInstructor(ctx);
@@ -3644,7 +3091,7 @@ app.MapGet("/sessions/{sessionId}/messages", async (string sessionId, HttpContex
     var deny = RequireInstructor(ctx);
     if (deny != null) return deny;
 
-    var instructorId = ctx.Items["userId"] as string;
+    var instructorId = ctx.User.FindFirst("sub")?.Value;
     if (string.IsNullOrWhiteSpace(instructorId))
         return Results.Unauthorized();
 
@@ -4085,424 +3532,33 @@ ORDER BY CreatedAt ASC;
 
 
 
-app.MapPost("/classes/{classId}/students", async (
-    string classId,
-    AddStudentRequest req,
-    HttpContext ctx
-) =>
-{
-    // Must be instructor (superuser)
-    var instructorId = (string?)ctx.Items["userId"];
-    var isSuper = (bool?)ctx.Items["isSuperUser"] ?? false;
 
-    if (!isSuper)
-        return Results.Unauthorized();
+
+
+app.MapGet("/debug/session-access/{sessionId}", async (string sessionId, HttpContext ctx) =>
+{
+    var instructorId = ctx.User.FindFirst("sub")?.Value;
 
     using var conn = new SqliteConnection(connString);
     await conn.OpenAsync();
 
-    // 1 — Validate class exists AND belongs to instructor
-    var checkCmd = conn.CreateCommand();
-    checkCmd.CommandText = @"
-        SELECT 1 FROM Classes
-        WHERE Id = $cid AND InstructorId = $iid
-        LIMIT 1";
-    checkCmd.Parameters.AddWithValue("$cid", classId);
-    checkCmd.Parameters.AddWithValue("$iid", instructorId);
-
-    var exists = await checkCmd.ExecuteScalarAsync();
-    if (exists is null)
-        return Results.NotFound(new { error = "Class not found or not yours." });
-
-    // 2 — Look up the student by email
-    var findCmd = conn.CreateCommand();
-    findCmd.CommandText = "SELECT Id FROM Users WHERE Email = $email LIMIT 1";
-    findCmd.Parameters.AddWithValue("$email", req.Email);
-
-    var studentIdObj = await findCmd.ExecuteScalarAsync();
-    if (studentIdObj is null)
-        return Results.NotFound(new { error = "No user with that email." });
-
-    var studentId = (string)studentIdObj;
-
-    // 3 — Insert into ClassStudents (ignore duplicate)
-    var insertCmd = conn.CreateCommand();
-    insertCmd.CommandText = @"
-        INSERT OR IGNORE INTO ClassStudents (ClassId, StudentId, AddedAt)
-        VALUES ($cid, $sid, $ts)";
-    insertCmd.Parameters.AddWithValue("$cid", classId);
-    insertCmd.Parameters.AddWithValue("$sid", studentId);
-    insertCmd.Parameters.AddWithValue("$ts", DateTime.UtcNow.ToString("o"));
-
-    await insertCmd.ExecuteNonQueryAsync();
-
-    return Results.Ok(new { added = true, classId, studentId });
-});
-
-
-// GET /classes/mine  -> list classes owned by the logged-in instructor
-app.MapGet("/classes/mine", async (HttpContext ctx) =>
-{
-    var deny = RequireInstructor(ctx);
-    if (deny != null) return deny;
-
-    var me = ctx.Items["userId"] as string;
-    if (string.IsNullOrWhiteSpace(me))
-        return Results.Unauthorized();
-
-    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
-    await conn.OpenAsync();
-
-    using var cmd = conn.CreateCommand();
+    var cmd = conn.CreateCommand();
     cmd.CommandText = @"
-        SELECT 
-            c.Id, 
-            c.Name, 
-            c.Description, 
-            c.CreatedAt,
-            (SELECT COUNT(*) FROM ClassStudents cs WHERE cs.ClassId = c.Id) AS StudentCount,
-            (SELECT COUNT(*) FROM ClassCases cc WHERE cc.ClassId = c.Id)   AS CaseCount
-        FROM Classes c
-        WHERE c.InstructorId = $me
-        ORDER BY c.CreatedAt DESC;
+        SELECT COUNT(*)
+        FROM Sessions s
+        JOIN ClassStudents cs ON cs.StudentId = s.UserId
+        JOIN ClassCases cc ON cc.ClassId = cs.ClassId
+        JOIN Classes c ON c.Id = cs.ClassId
+        WHERE s.Id = $sessionId
+          AND c.InstructorId = $instructorId;
     ";
-    cmd.Parameters.AddWithValue("$me", me);
+    cmd.Parameters.AddWithValue("$sessionId", sessionId);
+    cmd.Parameters.AddWithValue("$instructorId", instructorId ?? "");
 
-    var list = new List<object>();
-
-    using var reader = await cmd.ExecuteReaderAsync();
-    while (await reader.ReadAsync())
-    {
-        var id = reader.GetString(0);
-        var name = reader.GetString(1);
-        var description = reader.IsDBNull(2) ? null : reader.GetString(2);
-        var createdAt = reader.GetString(3);
-        var studentCount = Convert.ToInt32(reader.GetInt64(4));
-        var caseCount = Convert.ToInt32(reader.GetInt64(5));
-
-        list.Add(new { id, name, description, createdAt, studentCount, caseCount });
-    }
-
-    return Results.Ok(list);
+    var count = (long)(await cmd.ExecuteScalarAsync() ?? 0L);
+    return Results.Ok(new { instructorId, sessionId, count });
 });
 
-
-app.MapGet("/classes/enrolled", async (HttpContext ctx) =>
-{
-    var me = ctx.Items["userId"] as string;
-    if (string.IsNullOrWhiteSpace(me))
-    {
-        return Results.Unauthorized();
-    }
-
-    var enrolledClasses = new List<object>();
-
-    using var conn = new SqliteConnection(connString);
-    await conn.OpenAsync();
-
-    // Get all classes where the student is enrolled
-    using (var cmd = conn.CreateCommand())
-    {
-        cmd.CommandText = @"
-            SELECT DISTINCT Classes.Id, Classes.Name, Classes.Description, Classes.InstructorId, Classes.CreatedAt
-            FROM Classes
-            JOIN ClassStudents ON Classes.Id = ClassStudents.ClassId
-            WHERE ClassStudents.StudentId = $studentId
-            ORDER BY Classes.CreatedAt DESC;
-        ";
-        cmd.Parameters.AddWithValue("$studentId", me);
-
-        using var r = await cmd.ExecuteReaderAsync();
-        while (await r.ReadAsync())
-        {
-            var classId = r.GetString(0);
-            var name = r.GetString(1);
-            var description = r.IsDBNull(2) ? null : r.GetString(2);
-            var instructorId = r.GetString(3);
-            var createdAt = r.GetString(4);
-
-            // Get assigned cases for this class
-            var cases = new List<object>();
-            using (var caseCmd = conn.CreateCommand())
-            {
-                caseCmd.CommandText = @"
-                    SELECT Uploads.UploadId, Uploads.OriginalFileName
-                    FROM ClassCases
-                    JOIN Uploads ON Uploads.UploadId = ClassCases.UploadId
-                    WHERE ClassCases.ClassId = $classId;
-                ";
-                caseCmd.Parameters.AddWithValue("$classId", classId);
-
-                using var caseReader = await caseCmd.ExecuteReaderAsync();
-                while (await caseReader.ReadAsync())
-                {
-                    cases.Add(new
-                    {
-                        uploadId = caseReader.GetString(0),
-                        fileName = caseReader.GetString(1)
-                    });
-                }
-            }
-
-            enrolledClasses.Add(new
-            {
-                classId,
-                name,
-                description,
-                instructorId,
-                createdAt,
-                cases
-            });
-        }
-    }
-
-    return Results.Ok(enrolledClasses);
-});
-
-
-
-app.MapDelete("/classes/{classId}/students/{studentId}", async (HttpContext ctx, int classId, int studentId) =>
-{
-    // 1) Auth: must be signed in
-    var userIdClaim = ctx.User.FindFirst("userId")?.Value
-                      ?? ctx.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-    var role = ctx.User.FindFirst("role")?.Value
-               ?? ctx.User.FindFirst(ClaimTypes.Role)?.Value
-               ?? "";
-
-    if (string.IsNullOrWhiteSpace(userIdClaim))
-        return Results.Unauthorized();
-
-    if (!string.Equals(role, "instructor", StringComparison.OrdinalIgnoreCase))
-        return Results.Forbid();
-
-    // 2) DB connect
-    var connStr =
-        builder.Configuration.GetConnectionString("DefaultConnection")
-        ?? builder.Configuration["ConnectionStrings:DefaultConnection"];
-    await using var db = new SqliteConnection(connStr);
-    await db.OpenAsync();
-
-    // 3) Ownership check: class must exist and be owned by current instructor
-    await using (var checkCmd = db.CreateCommand())
-    {
-        checkCmd.CommandText = "SELECT InstructorId FROM Classes WHERE Id = $classId";
-        checkCmd.Parameters.AddWithValue("$classId", classId);
-
-        var instructorIdObj = await checkCmd.ExecuteScalarAsync();
-        if (instructorIdObj is null)
-            return Results.NotFound(new { error = "class not found" });
-
-        var instructorIdStr = Convert.ToString(instructorIdObj) ?? "";
-        if (!string.Equals(instructorIdStr, userIdClaim, StringComparison.Ordinal))
-            return Results.Forbid();
-    }
-
-    // 4) Delete enrollment row
-    await using (var delCmd = db.CreateCommand())
-    {
-        delCmd.CommandText = @"
-            DELETE FROM ClassStudents
-            WHERE ClassId = $classId AND StudentId = $studentId
-        ";
-        delCmd.Parameters.AddWithValue("$classId", classId);
-        delCmd.Parameters.AddWithValue("$studentId", studentId);
-
-        var affected = await delCmd.ExecuteNonQueryAsync();
-        if (affected == 0)
-            return Results.NotFound(new { error = "enrollment not found" });
-    }
-
-    return Results.NoContent(); 
-})
-.RequireAuthorization();
-
-
-
-
-app.MapDelete("/classes/{classId}/cases/{uploadId}", async (HttpContext ctx, int classId, int uploadId) =>
-{
-    // 1) Auth required
-    var userIdClaim = ctx.User.FindFirst("userId")?.Value
-                      ?? ctx.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-    var role = ctx.User.FindFirst("role")?.Value
-               ?? ctx.User.FindFirst(ClaimTypes.Role)?.Value
-               ?? "";
-
-    if (string.IsNullOrWhiteSpace(userIdClaim))
-        return Results.Unauthorized();
-
-    if (!string.Equals(role, "instructor", StringComparison.OrdinalIgnoreCase))
-        return Results.Forbid();
-
-    // 2) DB connect
-    var connStr =
-        builder.Configuration.GetConnectionString("DefaultConnection")
-        ?? builder.Configuration["ConnectionStrings:DefaultConnection"];
-    await using var db = new SqliteConnection(connStr);
-    await db.OpenAsync();
-
-    // 3) Must own the class
-    await using (var checkCmd = db.CreateCommand())
-    {
-        checkCmd.CommandText = "SELECT InstructorId FROM Classes WHERE Id = $classId";
-        checkCmd.Parameters.AddWithValue("$classId", classId);
-
-        var instructorIdObj = await checkCmd.ExecuteScalarAsync();
-        if (instructorIdObj is null)
-            return Results.NotFound(new { error = "class not found" });
-
-        var instructorIdStr = Convert.ToString(instructorIdObj) ?? "";
-        if (!string.Equals(instructorIdStr, userIdClaim, StringComparison.Ordinal))
-            return Results.Forbid();
-    }
-
-    // 4) Delete case assignment
-    await using (var delCmd = db.CreateCommand())
-    {
-        delCmd.CommandText = @"
-            DELETE FROM ClassCases
-            WHERE ClassId = $classId AND UploadId = $uploadId
-        ";
-        delCmd.Parameters.AddWithValue("$classId", classId);
-        delCmd.Parameters.AddWithValue("$uploadId", uploadId);
-
-        var affected = await delCmd.ExecuteNonQueryAsync();
-        if (affected == 0)
-            return Results.NotFound(new { error = "assignment not found" });
-    }
-
-    return Results.NoContent(); // 204
-})
-.RequireAuthorization();
-
-
-app.MapPatch("/sessions/{sessionId}/notes/{noteId:int}", async (
-    HttpContext ctx,
-    string sessionId,
-    int noteId,
-    NoteUpdateRequest body
-) =>
-{
-    var me = (string?)ctx.Items["userId"];
-    if (string.IsNullOrEmpty(me)) return Results.Unauthorized();
-
-    using var conn = new SqliteConnection(connString);
-    await conn.OpenAsync();
-
-    // Ownership check
-    using var check = conn.CreateCommand();
-    check.CommandText = @"
-SELECT 1
-FROM Notes
-WHERE Id = $id AND UserId = $me AND SessionId = $sid
-LIMIT 1";
-    check.Parameters.AddWithValue("$id", noteId);
-    check.Parameters.AddWithValue("$me", me);
-    check.Parameters.AddWithValue("$sid", sessionId);
-
-    var exists = await check.ExecuteScalarAsync();
-    if (exists is null)
-        return Results.NotFound();
-
-    // Update note
-    using var update = conn.CreateCommand();
-    update.CommandText = @"
-UPDATE Notes
-SET Text = $text
-WHERE Id = $id";
-    update.Parameters.AddWithValue("$text", body.Text.Trim());
-    update.Parameters.AddWithValue("$id", noteId);
-
-    await update.ExecuteNonQueryAsync();
-
-    return Results.Ok(new
-    {
-        id = noteId,
-        text = body.Text
-    });
-});
-
-app.MapDelete("/sessions/{sessionId}/notes/{noteId:int}", async (
-    HttpContext ctx,
-    string sessionId,
-    int noteId
-) =>
-{
-    var me = (string?)ctx.Items["userId"];
-    if (string.IsNullOrEmpty(me)) return Results.Unauthorized();
-
-    using var conn = new SqliteConnection(connString);
-    await conn.OpenAsync();
-
-    using var del = conn.CreateCommand();
-    del.CommandText = @"
-DELETE FROM Notes
-WHERE Id = $id AND UserId = $me AND SessionId = $sid
-";
-    del.Parameters.AddWithValue("$id", noteId);
-    del.Parameters.AddWithValue("$me", me);
-    del.Parameters.AddWithValue("$sid", sessionId);
-
-    var affected = await del.ExecuteNonQueryAsync();
-    if (affected == 0)
-        return Results.NotFound(new { error = "note not found" });
-
-    return Results.NoContent();
-});
-
-
-app.MapGet("/me", async (HttpContext ctx) =>
-{
-    var me = (string?)ctx.Items["userId"];
-    if (string.IsNullOrEmpty(me)) return Results.Unauthorized();
-
-    using var conn = new SqliteConnection(connString);
-    await conn.OpenAsync();
-
-    using var cmd = conn.CreateCommand();
-    cmd.CommandText = @"
-SELECT Id, Email, FullName
-FROM Users
-WHERE Id = $id";
-    cmd.Parameters.AddWithValue("$id", me);
-
-    using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync())
-        return Results.NotFound();
-
-    return Results.Ok(new
-    {
-        userId = reader.GetString(0),
-        email = reader.GetString(1),
-        fullName = reader.IsDBNull(2) ? null : reader.GetString(2)
-    });
-});
-
-
-app.MapPatch("/me", async (
-    HttpContext ctx,
-    UpdateProfileRequest body
-) =>
-{
-    var me = (string?)ctx.Items["userId"];
-    if (string.IsNullOrEmpty(me)) return Results.Unauthorized();
-
-    using var conn = new SqliteConnection(connString);
-    await conn.OpenAsync();
-
-    using var cmd = conn.CreateCommand();
-    cmd.CommandText = @"
-UPDATE Users
-SET FullName = $name
-WHERE Id = $id";
-    cmd.Parameters.AddWithValue("$name", body.FullName.Trim());
-    cmd.Parameters.AddWithValue("$id", me);
-
-    await cmd.ExecuteNonQueryAsync();
-
-    return Results.Ok(new { fullName = body.FullName });
-});
 
 
 
@@ -4510,70 +3566,7 @@ WHERE Id = $id";
 app.Run();
 
 
-static async Task<QuestionType> ClassifyQuestionAsync(string question)
-{
-    // Very short or empty → treat as Other
-    if (string.IsNullOrWhiteSpace(question))
-        return QuestionType.Other;
 
-    // IMPROVED: Do simple pattern matching FIRST before calling the model
-    var q = question.ToLowerInvariant();
-    
-    // Strong methodology signals
-    if (Regex.IsMatch(q, @"\b(method(s|ology)?|approach(es)?|procedure|technique|experimental (setup|design|approach)|how (did|were).*?(conduct|perform|collect|measure|analyze))\b"))
-        return QuestionType.Method;
-    
-    // Strong findings signals
-    if (Regex.IsMatch(q, @"\b(finding(s)?|result(s)?|outcome(s)?|what (did|were).*?(find|discover|observe|show|demonstrate))\b"))
-        return QuestionType.Findings;
-    
-    // Strong summary signals
-    if (Regex.IsMatch(q, @"\b(summary|summarize|overview|about|main (point|idea)|key (point|takeaway)|abstract)\b"))
-        return QuestionType.Summary;
-    
-    // Strong fact signals
-    if (Regex.IsMatch(q, @"\b(who|when|where|which|what (is|are|was|were))\b"))
-        return QuestionType.Fact;
-    
-    // Strong explanation signals
-    if (Regex.IsMatch(q, @"\b(why|how|explain|rationale|reason)\b"))
-        return QuestionType.WhyExplain;
-
-    // If patterns didn't match, fall back to model classification
-    var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
-        ?? throw new InvalidOperationException("OPENAI_API_KEY not set.");
-
-    var classifierModel = Environment.GetEnvironmentVariable("OPENAI_CLASSIFIER_MODEL")
-        ?? "gpt-4o-mini"; // Use a better model
-
-    var client = new OpenAI.Chat.ChatClient(classifierModel, apiKey);
-
-    var messages = new List<OpenAI.Chat.ChatMessage>
-    {
-        new OpenAI.Chat.SystemChatMessage(
-            "Classify this question about a research document. " +
-            "Return ONLY ONE word: SUMMARY, FACT, METHOD, FINDINGS, WHY_EXPLAIN, or OTHER. " +
-            "Nothing else."
-        ),
-        new OpenAI.Chat.UserChatMessage($"Question: {question}")
-    };
-
-    var options = new ChatCompletionOptions { Temperature = 0f };
-    var result = client.CompleteChat(messages, options).Value;
-
-    var raw = string.Concat(result.Content.Select(part => part.Text ?? string.Empty));
-    var label = raw.Trim().ToUpperInvariant();
-
-    return label switch
-    {
-        "SUMMARY" => QuestionType.Summary,
-        "FACT" => QuestionType.Fact,
-        "METHOD" => QuestionType.Method,
-        "FINDINGS" => QuestionType.Findings,
-        "WHY_EXPLAIN" => QuestionType.WhyExplain,
-        _ => QuestionType.Other
-    };
-}
 
 
 
@@ -4596,11 +3589,7 @@ static int WordToInt(string w) => (w ?? "").ToLowerInvariant() switch
 
 
 
-// Safe, bounds-checked head-of-string helper
-static string SafeHead(string s, int max) =>
-    string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s.Substring(0, max));
 
-public record IndexedChunk(int Page, ReadOnlyMemory<float> Vec, string Preview);
 
 public enum QuestionType
 {
@@ -4613,10 +3602,6 @@ public enum QuestionType
 }
 
 
-public static class InMemoryStore
-{
-    public static readonly Dictionary<string, List<IndexedChunk>> VectorIndex = new();
-}
 
 
 class SessionNoteCreateDto
@@ -4636,1522 +3621,29 @@ public record AddStudentToClassDto(string StudentEmail);
 public record AssignCaseToClassDto(string UploadId);
 
 
-public record AddStudentRequest(string Email);
-public record NoteUpdateRequest(string Text);
-
-public record UpdateProfileRequest(string FullName);
 
 
 
 
 
 
-
-public class TutorChoice
-{
-    public string id { get; set; }
-    public string label { get; set; }
-}
-
-public class TutorStepResponse
-{
-    public string narrative { get; set; }
-    public TutorChoice[] choices { get; set; }
-    public int[] cites { get; set; }
-    public string stepSummary { get; set; }
-}
-public record TutorSession(
-    string SessionId,
-    Guid UploadId,
-    string Category,
-    string? Focus,
-    int StepIndex,
-    List<string> History
-)
-{
-    public HashSet<int> VisitedCites { get; set; } = new();
-    public int NoNewCitesStreak { get; set; } = 0;
-    public List<int> LastCites { get; set; } = new();
-
-}
-
-public record TutorStepRequest(string SessionId, string ChoiceId);
-
-public static class TutorStore
-{
-    public static readonly ConcurrentDictionary<string, TutorSession> Sessions = new();
-}
 
 public record CaseDto(string Id, string Name, int Pages, int Images, double SizeMB, string UploadedAt);
-public record SerializableChunk(int Page, string Preview, float[] Vec);
 
 
 
 
 
-// ---------------- helpers ----------------
-static class PdfImageUtils
-{
-    private sealed class ImageCounterListener : IEventListener
-    {
-        public int Count { get; private set; }
-        public void EventOccurred(IEventData data, EventType type)
-        {
-            if (type == EventType.RENDER_IMAGE)
-                Count++;
-        }
-        public ICollection<EventType> GetSupportedEvents() => null;
-    }
 
-    public static int CountRasterImagesExact(string path)
-    {
-        using var pdf = new iText.Kernel.Pdf.PdfDocument(new PdfReader(path));
-        int total = 0;
-        for (int i = 1; i <= pdf.GetNumberOfPages(); i++)
-        {
-            var listener = new ImageCounterListener();
-            var processor = new PdfCanvasProcessor(listener);
-            processor.ProcessPageContent(pdf.GetPage(i));
-            total += listener.Count;
-        }
-        return total;
-    }
-}
 
 
 
 
-public static class IndexPersistence
-{
-    public static bool TryLoad(Guid uploadId, IWebHostEnvironment env, out List<IndexedChunk> list)
-    {
-        var id = uploadId.ToString();
-        var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
-        var indexPath = Path.Combine(uploadsRoot, $"{id}.index.json");
-        list = null!;
 
-        if (!File.Exists(indexPath)) return false;
 
-        var json = File.ReadAllText(indexPath);
-        var rows = System.Text.Json.JsonSerializer.Deserialize<SerializableChunk[]>(json);
-        if (rows is null || rows.Length == 0) return false;
 
-        list = rows.Select(r => new IndexedChunk(
-            Page: r.Page,
-            Vec: new ReadOnlyMemory<float>(r.Vec),
-            Preview: r.Preview
-        )).ToList();
 
-        InMemoryStore.VectorIndex[id] = list;
-        return true;
-    }
-}
 
-// Return shape used by both routes
-public record TopChunk(int Page, string Preview, float Score);
-
-public static class QaRetrieval
-{
-    // Improved query understanding with more patterns
-    public static bool IsListy(string q)
-    {
-        var s = q ?? string.Empty;
-
-        // Common list verbs & phrasings
-        if (Regex.IsMatch(s, @"\b(list|all|which|enumerate|show|show me|give|give me|name|return|extract|identify|find all|find every|every|provide|report|catalog|compile|what\s+are|what\s+were|how many|count)\b", RegexOptions.IgnoreCase))
-            return true;
-
-        // Numeric cues
-        if (Regex.IsMatch(s, @"[%+]", RegexOptions.IgnoreCase)) return true;
-        if (Regex.IsMatch(s, @"\b(20\d{2}|19\d{2})\b", RegexOptions.IgnoreCase)) return true;
-        if (Regex.IsMatch(s, @"\b(date|dates|range|ranges|deadline|deadlines)\b", RegexOptions.IgnoreCase)) return true;
-
-        return false;
-    }
-
-    // Safe cosine similarity
-    public static float SafeCosine(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
-    {
-        if (a.Length != b.Length || a.Length == 0 || b.Length == 0)
-            return 0f;
-        return System.Numerics.Tensors.TensorPrimitives.CosineSimilarity(a, b);
-    }
-
-    // Tokenize to alnum lowercase
-    private static string[] Tokens(string s)
-    {
-        if (string.IsNullOrWhiteSpace(s)) return Array.Empty<string>();
-        return Regex.Matches(s.ToLowerInvariant(), @"[a-z0-9]{2,}")
-                    .Select(m => m.Value)
-                    .ToArray();
-    }
-
-    // Small, hand-tuned synonym expansion for academic-style questions
-    private static HashSet<string> ExpandQueryTerms(HashSet<string> original)
-    {
-        // Start with the original tokens
-        var expanded = new HashSet<string>(original);
-
-        void AddGroup(string[] keys, string[] synonyms)
-        {
-            if (!keys.Any(k => original.Contains(k))) return;
-            foreach (var s in synonyms)
-                expanded.Add(s);
-        }
-
-        // limitations / weaknesses / drawbacks
-        AddGroup(
-            new[] { "limitations", "limitation" },
-            new[] { "weakness", "weaknesses", "drawback", "drawbacks", "constraint", "constraints", "challenge", "challenges" }
-        );
-
-        // findings / results / effects
-        AddGroup(
-            new[] { "findings", "finding", "results", "result" },
-            new[] { "outcome", "outcomes", "impact", "impacts", "effect", "effects" }
-        );
-
-        // methodology / methods / approach
-        AddGroup(
-            new[] { "methodology", "methods", "method" },
-            new[] { "approach", "design", "experimental" }
-        );
-
-        // future work / improvements
-        AddGroup(
-            new[] { "future", "improvements", "improvement", "recommendations", "recommendation" },
-            new[] { "extension", "extensions", "further", "ongoing" }
-        );
-
-        // external validity / generalization
-        AddGroup(
-            new[] { "external", "validity", "generalization", "generalizability" },
-            new[] { "replication", "replications", "scaling", "scaleup", "scalability" }
-        );
-
-        return expanded;
-    }
-
-
-    // IMPROVED: More generous lexical scoring
-    private static float LexicalScore(string preview, HashSet<string> qset)
-    {
-        if (string.IsNullOrEmpty(preview) || qset.Count == 0) return 0f;
-        var p = preview.ToLowerInvariant();
-
-        float s = 0f;
-        int matchCount = 0;
-
-        foreach (var t in qset)
-        {
-            if (p.Contains(t))
-            {
-                matchCount++;
-                // Weight matches by term frequency
-                int occurrences = Regex.Matches(p, Regex.Escape(t), RegexOptions.IgnoreCase).Count;
-                s += 1f + (occurrences - 1) * 0.3f; // bonus for multiple occurrences
-            }
-        }
-
-        // Bonus for high match ratio
-        float matchRatio = (float)matchCount / qset.Count;
-        if (matchRatio > 0.5f) s += 2f;
-        if (matchRatio > 0.75f) s += 2f;
-
-        // Context bonuses
-        if (p.Contains("@")) s += 0.5f;
-        if (Regex.IsMatch(p, @"\b\d{4}\b")) s += 0.25f;
-
-        return s;
-    }
-
-    // IMPROVED: More generous boost
-    private static float Boost(string preview, HashSet<string> qset)
-    {
-        var p = preview?.ToLowerInvariant() ?? "";
-        float b = 0f;
-        int matches = 0;
-
-        foreach (var t in qset)
-        {
-            if (p.Contains(t))
-            {
-                matches++;
-                b += 0.05f; // increased from 0.03f
-            }
-        }
-
-        if (p.Contains("@")) b += 0.03f;
-
-        // Extra boost for multiple term matches
-        if (matches >= 3) b += 0.05f;
-
-        return Math.Min(b, 0.20f); // increased cap from 0.10f
-    }
-
-    // IMPROVED: More generous keyword fallback
-    public static List<TopChunk> KeywordFallback(List<IndexedChunk> list, string q, int k = 8)
-    {
-        var qset = ExpandQueryTerms(new HashSet<string>(Tokens(q)));
-        if (qset.Count == 0) return new List<TopChunk>();
-
-        // LOWERED threshold - accept any match
-        return list
-            .Select(x => new { x.Page, x.Preview, lex = LexicalScore(x.Preview, qset) })
-            .Where(r => r.lex > 0) // accept ANY match
-            .OrderByDescending(r => r.lex)
-            .Take(k * 2) // get more candidates
-            .Select(r => new TopChunk(r.Page, r.Preview, Math.Min(0.25f, r.lex / 10f))) // score based on lexical
-            .ToList();
-    }
-
-    // IMPROVED: Main selection with better defaults
-    public static List<TopChunk> SelectTop(
-        List<IndexedChunk> list,
-        ReadOnlySpan<float> qVec,
-        string q,
-        bool forStreaming)
-    {
-        bool listy = IsListy(q);
-        var qset = ExpandQueryTerms(new HashSet<string>(Tokens(q)));
-
-        // IMPROVED: More generous K values
-        int K = listy ? 25 : (forStreaming ? 15 : 12); // increased from 20/10/10
-
-        // ADJUSTED: Less aggressive weighting to favor embeddings
-        const float alpha = 0.70f; // embedding weight (reduced from 0.85)
-        const float beta = 0.30f;  // lexical weight (increased from 0.15)
-
-        float[] qVecArr = qVec.ToArray();
-
-        // 1) Score ALL candidates first
-        var cands = list.Select(x =>
-        {
-            var cos = SafeCosine(qVecArr, x.Vec.Span);
-            var lex = LexicalScore(x.Preview, qset);
-            var boo = Boost(x.Preview, qset);
-            var fin = alpha * cos + beta * lex + boo;
-            return new Cand(x.Page, x.Preview, x.Vec, cos, lex, boo, fin);
-        })
-        .OrderByDescending(c => c.Final)
-        .Take(Math.Max(K * 6, 20)) // increased oversample from K*4
-        .ToList();
-
-        // 2) ADJUSTED MMR - less diversity for better recall
-        var picked = MMR(cands, K, lambda: 0.85f); // increased from 0.7f to favor relevance
-
-        return picked.Select(c => new TopChunk(c.Page, c.Preview, c.Final)).ToList();
-    }
-
-    // Internal record
-    private record Cand(int Page, string Preview, ReadOnlyMemory<float> Vec, float Cos, float Lex, float Boost, float Final);
-
-    // IMPROVED MMR with better diversity balance
-    private static List<Cand> MMR(List<Cand> cands, int K, float lambda)
-    {
-        var chosen = new List<Cand>();
-        var remaining = new List<Cand>(cands);
-
-        while (chosen.Count < K && remaining.Count > 0)
-        {
-            Cand best = null;
-            float bestScore = float.NegativeInfinity;
-
-            foreach (var c in remaining)
-            {
-                float maxSim = 0f;
-                foreach (var s in chosen)
-                {
-                    var sim = SafeCosine(c.Vec.Span, s.Vec.Span);
-                    if (sim > maxSim) maxSim = sim;
-                }
-
-                // MMR score: balance relevance vs diversity
-                float score = lambda * c.Final - (1 - lambda) * maxSim;
-
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    best = c;
-                }
-            }
-
-            if (best != null)
-            {
-                chosen.Add(best);
-                remaining.Remove(best);
-            }
-            else
-            {
-                break; // safety
-            }
-        }
-
-        return chosen;
-    }
-}
-
-
-public static class ContextStitching
-{
-    public static List<TopChunk> ExpandWithNeighbors(
-        List<IndexedChunk> all,
-        List<TopChunk> picks,
-        int sideNeighbors = 2,        // increased from 1
-        int maxTotalNeighbors = 10)   // increased from 6
-    {
-        if (picks == null || picks.Count == 0) return picks ?? new List<TopChunk>();
-
-        var order = new Dictionary<(int page, string preview), int>();
-        for (int i = 0; i < all.Count; i++)
-        {
-            var key = (all[i].Page, all[i].Preview);
-            if (!order.ContainsKey(key)) order[key] = i;
-        }
-
-        var result = new List<TopChunk>(picks);
-        var seen = new HashSet<string>(picks.Select(p => $"{p.Page}\u0001{p.Preview}"));
-        int added = 0;
-
-        foreach (var p in picks)
-        {
-            var key = (p.Page, p.Preview);
-            if (!order.TryGetValue(key, out var idx)) continue;
-
-            for (int offset = 1; offset <= sideNeighbors; offset++)
-            {
-                if (added >= maxTotalNeighbors) break;
-
-                // Previous neighbor on same page
-                if (idx - offset >= 0 && all[idx - offset].Page == p.Page)
-                {
-                    var prev = all[idx - offset];
-                    var k = $"{prev.Page}\u0001{prev.Preview}";
-                    if (seen.Add(k))
-                    {
-                        result.Add(new TopChunk(prev.Page, prev.Preview, p.Score * 0.95f));
-                        added++;
-                    }
-                }
-
-                // Next neighbor on same page
-                if (added < maxTotalNeighbors && idx + offset < all.Count && all[idx + offset].Page == p.Page)
-                {
-                    var next = all[idx + offset];
-                    var k = $"{next.Page}\u0001{next.Preview}";
-                    if (seen.Add(k))
-                    {
-                        result.Add(new TopChunk(next.Page, next.Preview, p.Score * 0.95f));
-                        added++;
-                    }
-                }
-            }
-
-            if (added >= maxTotalNeighbors) break;
-        }
-
-        result = result
-            .OrderBy(t => order.TryGetValue((t.Page, t.Preview), out var i) ? i : int.MaxValue)
-            .ToList();
-
-        return result;
-    }
-}
-// ----- Category detector: adds a small, query-aware precision hint -----
-public record CategoryHint(string Name, string PromptHint);
-
-public static class CategoryDetector
-{
-    public static CategoryHint Detect(string q)
-    {
-        if (string.IsNullOrWhiteSpace(q)) return new CategoryHint("none", "");
-
-        var s = q.ToLowerInvariant();
-
-        // Technologies / tech stack / skills → group by category
-        if (Regex.IsMatch(s, @"\b(tech(?:nologies?)?|tech\s*stack|technology\s*stack|stack|skills|technical\s+skills)\b"))
-            return new CategoryHint(
-                "tech_group",
-                "Group the answer into labeled sections: " +
-                "1) Programming languages, 2) Frameworks & libraries, 3) Databases & data stores, " +
-                "4) Tools & platforms (including DevOps/hosting), 5) Methodologies & practices. " +
-                "Under each section, include only items that strictly belong to that category and exclude close neighbors. " +
-                "If a section has no items, omit it."
-            );
-
-
-        // Programming languages
-        if (Regex.IsMatch(s, @"\b(programming\s+languages?|coding\s+languages?)\b"))
-            return new CategoryHint("programming_languages",
-                "For programming languages, exclude frameworks, libraries, tools, databases, and model names.");
-
-        // Frameworks / libraries
-        if (Regex.IsMatch(s, @"\b(frameworks?|libraries|packages|toolkits?)\b"))
-            return new CategoryHint("frameworks_libraries",
-                "For frameworks and libraries, exclude programming languages, databases, and general tools.");
-
-        // Databases / data stores
-        if (Regex.IsMatch(s, @"\b(databases?|data\s*stores?|dbs?)\b"))
-            return new CategoryHint("databases",
-                "For databases and data stores, exclude programming languages, frameworks/libraries, and tools.");
-
-        // Schools
-        if (Regex.IsMatch(s, @"\b(universit(?:y|ies)|college(?:s)?|school(?:s)?)\b"))
-            return new CategoryHint("schools",
-                "For universities/colleges/schools, exclude degrees, departments, programs, and locations.");
-
-        // People
-        if (Regex.IsMatch(s, @"\b(people|persons|person\s+names?|authors?|speakers?|presenters?)\b"))
-            return new CategoryHint("people",
-                "For people, include person names only; exclude organizations, teams, and roles without names.");
-
-        // Organizations
-        if (Regex.IsMatch(s, @"\b(organizations?|companies|institutions|agencies)\b"))
-            return new CategoryHint("organizations",
-                "For organizations, exclude person names and job titles.");
-
-        // Countries
-        if (Regex.IsMatch(s, @"\b(countries?)\b"))
-            return new CategoryHint("countries",
-                "For countries, exclude cities, states/provinces, and regions.");
-
-        // Dates / date ranges (months, years, deadlines)
-        if (Regex.IsMatch(s, @"\b(dates?|date\s*ranges?|deadlines?)\b") ||
-            Regex.IsMatch(s, @"\b(january|february|march|april|may|june|july|august|september|october|november|december)\b") ||
-            Regex.IsMatch(s, @"\b(19|20)\d{2}\b"))
-            return new CategoryHint("dates",
-                "For dates, return only explicit date expressions as written (e.g., 11/2021–07/2023); exclude durations without dates.");
-
-        // Quantified metrics / achievements
-        if (Regex.IsMatch(s, @"%|percent|percentage|\bplus\b|\b\+\b|\bmetrics?\b|\bachievements?\b"))
-            return new CategoryHint("metrics",
-                "For quantified achievements or metrics, return only items that include a percentage (%) or a plus-count (+), exactly as written.");
-
-        return new CategoryHint("none", "");
-    }
-}
-
-// ---------- Query normalization ----------
-public static class QueryNormalization
-{
-    public static string Normalize(string q)
-    {
-        if (string.IsNullOrWhiteSpace(q)) return q ?? "";
-        var s = q.Trim();
-
-        // Strip polite prefixes
-        s = Regex.Replace(s, @"^\s*(can you|could you|please|kindly|would you|i want to|i would like to|could u|can u)\s+", "", RegexOptions.IgnoreCase);
-
-        // Map synonyms to tighter phrasing
-        s = Regex.Replace(s, @"\b(name of (the )?document)\b", "document title", RegexOptions.IgnoreCase);
-        s = Regex.Replace(s, @"\b(pdf title|title of the pdf)\b", "document title", RegexOptions.IgnoreCase);
-        // QueryNormalization.Normalize(...)
-        s = Regex.Replace(s, @"\b(title\s+of\s+(this|the)\s+(document|pdf))\b",
-                          "document title", RegexOptions.IgnoreCase);
-
-
-        // Collapse whitespace
-        s = Regex.Replace(s, @"\s+", " ");
-        return s.Trim();
-    }
-}
-
-// ---------- Section intent (generic for reports/papers) ----------
-public enum SectionIntent { None, Abstract, Title, Authors, Affiliations, Introduction, Conclusion, References, Keywords }
-
-public static class SectionSwitchboard
-{
-    public static SectionIntent Detect(string q)
-    {
-        var s = q?.ToLowerInvariant() ?? "";
-        if (Regex.IsMatch(s,
-        @"\b(what\s+is\s+the\s+(document|paper|thesis)\s+title\b|" +
-        @"give\s+me\s+the\s+(document|paper|thesis)\s+title\b|" +
-        @"title\s+of\s+this\s+(paper|document|thesis)\b)"))
-        {
-            return SectionIntent.Title;
-        }
-        if (Regex.IsMatch(s,
-                @"\b(what\s+is\s+the\s+abstract\b|" +
-                @"give\s+me\s+the\s+abstract\b|" +
-                @"abstract\s+of\s+this\s+(paper|document|thesis)\b|" +
-                @"show\s+the\s+abstract\b)"))
-        {
-            return SectionIntent.Abstract;
-        }
-        // Only treat as an "authors" question if it's explicitly about listing / naming them
-        if (Regex.IsMatch(s,
-                @"\b(who\s+(are|is)\s+the\s+authors?\b|" +
-                @"list\s+the\s+authors?\b|" +
-                @"author\s+names?\b|" +
-                @"authors?\s+of\s+this\s+(paper|document))",
-                RegexOptions.IgnoreCase))
-        {
-            return SectionIntent.Authors;
-        }
-
-        if (Regex.IsMatch(s,
-                @"\b(what\s+are\s+the\s+affiliations?\b|" +
-                @"list\s+the\s+affiliations?\b|" +
-                @"affiliations?\s+of\s+the\s+authors?\b|" +
-                @"which\s+institutions?\s+are\s+the\s+authors?\s+from\b)"))
-        {
-            return SectionIntent.Affiliations;
-        }
-        if (Regex.IsMatch(s, @"\b(introduction|background)\b")) return SectionIntent.Introduction;
-        if (Regex.IsMatch(s, @"\b(conclusion|conclusions)\b")) return SectionIntent.Conclusion;
-        if (Regex.IsMatch(s,
-               @"\b((list|show|give)\s+the\s+(references|bibliography|works\s+cited)\b|" +
-               @"what\s+are\s+the\s+(references|bibliography|works\s+cited)\b|" +
-               @"(references|bibliography|works\s+cited)\s+of\s+this\s+(paper|document|thesis)\b)"))
-        {
-            return SectionIntent.References;
-        }
-        if (Regex.IsMatch(s,
-               @"\b(what\s+are\s+the\s+keywords?\b|" +
-               @"list\s+the\s+keywords?\b|" +
-               @"keywords?\s+of\s+this\s+(paper|document|thesis)\b)"))
-        {
-            return SectionIntent.Keywords;
-        }
-
-        return SectionIntent.None;
-    }
-
-    public static List<TopChunk> FindSection(List<IndexedChunk> list, SectionIntent intent)
-    {
-        string pattern = intent switch
-        {
-            SectionIntent.Abstract => @"\babstract\b",
-            SectionIntent.Introduction => @"\bintroduction\b",
-            SectionIntent.Conclusion => @"\bconclusions?\b",
-            SectionIntent.References => @"\b(references|bibliography|works\s+cited)\b",
-            SectionIntent.Keywords => @"\bkeywords?\b",
-            // Authors/Affiliations are weak as headings; still try
-            SectionIntent.Authors => @"\bauthors?\b",
-            SectionIntent.Affiliations => @"\baffiliations?\b",
-            _ => ""
-        };
-        if (string.IsNullOrEmpty(pattern)) return new List<TopChunk>();
-
-        var hits = list.Where(x => Regex.IsMatch(x.Preview ?? "", pattern, RegexOptions.IgnoreCase))
-                       .GroupBy(x => x.Page)
-                       .Select(g => g.First())
-                       .OrderBy(x => x.Page)
-                       .Select(x => new TopChunk(x.Page, x.Preview, 0.5f))
-                       .ToList();
-        return hits;
-
-
-    }
-
-    // Heuristic finders for methods / results-like sections
-    public static List<TopChunk> FindMethodLikeSections(List<IndexedChunk> list)
-    {
-        // Look for headings like "Methods", "Materials and Methods", "Methodology"
-        var pattern = @"\b(methods?|materials and methods|methodology)\b";
-
-        var hits = list
-            .Where(x => Regex.IsMatch(x.Preview ?? "", pattern, RegexOptions.IgnoreCase))
-            .GroupBy(x => x.Page)
-            .Select(g => g.First())
-            .OrderBy(x => x.Page)
-            .Select(x => new TopChunk(x.Page, x.Preview, 0.6f))
-            .ToList();
-
-        return hits;
-    }
-
-    public static List<TopChunk> FindFindingsLikeSections(List<IndexedChunk> list)
-    {
-        // Look for sections like "Results", "Findings", "Discussion"
-        var pattern = @"\b(results?|findings?|results and discussion|discussion)\b";
-
-        var hits = list
-            .Where(x => Regex.IsMatch(x.Preview ?? "", pattern, RegexOptions.IgnoreCase))
-            .GroupBy(x => x.Page)
-            .Select(g => g.First())
-            .OrderBy(x => x.Page)
-            .Select(x => new TopChunk(x.Page, x.Preview, 0.6f))
-            .ToList();
-
-        return hits;
-    }
-}
-
-
-
-// ---------- Text normalization (applied at index time) ----------
-public static class TextNormalization
-{
-    public static string Clean(string text)
-    {
-        if (string.IsNullOrEmpty(text)) return "";
-        var s = text;
-
-        // Common PDF ligatures
-        s = s.Replace("ﬁ", "fi").Replace("ﬂ", "fl");
-
-        // Join hyphenated line breaks: foo-\nbar -> foobar
-        s = Regex.Replace(s, @"(\w)-\s*\r?\n\s*(\w)", "$1$2");
-
-        // Normalize whitespace
-        s = s.Replace('\u00A0', ' ');
-        s = Regex.Replace(s, @"[ \t]{2,}", " ");
-        s = Regex.Replace(s, @"\s+\r?\n", "\n");
-
-        return s;
-    }
-}
-
-// ---------- PDF metadata helper (title/author fallback) ----------
-public static class PdfMetadataHelper
-{
-    public static (string? Title, string? Author) Read(Guid uploadId, IWebHostEnvironment env)
-    {
-        try
-        {
-            var path = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.pdf");
-            if (!File.Exists(path)) return (null, null);
-            using var pdf = new iText.Kernel.Pdf.PdfDocument(new iText.Kernel.Pdf.PdfReader(path));
-            var info = pdf.GetDocumentInfo();
-            var title = info?.GetTitle();
-            var author = info?.GetAuthor();
-            return (string.IsNullOrWhiteSpace(title) ? null : title,
-                    string.IsNullOrWhiteSpace(author) ? null : author);
-        }
-        catch { return (null, null); }
-    }
-}
-
-
-public static class TitleHeuristics
-{
-    public static string? FromPdfFirstPage(Guid uploadId, IWebHostEnvironment env)
-    {
-        var path = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.pdf");
-        if (!File.Exists(path)) return null;
-
-        using var doc = PdfPigDoc.Open(path);
-        var first = doc.GetPages().FirstOrDefault();
-        if (first == null) return null;
-        // Build cleaned candidate lines
-        var lines = (first.Text ?? "")
-            .Split('\n')
-            .Select(s => Regex.Replace(s, @"\s+", " ").Trim())
-            .Where(s => s.Length >= 8)
-            .ToList();
-
-        // Skip obvious non-title headers
-        var blacklist = new Regex(@"\b(UNIVERSITY|DEPARTMENT|SCHOOL|FACULTY|COLLEGE|INSTITUTE|SUBMITTED|SUBMISSION|SUPERVISOR|ADVIS(ER|OR)|\bBY\b|APPROVAL|DECLARATION|ACKNOWLEDG(E)?MENTS?|SIGNATURE|NAME OF|INDEX|CERTIFICATE)\b",
-                                  RegexOptions.IgnoreCase);
-
-        // Scoring function: uppercase-ish + reasonable length; penalize blacklisted & date-y lines
-        float Score(string s)
-        {
-            int letters = s.Count(char.IsLetter);
-            int upper = s.Count(char.IsUpper);
-            float upperRatio = letters == 0 ? 0f : (float)upper / letters;
-
-            float score = 0;
-            score += upperRatio >= 0.60f ? 3 : (upperRatio >= 0.40f ? 1 : 0);
-            int len = s.Length;
-            score += (len >= 30 && len <= 160) ? 3 : (len >= 20 && len <= 180 ? 1 : -2);
-            if (blacklist.IsMatch(s)) score -= 6;
-            if (Regex.IsMatch(s, @"\b(20\d{2}|19\d{2})\b")) score -= 1; // years
-            return score;
-        }
-
-        // Rank candidates
-        var ranked = lines
-            .Select((s, i) => new { s, i, score = Score(s) })
-            .OrderByDescending(x => x.score)
-            .ThenBy(x => x.i) // prefer earlier on the page
-            .ToList();
-
-        string? pick = ranked.Count > 0 ? ranked[0].s : null;
-
-        // If top candidate looks like it continues on the next line, join them
-        if (pick != null)
-        {
-            int idx = ranked[0].i;
-            if (idx + 1 < lines.Count)
-            {
-                string next = lines[idx + 1];
-                int letters = next.Count(char.IsLetter);
-                int upper = next.Count(char.IsUpper);
-                float upperRatio = letters == 0 ? 0f : (float)upper / letters;
-
-                if (!blacklist.IsMatch(next) && upperRatio >= 0.55f && (pick.Length + 1 + next.Length) <= 180)
-                {
-                    pick = $"{pick} {next}";
-                }
-            }
-        }
-
-        // --- post-process to trim header noise from the picked line ---
-
-        if (string.IsNullOrWhiteSpace(pick)) return null;
-        // 1) Cut anything after common separators (authors, supervisor, submission text)
-        var cut = Regex.Split(pick, @"\b(BY|SUPERVISOR|SUBMITTED|SUBMISSION|NAME OF|SIGNATURE|APPROVAL)\b",
-                              RegexOptions.IgnoreCase)[0];
-
-        // 2) If there’s an institutional prelude, start from the first likely title keyword
-        var m = Regex.Match(cut,
-            @"\b(FINAL\s+YEAR|PROJECT\s+REPORT|THESIS|DISSERTATION|RESEARCH\s+PROJECT|REPORT\s+ON)\b",
-            RegexOptions.IgnoreCase);
-        if (m.Success)
-            cut = cut.Substring(m.Index);
-
-        // 3) Clean spacing
-        cut = Regex.Replace(cut, @"\s{2,}", " ").Trim();
-
-        // 4) Use trimmed value if it looks reasonable
-        if (cut.Length >= 15 && cut.Length <= 200)
-            pick = cut;
-
-        // --- end post-process ---
-
-        // 4b) If the candidate still looks more like a paragraph/abstract than a title, discard it
-        if (!string.IsNullOrWhiteSpace(pick))
-        {
-            // Drop pure "ABSTRACT" lines
-            if (Regex.IsMatch(pick, @"^\s*abstract\s*:?\s*$", RegexOptions.IgnoreCase))
-                return null;
-
-            // Rough word-count limit: most real titles are not 30+ words
-            var words = pick.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (words.Length > 30)
-                return null;
-
-            // Rough multi-sentence check – abstracts usually have several sentences
-            var sentenceEndCount = Regex.Matches(pick, "[\\.\\?!]").Count;
-            if (sentenceEndCount > 2)
-                return null;
-        }
-
-        return pick;
-
-
-        return pick;
-
-
-    }
-}
-
-
-
-public enum DocType
-{
-    AcademicResearch,
-    BusinessCase,
-    LegalCase,
-    UnsupportedOther
-}
-
-public record DocTypeResult(
-    DocType DocType,
-    float Confidence,
-    List<string> Signals,
-    string Reason,
-    List<(string label, float score)> Top2
-);
-
-public static class DocTypeClassifier
-{
-    // How many first pages to sample for signals
-    const int MAX_PAGES = 8;
-    const float MIN_SCORE_TO_ACCEPT = 5.0f;  // absolute floor
-    const float MIN_CONFIDENCE = 0.55f;      // softmax prob floor
-
-    public static DocTypeResult Evaluate(IEnumerable<dynamic> chunks)
-    {
-        // We only need Page + Preview; your chunks have x.Page and x.Preview
-        var first = chunks
-            .Where(x => (int)x.Page >= 1 && (int)x.Page <= MAX_PAGES)
-            .OrderBy(x => (int)x.Page)
-            .Take(250) // safety cap
-            .Select(x => $"{x.Preview}\n")
-            .ToList();
-
-        var sample = string.Join("\n", first);
-        var sampleLower = sample.ToLowerInvariant();
-
-        // Quick guards for extremely short docs
-        if (string.IsNullOrWhiteSpace(sample) || sample.Length < 400)
-        {
-            return Unsupported("Very short/empty front matter.");
-        }
-
-        // ----- Patterns & weights -----
-        // Academic signals
-        // Academic signals (broadened to cover CS, social science, econ, etc.)
-        var academic = new (string pat, int w)[]
-        {
-            // Core scholarly structure
-            (@"\babstract\b", 3),
-            (@"\bkeywords?\b", 2),
-            (@"\b(introduction|background)\b", 2),
-            (@"\bmethods?\b|\bmethodology\b|\bmaterials?\s+and\s+methods?\b", 3),
-            (@"\b(data\s+and\s+methods?|empirical\s+strategy)\b", 3),
-            (@"\b(results?|findings?)\b", 3),
-            (@"\bexperiments?\b|\bevaluation(s)?\b", 2),
-
-            // Common modeling / CS / quant research cues
-            (@"\bmodel\b", 1),
-            (@"\barchitecture\b", 1),
-            (@"\bneural\s+network(s)?\b|\btransformer(s)?\b", 1),
-            (@"\bdataset(s)?\b|\bdata\s+set(s)?\b", 1),
-            (@"\btraining\b|\bvalidation\b|\btest\s+set\b", 1),
-            (@"\baccuracy\b|\bprecision\b|\brecall\b|\bf1[-\s]?score\b|\brmse\b|\bmse\b|\bauroc\b", 1),
-
-            // Discourse / wrap-up
-            (@"\bdiscussion\b", 3),
-            (@"\bconclusions?\b|\blimitations?\b|\bfuture\s+work\b", 2),
-
-            // Back matter & citations
-            (@"\breferences\b|\bbibliography\b|\bworks\s+cited\b", 3),
-            (@"doi:\s*\S+", 2),
-            (@"arxiv:\s*\S+", 2),
-            (@"\([A-Z][A-Za-z\-]+,\s*20\d{2}\)", 2), // APA-style cites
-            (@"\[\d+\]", 1),                         // numeric cites
-
-            // Publishing / authorship
-            (@"\breceived\b.*\baccepted\b", 1),
-            (@"\baffiliations?\b|\bcorresponding\s+author\b", 1),
-        };
-
-
-        // Business case signals
-        var business = new (string pat, int w)[]
-        {
-            (@"\bexhibit\s+\d+\b", 3),
-            (@"\b(teaching\s+note|learning\s+objectives?)\b", 3),
-            (@"\bcase\s+questions?\b|\bdiscussion\s+questions?\b", 2),
-            (@"\b(alternatives?|options?)\b", 2), (@"\brecommendation(s)?\b", 3),
-            (@"\b(company\s+overview|background)\b", 2),
-            (@"\bas of\s+\w+\s+\d{4}\b", 2),
-            (@"\bmarket(s)?\b|\brevenue\b|\bcost(s)?\b|\bprofit(s)?\b", 1),
-            (@"\byou are\b.*(manager|ceo|analyst|consultant)", 1)
-        };
-
-        // Legal case signals
-        var legal = new (string pat, int w)[]
-        {
-            (@"\bv\.\b", 4), // X v. Y
-            (@"\b(plaintiff|defendant|appellant|appellee)\b", 3),
-            (@"\bfacts\b", 3), (@"\bissues?\b", 3), (@"\brule\b", 3),
-            (@"\bholding\b|\bdisposition\b", 3),
-            (@"\breasoning\b|\banalysis\b", 2),
-            // Reporter cites (very loose)
-            (@"\b\d{1,3}\s+(u\.s\.|f\.3d|s\.ct\.|scc|n\.y\.s\.\d)\b", 2)
-        };
-
-        // Unsupported (things we want to block for Guided Mode)
-        var unsupported = new (string pat, int w)[]
-        {
-            (@"\bcurriculum\s+vitae\b|\bcv\b\b", 3),
-            (@"\bexperience\b", 2), (@"\beducation\b", 2),
-            (@"\bskills?\b", 2), (@"\bprojects?\b", 2),
-            (@"\bcertifications?\b", 2), (@"\blanguages?\b", 1),
-            (@"\bagenda\b", 2),
-            (@"\b(invoice|brochure|flyer)\b", 1)
-        };
-
-        int scoreAcademic = Score(sampleLower, academic);
-        int scoreBusiness = Score(sampleLower, business);
-        int scoreLegal = Score(sampleLower, legal);
-        int scoreBlock = Score(sampleLower, unsupported);
-
-        // If strong unsupported signals, prefer Unsupported
-        if (scoreBlock >= 6 && scoreBlock >= Math.Max(scoreAcademic, Math.Max(scoreBusiness, scoreLegal)))
-        {
-            return Unsupported($"Unsupported patterns dominated (score={scoreBlock}).");
-        }
-
-        // Pick top category
-        var raw = new List<(string label, int score)>
-        {
-            ("academic_research", scoreAcademic),
-            ("business_case", scoreBusiness),
-            ("legal_case", scoreLegal)
-        }.OrderByDescending(x => x.score).ToList();
-
-        var top = raw[0];
-        var second = raw[1];
-
-        // Softmax-like confidence
-        float conf = SoftmaxTop(new float[] { scoreAcademic, scoreBusiness, scoreLegal });
-
-        // Absolute + confidence thresholds
-        if (top.score < MIN_SCORE_TO_ACCEPT || conf < MIN_CONFIDENCE)
-        {
-            return Unsupported($"Low separation or weak signals (top={top.label} score={top.score}, conf={conf:0.00}).");
-        }
-
-        var docType = top.label switch
-        {
-            "academic_research" => DocType.AcademicResearch,
-            "business_case" => DocType.BusinessCase,
-            "legal_case" => DocType.LegalCase,
-            _ => DocType.UnsupportedOther
-        };
-
-        // Collect a few positive signals to explain
-        var signals = new List<string>();
-        if (scoreAcademic > 0) signals.Add($"Academic:{scoreAcademic}");
-        if (scoreBusiness > 0) signals.Add($"Business:{scoreBusiness}");
-        if (scoreLegal > 0) signals.Add($"Legal:{scoreLegal}");
-        if (scoreBlock > 0) signals.Add($"Unsupported:{scoreBlock}");
-
-        string reason = $"Top={top.label} (score {top.score}) over {second.label} (score {second.score}); conf={conf:0.00}.";
-
-        return new DocTypeResult(
-            docType,
-            conf,
-            signals,
-            reason,
-            raw.Take(2).Select(x => (x.label, (float)x.score)).ToList()
-        );
-
-        // ---- local helpers ----
-        static int Score(string text, (string pat, int w)[] rules)
-        {
-            int s = 0;
-            foreach (var (pat, w) in rules)
-            {
-                if (Regex.IsMatch(text, pat, RegexOptions.IgnoreCase | RegexOptions.Multiline))
-                    s += w;
-            }
-            return s;
-        }
-
-        static float SoftmaxTop(float[] xs)
-        {
-            // shift for numerical stability
-            float max = xs.Max();
-            var exps = xs.Select(v => MathF.Exp(v - max)).ToArray();
-            float sum = exps.Sum();
-            return sum == 0 ? 0f : exps.Max() / sum;
-        }
-
-        static DocTypeResult Unsupported(string why) =>
-            new DocTypeResult(DocType.UnsupportedOther, 0.0f, new List<string>(), why, new List<(string, float)>());
-    }
-}
-
-public static class DocTypePersistence
-{
-    public static void Save(Guid uploadId, IWebHostEnvironment env, DocTypeResult result)
-    {
-        var path = Path.Combine(env.ContentRootPath, "uploads", $"docclass-{uploadId}.json");
-        var json = System.Text.Json.JsonSerializer.Serialize(result, new System.Text.Json.JsonSerializerOptions
-        {
-            WriteIndented = true
-        });
-        File.WriteAllText(path, json);
-    }
-
-    public static bool TryLoad(Guid uploadId, IWebHostEnvironment env, out DocTypeResult? result)
-    {
-        var path = Path.Combine(env.ContentRootPath, "uploads", $"docclass-{uploadId}.json");
-        if (!File.Exists(path))
-        {
-            result = null;
-            return false;
-        }
-
-        var json = File.ReadAllText(path);
-        result = System.Text.Json.JsonSerializer.Deserialize<DocTypeResult>(json);
-        return result != null;
-    }
-}
-
-
-// === STEP 7A helpers: feature flag + universal Academic focus keywords ===
-static class TutorGrounding
-{
-    public const bool ENABLE_ACADEMIC_GROUNDING = true;
-
-    // Generic, discipline-agnostic signals for each Academic focus
-    public static readonly Dictionary<string, string[]> FocusKeywords =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["methodology"] = new[] {
-            "method", "methodology", "materials", "procedure", "participants", "dataset",
-            "preprocess", "instrumentation", "apparatus", "implementation", "algorithm",
-            "architecture", "training", "hyperparameter", "validation", "experimental setup"
-        },
-            ["findings"] = new[] { "result", "results", "findings", "experiments", "evaluation", "analysis", "table", "figure", "accuracy", "effect size" },
-            ["theory"] = new[] { "theory", "framework", "model", "background", "literature", "hypothesis", "hypotheses" },
-            ["discussion"] = new[] { "discussion", "implications", "interpretation", "practical implications" },
-            ["limitations"] = new[] { "limitation", "limitations", "threats to validity", "bias", "generalizability" },
-            ["conclusion"] = new[] { "conclusion", "summary", "future work", "concluding remarks" }
-        };
-
-    // === STEP 7A: universal page-finder for Academic focus ===
-    static string[] HeaderHintsFor(string focus) => focus.ToLowerInvariant() switch
-    {
-        "methodology" => new[] {
-        "method", "methodology", "materials & methods", "experimental setup",
-        "implementation", "approach", "research design", "participants",
-        "procedure", "instrumentation"
-    },
-        "findings" => new[] { "results", "findings", "experiments", "evaluation", "analysis", "results and discussion" },
-        "theory" => new[] { "theory", "background", "literature", "framework", "hypotheses" },
-        "discussion" => new[] { "discussion", "implications", "interpretation" },
-        "limitations" => new[] { "limitation", "limitations", "threats to validity", "threats", "bias" },
-        "conclusion" => new[] { "conclusion", "summary", "future work" },
-        _ => Array.Empty<string>()
-    };
-
-    public static List<int> FindPagesAcademic(string uploadId, string focus, int take = 3)
-    {
-        var path = Path.Combine("uploads", $"{uploadId}.index.json");
-        if (!File.Exists(path)) return new();
-
-        var kw = FocusKeywords.TryGetValue(focus ?? "", out var arr) ? arr : Array.Empty<string>();
-        var headers = HeaderHintsFor(focus ?? "");
-
-        var scores = new Dictionary<int, int>();
-
-        using var stream = File.OpenRead(path);
-        using var doc = System.Text.Json.JsonDocument.Parse(stream);
-
-        foreach (var el in doc.RootElement.EnumerateArray())
-        {
-            int page = el.TryGetProperty("Page", out var p) && p.TryGetInt32(out var pi) ? pi : -1;
-            if (page < 1) continue;
-
-            string text =
-                (el.TryGetProperty("Text", out var tx) ? tx.GetString() : null)
-                ?? (el.TryGetProperty("Preview", out var pv) ? pv.GetString() : null)
-                ?? string.Empty;
-
-            if (string.IsNullOrWhiteSpace(text)) continue;
-
-            int s = 0;
-            foreach (var h in headers)
-                if (text.IndexOf(h, StringComparison.OrdinalIgnoreCase) >= 0) s += 3;
-
-            foreach (var k in kw)
-                if (text.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0) s += 1;
-
-            if (s > 0)
-                scores[page] = (scores.TryGetValue(page, out var cur) ? cur : 0) + s;
-        }
-
-        if (scores.Count == 0) return new();
-
-        // Take top pages, include ±1 neighbors for context
-        var top = scores.OrderByDescending(kv => kv.Value).Select(kv => kv.Key).Take(take).ToList();
-        var withNeighbors = new HashSet<int>(top);
-        foreach (var pg in top) { withNeighbors.Add(pg - 1); withNeighbors.Add(pg + 1); }
-        withNeighbors.RemoveWhere(x => x < 1);
-
-        return withNeighbors.OrderBy(x => x).Take(take).ToList();
-    }
-
-    public static List<int> FindPagesBusiness(string uploadId, string focus, int take = 4)
-    {
-        var path = Path.Combine("uploads", $"{uploadId}.index.json");
-        if (!File.Exists(path)) return new();
-
-        var f = (focus ?? "").ToLowerInvariant();
-        string[] keys = f switch
-        {
-            "problem" or "strategic context" => new[] { "problem", "background", "context", "objective", "goal", "scope" },
-            "alternatives" or "options" => new[] { "alternative", "option", "scenario", "approach" },
-            "analysis" => new[] { "analysis", "assumption", "sensitivity", "driver", "swot", "five forces" },
-            "financials" => new[] { "$", "€", "£", "revenue", "cost", "profit", "npv", "irr", "roi", "cash flow", "%" },
-            "risks" or "risks & delivery" => new[] { "risk", "mitigation", "uncertainty", "limitation", "trade-off" },
-            "recommendation" or "next steps" => new[] { "recommendation", "conclusion", "next steps", "implementation", "roadmap" },
-            _ => Array.Empty<string>()
-        };
-
-        var scores = new Dictionary<int, int>();
-
-        using var stream = File.OpenRead(path);
-        using var doc = System.Text.Json.JsonDocument.Parse(stream);
-
-        foreach (var el in doc.RootElement.EnumerateArray())
-        {
-            int page = el.TryGetProperty("Page", out var p) && p.TryGetInt32(out var pi) ? pi : -1;
-            if (page < 1) continue;
-
-            string text =
-                (el.TryGetProperty("Text", out var tx) ? tx.GetString() : null)
-                ?? (el.TryGetProperty("Preview", out var pv) ? pv.GetString() : null)
-                ?? string.Empty;
-
-            if (string.IsNullOrWhiteSpace(text)) continue;
-
-            int s = 0;
-            foreach (var k in keys)
-                if (text.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0) s += 1;
-
-            // Small boost for numeric density when focus=financials
-            if (f == "financials")
-            {
-                int digits = 0;
-                foreach (var ch in text) if (char.IsDigit(ch)) digits++;
-                if (digits > 80) s += 1;
-            }
-
-            if (s > 0)
-                scores[page] = (scores.TryGetValue(page, out var cur) ? cur : 0) + s;
-        }
-
-        if (scores.Count == 0) return new();
-
-        // Take top pages, include ±1 neighbors for context
-        var top = scores.OrderByDescending(kv => kv.Value).Select(kv => kv.Key).Take(take).ToList();
-        var withNeighbors = new HashSet<int>(top);
-        foreach (var pg in top) { withNeighbors.Add(pg - 1); withNeighbors.Add(pg + 1); }
-        withNeighbors.RemoveWhere(x => x < 1);
-
-        return withNeighbors.OrderBy(x => x).Take(Math.Max(take, 3)).ToList();
-    }
-
-
-    // Build grounded UI for Academic steps (3 narrative lines + 3 two-line choices, all with [p:X])
-    public static object BuildAcademicUI(string focus, int stepIndex, List<int> pages)
-    {
-        if (pages == null || pages.Count == 0)
-        {
-            // Thin context: we still respect the "every line has a chip" contract.
-            // Use a conservative anchor (page 1) so this message is never ungrounded.
-            var fallbackPages = new[] { 1 };
-
-            var narrativeRaw =
-                $"This topic appears complete for **{focus}** based on the pages reviewed.\n" +
-                "Consider exploring another topic or exporting what has been covered.";
-
-            var narrativeChipped = ChipUtil.ChipAllLines(narrativeRaw, fallbackPages);
-
-            return new
-            {
-                narrative = narrativeChipped
-,
-                choices = new object[]
-                {
-                new {
-                    id = "topics",
-                    label = "Explore another topic.\nReturn to the topic list and choose a different angle. [p:1]"
-                },
-                new {
-                    id = "change-focus",
-                    label = "Change focus.\nSwitch to a different section such as Results or Discussion. [p:1]"
-                },
-                new {
-                    id = "export",
-                    label = "Export summary.\nSave the visited pages and brief notes for this path. [p:1]"
-                }
-                },
-                cites = fallbackPages,
-                stepSummary = $"Wrapped {focus} (thin context)"
-            };
-        }
-
-
-        int p(int i) => pages[i % pages.Count];
-
-        string narrative = focus.Equals("methodology", StringComparison.OrdinalIgnoreCase)
-            ? $"Locate the methods section and note how data/procedures are introduced. [p:{p(0)}]\n" +
-              $"Review preprocessing/setup that prepares inputs for the model or analysis. [p:{p(1)}]\n" +
-              $"Check where the model/analysis configuration is described. [p:{p(2)}]"
-            : $"Review the key section for {focus}. [p:{p(0)}]\n" +
-              $"Cross-check supporting details or exhibits. [p:{p(1)}]\n" +
-              $"Capture the intended takeaway. [p:{p(2)}]";
-
-        var choices = new object[] {
-        new { id = "drill",
-              label = $"Drill into the most relevant paragraph(s) and extract exact anchors. [p:{p(0)}]\n" +
-                      $"Leave with a concise, citable note. [p:{p(1)}]" },
-        new { id = "contrast",
-              label = $"Contrast this section with nearby pages for scope/consistency. [p:{p(1)}]\n" +
-                      $"List any gaps deferred to later parts. [p:{p(2)}]" },
-        new { id = "trace",
-              label = $"Trace claim → evidence/procedure links in this section. [p:{p(2)}]\n" +
-                      $"Map the chain so you can cite without guessing. [p:{p(0)}]" }
-    };
-
-        return new
-        {
-            narrative,
-            choices,
-            cites = pages.OrderBy(x => x).ToArray(),
-            stepSummary = $"Grounded {focus}: step {stepIndex}"
-        };
-    }
-
-
-    public static List<(int page, string text)> ExtractAnchorsFromPages(
-    string uploadId,
-    IEnumerable<int> pages,
-    int maxTotal = 3,
-    int maxChars = 220)
-    {
-        var anchors = new List<(int page, string text)>();
-        try
-        {
-            var path = Path.Combine("uploads", $"{uploadId}.pdf");
-            if (!File.Exists(path)) return anchors;
-
-            using var doc = PdfPigDoc.Open(path);
-
-            foreach (var p in pages.Distinct().OrderBy(x => x))
-            {
-                if (p < 1 || p > doc.NumberOfPages) continue;
-
-                var page = doc.GetPage(p);
-                var raw = page.Text ?? string.Empty;
-                var snippet = TakeFirstSentences(raw, maxChars);
-                if (string.IsNullOrWhiteSpace(snippet)) continue;
-
-                anchors.Add((p, snippet));
-                if (anchors.Count >= maxTotal) break;
-            }
-        }
-        catch
-        {
-            // swallow — return whatever we could extract
-        }
-
-        return anchors;
-    }
-
-    static string TakeFirstSentences(string text, int maxChars)
-    {
-        var clean = CollapseWhitespace(text);
-        if (clean.Length <= maxChars) return clean;
-
-        // Try to end on a sentence boundary near the limit
-        var softLimit = Math.Max(100, Math.Min(maxChars, clean.Length));
-        var dot = clean.IndexOf('.', softLimit);
-        var cut = dot > 0 && dot < softLimit + 120 ? dot + 1 : maxChars;
-        if (cut > clean.Length) cut = clean.Length;
-
-        return clean.Substring(0, cut).Trim() + "…";
-    }
-
-    static string CollapseWhitespace(string s)
-    {
-        return System.Text.RegularExpressions.Regex.Replace(s ?? "", @"\s+", " ").Trim();
-    }
-
-
-}
-
-internal static class ChipUtil
-{
-    private static readonly Regex ChipRegex = new(@"\[p:\d+\]\s*$", RegexOptions.Compiled);
-
-    public static string WithChip(string line, IReadOnlyList<int>? cites)
-    {
-        if (string.IsNullOrWhiteSpace(line)) return line;
-        if (ChipRegex.IsMatch(line)) return line;
-        var page = (cites != null && cites.Count > 0) ? cites[^1] : 1; // ^1 = last item
-        return $"{line.TrimEnd()} [p:{page}]";
-    }
-
-    public static string ChipAllLines(string? narrative, IReadOnlyList<int>? cites)
-    {
-        if (string.IsNullOrEmpty(narrative)) return narrative ?? "";
-        var parts = narrative.Split('\n');
-        for (int i = 0; i < parts.Length; i++)
-            parts[i] = WithChip(parts[i], cites);
-        return string.Join("\n", parts);
-    }
-}
-internal static class StreakUtil
-{
-    public static bool SameCites(IReadOnlyList<int>? a, IReadOnlyList<int>? b)
-    {
-        if (a is null || b is null) return false;
-        if (a.Count != b.Count) return false;
-        for (int i = 0; i < a.Count; i++)
-            if (a[i] != b[i]) return false;
-        return true;
-    }
-}
-
-internal static class StepResponder
-{
-    public static IResult ReturnStep(
-        TutorSession session,
-        IReadOnlyList<int> cites,
-        object ui)
-    {
-        // compare against previous cites
-        if (StreakUtil.SameCites(cites, session.LastCites))
-        {
-            session = session with { NoNewCitesStreak = session.NoNewCitesStreak + 1 };
-        }
-        else
-        {
-            session = session with { NoNewCitesStreak = 0, LastCites = cites.ToList() };
-        }
-
-        TutorStore.Sessions[session.SessionId] = session;
-
-        return Results.Json(new { sessionId = session.SessionId, state = session, ui, payload = ui });
-    }
-}
-
-
-public static class TextChunking
-{
-    // ... your existing ChunkBySize method stays here ...
-
-    /// <summary>
-    /// Improved chunking that respects sentence boundaries better than ChunkBySize
-    /// Use this instead of ChunkBySize for better results
-    /// </summary>
-    public static IEnumerable<string> ChunkBySentences(string text, int maxChars = 1000, int overlap = 160)
-    {
-        if (string.IsNullOrEmpty(text)) yield break;
-        if (maxChars <= 0) yield break;
-        if (overlap < 0) overlap = 0;
-
-        // First, split into sentences properly
-        var sentences = SplitIntoSentences(text);
-        if (!sentences.Any()) yield break;
-
-        var currentChunk = new System.Text.StringBuilder();
-        var overlapText = "";
-
-        foreach (var sentence in sentences)
-        {
-            // If adding this sentence would exceed max chars, yield current chunk
-            if (currentChunk.Length > 0 && currentChunk.Length + sentence.Length + 1 > maxChars)
-            {
-                var chunkText = currentChunk.ToString().Trim();
-                if (!string.IsNullOrWhiteSpace(chunkText))
-                {
-                    yield return chunkText;
-
-                    // Calculate overlap - take last N characters but try to start at a sentence
-                    if (overlap > 0 && chunkText.Length > overlap / 2)
-                    {
-                        // Find a sentence boundary in the last part of the chunk for overlap
-                        int overlapStart = Math.Max(0, chunkText.Length - overlap);
-
-                        // Try to find a sentence start (capital letter after period)
-                        for (int i = overlapStart; i < chunkText.Length - 1; i++)
-                        {
-                            if (chunkText[i] == '.' && i + 2 < chunkText.Length && char.IsUpper(chunkText[i + 2]))
-                            {
-                                overlapStart = i + 2;
-                                break;
-                            }
-                        }
-
-                        overlapText = chunkText.Substring(overlapStart);
-                    }
-                }
-
-                // Start new chunk with overlap
-                currentChunk.Clear();
-                if (!string.IsNullOrWhiteSpace(overlapText))
-                {
-                    currentChunk.Append(overlapText);
-                    currentChunk.Append(" ");
-                }
-            }
-
-            // Add sentence to current chunk
-            if (currentChunk.Length > 0) currentChunk.Append(" ");
-            currentChunk.Append(sentence);
-        }
-
-        // Yield any remaining text
-        var finalChunk = currentChunk.ToString().Trim();
-        if (!string.IsNullOrWhiteSpace(finalChunk) && finalChunk.Length > 50) // Avoid tiny chunks
-        {
-            yield return finalChunk;
-        }
-    }
-
-    /// <summary>
-    /// Helper method to split text into sentences intelligently
-    /// </summary>
-    private static List<string> SplitIntoSentences(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return new List<string>();
-
-        var sentences = new List<string>();
-        var currentSentence = new System.Text.StringBuilder();
-
-        // Common abbreviations that don't end sentences
-        var abbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "Dr", "Mr", "Mrs", "Ms", "Prof", "Ph.D", "M.D", "et al",
-            "i.e", "e.g", "etc", "vs", "Fig", "Vol", "pp", "No"
-        };
-
-        int i = 0;
-        while (i < text.Length)
-        {
-            char c = text[i];
-            currentSentence.Append(c);
-
-            // Check for sentence endings
-            if (c == '.' || c == '!' || c == '?')
-            {
-                // Look ahead to see if this is really the end of a sentence
-                bool isEnd = true;
-
-                // Check if it's an abbreviation
-                if (c == '.')
-                {
-                    // Get the word before the period
-                    var beforePeriod = currentSentence.ToString().TrimEnd('.');
-                    var lastWord = beforePeriod.Split(' ', '\n', '\t').LastOrDefault()?.Trim();
-
-                    if (!string.IsNullOrEmpty(lastWord) && abbreviations.Contains(lastWord))
-                    {
-                        isEnd = false;
-                    }
-
-                    // Check for numbers (like 3.14)
-                    if (i > 0 && i + 1 < text.Length && char.IsDigit(text[i - 1]) && char.IsDigit(text[i + 1]))
-                    {
-                        isEnd = false;
-                    }
-
-                    // Check if next character is lowercase (continuation)
-                    if (i + 2 < text.Length && char.IsLower(text[i + 2]))
-                    {
-                        isEnd = false;
-                    }
-                }
-
-                // If this is the end of a sentence and we have a space or newline next
-                if (isEnd && i + 1 < text.Length && char.IsWhiteSpace(text[i + 1]))
-                {
-                    sentences.Add(currentSentence.ToString().Trim());
-                    currentSentence.Clear();
-
-                    // Skip whitespace
-                    i++;
-                    while (i < text.Length && char.IsWhiteSpace(text[i])) i++;
-                    continue;
-                }
-            }
-
-            i++;
-        }
-
-        // Add any remaining text as the last sentence
-        if (currentSentence.Length > 0)
-        {
-            sentences.Add(currentSentence.ToString().Trim());
-        }
-
-        return sentences;
-    }
-}
 
 
 

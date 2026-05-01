@@ -7,19 +7,36 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
-ai-case-learning-assistant-dist.zip
+# Dependency directories
+node_modules/
 
-# Editor directories and files
+# Build output
+dist/
+build/
+bin/
+obj/
+artifacts/
+
+# Editor / OS files
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
+.vs/
 .DS_Store
+*.user
 *.suo
 *.ntvs*
 *.njsproj
-*.sln
 *.sw?
+
+# Local SQLite DBs
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Runtime uploads and generated document indexes
+uploads/
+
+# Local publish profile user settings
+*.pubxml.user
