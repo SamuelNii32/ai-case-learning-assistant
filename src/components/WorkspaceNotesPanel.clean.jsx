@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { StickyNote, X } from 'lucide-react'
+import { StickyNote, X, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { listSessionNotes, addSessionNote, updateSessionNote, deleteSessionNote } from '@/lib/api'
 
@@ -241,16 +241,16 @@ export default function WorkspaceNotesPanel({
       <div
         ref={panelRef || localPanelRef}
         tabIndex={-1}
-        className={`fixed right-0 top-0 bottom-0 w-full sm:max-w-lg bg-white border-l border-border z-60 shadow-xl flex flex-col ws-content ${
+        className={`fixed right-0 top-0 bottom-0 w-full sm:max-w-lg bg-[#faf8f5] border-l border-[#e4d6c7] z-60 shadow-xl flex flex-col ws-content ${
           mounted ? 'mounted' : ''
         } ${isClosing ? 'closing' : ''}`}
         role="region"
         aria-modal="false"
         aria-label="Notes panel"
       >
-        <div className="p-4 border-b border-border flex items-center justify-between">
+        <div className="p-4 border-b border-[#e4d6c7] flex items-center justify-between bg-[#faf8f5]">
           <div>
-            <h3 className="font-semibold text-foreground flex items-center gap-2">
+            <h3 className="font-semibold text-[#5C4C3C] flex items-center gap-2">
               <StickyNote className="w-4 h-4" /> Notes
             </h3>
           </div>
@@ -266,31 +266,45 @@ export default function WorkspaceNotesPanel({
         </div>
 
         {/* Composer (autosaved draft) */}
-        <div className="p-4 border-b border-border bg-white">
+        <div className="p-4 border-b border-[#e4d6c7] bg-[#faf8f5]">
           <Textarea
             value={text}
             onChange={handleTextChange}
             placeholder="Write a quick note..."
-            className="min-h-[160px] p-3 resize-y bg-white text-foreground border border-slate-200"
+            className="min-h-[160px] p-3 resize-y bg-white text-[#5C4C3C] border border-[#e4d6c7] placeholder-[#9a8577]"
           />
-          <div className="mt-2 flex justify-end">
-            <Button variant="warm" onClick={addNote}>
+          <div className="mt-3 flex justify-end gap-2">
+            <Button 
+              variant="outline" 
+              size="default"
+              onClick={() => setText('')}
+              className="text-[#5C4C3C] border-[#d4c4b0] bg-white hover:bg-[#faf8f5]"
+            >
+              Clear
+            </Button>
+            <Button 
+              variant="warm" 
+              size="default"
+              onClick={addNote}
+              className="gap-2"
+            >
+              <Check className="w-4 h-4" />
               Save note
             </Button>
           </div>
         </div>
 
         {/* Notes list */}
-        <div className="p-4 space-y-3 overflow-auto flex-1 bg-white">
+        <div className="p-4 space-y-3 overflow-auto flex-1 bg-[#faf8f5]">
           {notesLoading ? (
-            <Card className="p-6 text-sm text-muted-foreground bg-white">Loading notes…</Card>
+            <Card className="p-6 text-sm text-[#9a8577] bg-white border-[#e4d6c7]">Loading notes…</Card>
           ) : notesError ? (
-            <Card className="p-6 text-sm text-red-600 bg-white">{notesError}</Card>
+            <Card className="p-6 text-sm text-red-600 bg-white border-[#e4d6c7]">{notesError}</Card>
           ) : notes.length === 0 ? (
-            <Card className="p-6 text-sm text-muted-foreground bg-white">No notes yet.</Card>
+            <Card className="p-6 text-sm text-[#9a8577] bg-white border-[#e4d6c7]">No notes yet.</Card>
           ) : (
             notes.map(n => (
-              <Card key={n.id} className="p-4 bg-white">
+              <Card key={n.id} className="p-4 bg-white border-[#e4d6c7]">
                 <div className="flex items-start justify-between gap-2">
                   <div className="text-xs text-muted-foreground mb-2">{n.createdAt}</div>
                   <div className="flex items-center gap-2">

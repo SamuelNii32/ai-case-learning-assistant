@@ -1,18 +1,19 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap');
 @import 'tailwindcss';
 
 /* Minimal palette variables and simple utilities to match the provided OKLCH theme.
-	 This file avoids advanced PostCSS at-rules and keeps changes localized.
+   This file avoids advanced PostCSS at-rules and keeps changes localized.
 */
 :root {
   /* Warm palette tokens */
   --background: #faf6f0; /* soft beige */
   --foreground: #2c2218; /* dark brown */
-  --primary: #C96A08; /* burnt orange */
+  --primary: #c96a08; /* burnt orange */
   --primary-foreground: #ffffff;
   --secondary: #f7efe7;
   --muted: #f8f6ef;
   --muted-foreground: #7a5c3c;
-  --accent: #C96A08;
+  --accent: #c96a08;
   --accent-foreground: #ffffff;
   --border: #e4d6c7;
 }
@@ -23,6 +24,20 @@
   --foreground: #f8fafc;
   --muted: #1f2937;
   --muted-foreground: #9ca3af;
+}
+
+body {
+  font-family:
+    'Montserrat',
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Simple helper classes used by the converted landing components */
@@ -62,7 +77,7 @@
 
 /* Chart color variables (used by visual components) */
 :root {
-  --chart-1: #C96A08; /* burnt orange */
+  --chart-1: #c96a08; /* burnt orange */
   --chart-2: #d18b47; /* warm amber */
   --chart-3: #d79b71; /* soft sand */
   --chart-4: #bf7b3e; /* deep bronze */
@@ -95,18 +110,37 @@ label[role='button'],
   transform: translateY(0);
   animation: td-bounce 0.9s infinite ease-in-out;
 }
-.typing-dots span:nth-child(1) { animation-delay: 0s }
-.typing-dots span:nth-child(2) { animation-delay: 0.12s }
-.typing-dots span:nth-child(3) { animation-delay: 0.24s }
+.typing-dots span:nth-child(1) {
+  animation-delay: 0s;
+}
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.12s;
+}
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.24s;
+}
 
 @keyframes td-bounce {
-  0%, 80%, 100% { transform: translateY(0); opacity: 0.6 }
-  40% { transform: translateY(-6px); opacity: 1 }
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.6;
+  }
+  40% {
+    transform: translateY(-6px);
+    opacity: 1;
+  }
 }
 
 /* Skeleton message placeholder */
 .skeleton {
-  background: linear-gradient(90deg, rgba(0,0,0,0.03) 0%, rgba(0,0,0,0.04) 50%, rgba(0,0,0,0.03) 100%);
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.03) 0%,
+    rgba(0, 0, 0, 0.04) 50%,
+    rgba(0, 0, 0, 0.03) 100%
+  );
   border-radius: 8px;
   height: 1.1rem;
   min-width: 6rem;
@@ -121,12 +155,21 @@ label[role='button'],
   left: -100%;
   height: 100%;
   width: 100%;
-  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0) 100%);
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
   animation: shimmer 1.2s infinite;
 }
 @keyframes shimmer {
-  0% { left: -100% }
-  100% { left: 100% }
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
 }
 
 /* Message text fade-in */
@@ -137,7 +180,10 @@ label[role='button'],
   animation: fadeIn 180ms ease forwards;
 }
 @keyframes fadeIn {
-  to { opacity: 1; transform: translateY(0) }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .message-meta {
@@ -151,7 +197,7 @@ label[role='button'],
 .progress-bar {
   height: 4px;
   width: 80px;
-  background: rgba(0,0,0,0.06);
+  background: rgba(0, 0, 0, 0.06);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -159,7 +205,7 @@ label[role='button'],
   display: block;
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg,var(--primary), var(--chart-3));
+  background: linear-gradient(90deg, var(--primary), var(--chart-3));
   transition: width 200ms linear;
 }
 
@@ -181,6 +227,266 @@ label[role='button'],
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .typing-dots span, .skeleton::after, .message-text { animation: none !important; }
+  .typing-dots span,
+  .skeleton::after,
+  .message-text {
+    animation: none !important;
+  }
 }
 
+/* Serif font utility for Guided Mode headings and editorial copy */
+.font-serif {
+  font-family: 'Fraunces', 'Source Serif 4', Georgia, serif;
+}
+
+/* Smooth width transition utility (used for workspace panels) */
+.transition-width {
+  transition: width 280ms cubic-bezier(.2,.9,.3,1);
+}
+
+/* Focus card (editorial paper-like) styles */
+.focus-card {
+  position: relative;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #e4d6c7;
+  border-radius: 1rem; /* 16px */
+  padding: 1.75rem; /* ~28px */
+  box-shadow: 0 6px 18px rgba(44,34,24,0.04);
+  transition: transform 400ms cubic-bezier(0.22,1,0.36,1),
+    box-shadow 400ms cubic-bezier(0.22,1,0.36,1),
+    border-color 400ms cubic-bezier(0.22,1,0.36,1);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.focus-card .accent-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  transform: scaleY(0);
+  transform-origin: top;
+  background: linear-gradient(180deg, #E8800F 0%, #B35A0A 100%);
+  transition: transform 400ms cubic-bezier(0.22,1,0.36,1);
+}
+
+.focus-card .accent-bar {
+  pointer-events: none;
+}
+
+.focus-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px rgba(44,34,24,0.14);
+  border-color: rgba(201,106,8,0.4);
+}
+
+.focus-card:hover .accent-bar {
+  transform: scaleY(1);
+}
+
+.focus-card .card-meta {
+  color: #7c6758;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.focus-card .card-title {
+  font-size: 1.25rem;
+  line-height: 1.05;
+  font-weight: 600;
+  color: #2C2218;
+}
+
+.focus-card .card-desc {
+  font-size: 0.95rem;
+  color: #5C4C3C;
+  line-height: 1.45;
+}
+
+.focus-card .begin-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #2C2218;
+  font-weight: 600;
+  font-size: 0.75rem;
+  transition: color 400ms cubic-bezier(0.22,1,0.36,1);
+}
+
+.focus-card .begin-arrow {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  transition: transform 320ms cubic-bezier(0.22,1,0.36,1);
+}
+
+.focus-card:hover .begin-label {
+  color: rgba(201,106,8,1);
+}
+
+.focus-card:hover .begin-arrow {
+  transform: translateX(4px);
+}
+
+.focus-card .card-footer {
+  border-top: 1px solid #e4d6c7;
+  padding-top: 1rem;
+  margin-top: 1rem;
+  transition: border-color 400ms cubic-bezier(0.22,1,0.36,1);
+}
+
+.focus-card:hover .card-footer {
+  border-color: rgba(201,106,8,0.4);
+}
+
+/* ============================================================================
+   Choice Card Animations
+   ============================================================================ */
+
+/* Resting state */
+.choice-card {
+  transition: all 300ms cubic-bezier(0.22, 1, 0.36, 1);
+  background-color: #ffffff;
+  border-color: #e4d6c7;
+}
+
+/* Hover state */
+.choice-card:hover:not(:disabled) {
+  border-color: #C96A08;
+  background-color: rgba(201, 106, 8, 0.06);
+  transform: translateX(4px);
+}
+
+.choice-card:hover:not(:disabled) .choice-card-icon {
+  color: #C96A08;
+  transform: translateX(4px);
+}
+
+.choice-card:hover:not(:disabled) .choice-card-icon svg {
+  color: #C96A08;
+}
+
+/* Click/press feedback */
+.choice-card:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+/* ============================================================================
+   Loading and Content Reveal Animations
+   ============================================================================ */
+
+@keyframes thinking-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes dot-bounce {
+  0%, 60%, 100% {
+    opacity: 0.5;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes content-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes text-flow-reveal {
+  from {
+    opacity: 0;
+    clip-path: inset(100% 0 0 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* AI thinking placeholder styles */
+.thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  color: #5C4C3C;
+  font-size: 0.875rem;
+  animation: fadeIn 300ms ease-out;
+}
+
+.thinking-indicator-icon {
+  color: #C96A08;
+  animation: thinking-pulse 1.5s ease-in-out infinite;
+}
+
+.thinking-dots {
+  display: flex;
+  gap: 0.375rem;
+  align-items: flex-end;
+}
+
+.thinking-dot {
+  width: 6px;
+  height: 6px;
+  background-color: #C96A08;
+  opacity: 0.7;
+  border-radius: 50%;
+  animation: dot-bounce 1.4s infinite;
+}
+
+.thinking-dot:nth-child(1) { animation-delay: 0ms; }
+.thinking-dot:nth-child(2) { animation-delay: 150ms; }
+.thinking-dot:nth-child(3) { animation-delay: 300ms; }
+
+/* Content reveal animations - staggered entry with step-in effect */
+.narrative-block-reveal {
+  animation: content-reveal 600ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: 700ms;
+}
+
+.paragraph-reveal {
+  animation: content-reveal 600ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  opacity: 0;
+}
+
+.paragraph-reveal:nth-of-type(1) { animation-delay: 700ms; }
+.paragraph-reveal:nth-of-type(2) { animation-delay: 820ms; }
+.paragraph-reveal:nth-of-type(3) { animation-delay: 940ms; }
+.paragraph-reveal:nth-of-type(4) { animation-delay: 1060ms; }
+.paragraph-reveal:nth-of-type(5) { animation-delay: 1180ms; }
+.paragraph-reveal:nth-of-type(n+6) { animation-delay: calc(700ms + (var(--paragraph-index, 5) - 1) * 120ms); }
+
+.pullquote-reveal {
+  animation: content-reveal 600ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  opacity: 0;
+  animation-delay: calc(700ms + 960ms);
+}
+
+.choices-reveal {
+  animation: content-reveal 600ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  opacity: 0;
+  animation-delay: calc(700ms + 1120ms);
+}
+
+/* Progress indicator animation */
+.progress-indicator {
+  transition: all 500ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

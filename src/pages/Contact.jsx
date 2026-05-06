@@ -44,8 +44,8 @@ export default function Contact() {
           <article className="rounded-[24px] bg-[#fffdf8] p-6 shadow-[0_12px_25px_rgba(44,34,24,0.08)]">
             <h3 className="text-[18px] font-semibold text-[#2c2218]">General feedback</h3>
             <p className="mt-3 text-[15px] leading-[1.6] text-[#5c4c3c]">
-              Share ways CasePilot can better support your learning journey or instructor experience,
-              and we will review each note to inform future refinements.
+              Share ways CasePilot can better support your learning journey or instructor
+              experience, and we will review each note to inform future refinements.
             </p>
           </article>
         </div>

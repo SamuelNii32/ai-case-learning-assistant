@@ -1,3 +1,1 @@
-// (file intentionally left as a simple stub)
-
-export default null
+// Deprecated: Guided Mode now uses `src/components/GuidedModeFlow.jsx` as the single UI component.

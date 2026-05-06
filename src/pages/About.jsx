@@ -3,18 +3,15 @@ import React from 'react'
 const sections = [
   {
     title: 'What CasePilot Is',
-    body:
-      'An AI-assisted workspace built for case study learning, CasePilot blends the source document with guided analysis tools so every observation stays connected to evidence.',
+    body: 'An AI-assisted workspace built for case study learning, CasePilot blends the source document with guided analysis tools so every observation stays connected to evidence.',
   },
   {
     title: 'Who It Is For',
-    body:
-      'Students working through complex cases, document-based assignments, or PDF readings rely on CasePilot to keep their notes, insights, and questions organized in one refined place.',
+    body: 'Students working through complex cases, document-based assignments, or PDF readings rely on CasePilot to keep their notes, insights, and questions organized in one refined place.',
   },
   {
     title: 'Why It Matters',
-    body:
-      'By encouraging deliberate study habits and making it easy to revisit past sessions, CasePilot helps learners sharpen their reasoning and prepare for discussions or assessments with confidence.',
+    body: 'By encouraging deliberate study habits and making it easy to revisit past sessions, CasePilot helps learners sharpen their reasoning and prepare for discussions or assessments with confidence.',
   },
 ]
 

@@ -240,6 +240,57 @@ export async function createSession(uploadId) {
   return res.json()
 }
 
+function createHttpError(message, status, bodyText = '') {
+  const err = new Error(message)
+  err.status = status
+  err.body = bodyText
+  return err
+}
+
+export async function startTutor(sessionId, uploadId) {
+  const url = makeUrl(`/tutor/start/${encodeURIComponent(uploadId)}`)
+  const res = await requestWithRetry(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, uploadId }),
+  })
+
+  if (res.status === 401) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt, `/tutor/start/${encodeURIComponent(uploadId)}`)
+    throw createHttpError('Tutor start failed: unauthorized', 401, txt)
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw createHttpError(`Tutor start failed: ${res.status} ${txt}`.trim(), res.status, txt)
+  }
+
+  return res.json()
+}
+
+export async function stepTutor(sessionId, choiceId) {
+  const url = makeUrl('/tutor/step')
+  const res = await requestWithRetry(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, choiceId }),
+  })
+
+  if (res.status === 401) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt, '/tutor/step')
+    throw createHttpError('Tutor step failed: unauthorized', 401, txt)
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw createHttpError(`Tutor step failed: ${res.status} ${txt}`.trim(), res.status, txt)
+  }
+
+  return res.json()
+}
+
 export async function listSessionsMine() {
   const url = makeUrl('/sessions/mine')
   if (isDemoModeEnabled() && isDemoSessionActive()) {

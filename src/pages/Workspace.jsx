@@ -5,8 +5,8 @@ import { Card } from '@/components/ui/card'
 import Badge from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import WorkspaceNotesPanel from '@/components/WorkspaceNotesPanel.clean'
-// Use the working implementation while original file is being cleaned
-// Guided mode removed per request
+import GuidedModeFlow from '@/components/GuidedModeFlow'
+import { getChoiceFocusMeta } from '@/components/guidedModeCatalog'
 import { PdfControllerProvider } from '@/contexts/pdf-controller'
 
 import { API_BASE } from '@/config'
@@ -15,6 +15,8 @@ import {
   getAuthToken,
   getUploadSummary,
   createSession,
+  startTutor,
+  stepTutor,
   getSession,
   listSessionsMine,
   ensureFreshToken,
@@ -57,7 +59,17 @@ export default function Workspace() {
   const [searchParams] = useSearchParams()
   const caseType = searchParams.get('type') || 'personal'
 
-  // Chat-only mode: guided mode has been removed. The workspace always renders chat.
+  // Log which API backend is being used
+  if (typeof window !== 'undefined') {
+    console.log('[Workspace] API_BASE configured as:', API_BASE || '(not set - will use relative URLs)')
+    console.log('[Workspace] Full API URLs will be:', {
+      base: API_BASE || '(using relative)',
+      example: `${API_BASE ? API_BASE : window.location.origin}/uploads/{id}/summary`
+    })
+  }
+
+  // Toggle between Chat and Guided Mode views
+  const [workspaceMode, setWorkspaceMode] = useState('chat') // 'chat' or 'guided'
 
   const [showNotes, setShowNotes] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
@@ -82,6 +94,40 @@ export default function Workspace() {
     return searchParams.get('sessionId') || null
   })
   const [_sessionLoading, setSessionLoading] = useState(false)
+  // Separate tutor session ID returned from /tutor/start endpoint
+  const [tutorSessionId, setTutorSessionId] = useState(null)
+  const [tutorStep, setTutorStep] = useState(null)
+  const [isTutorLoading, setIsTutorLoading] = useState(false)
+  const [loadingChoiceId, setLoadingChoiceId] = useState(null)
+  const [tutorDisabledMessage, setTutorDisabledMessage] = useState(null)
+  const [guidedStartStep, setGuidedStartStep] = useState(null)
+  const [guidedPathTitle, setGuidedPathTitle] = useState(null)
+  const [_uploadMetadata, _setUploadMetadata] = useState(null)
+
+  const isHttpStatus = (err, code) => {
+    if (Number(err?.status) === Number(code)) return true
+    return new RegExp(`(^|\\D)${code}(\\D|$)`).test(String(err?.message || ''))
+  }
+
+  const missingUploadText =
+    'This upload could not be found. It may have been moved or deleted.'
+
+  const isTutorSessionMissingError = err => {
+    if (!isHttpStatus(err, 404)) return false
+    const bodyText = String(err?.body || '').toLowerCase()
+    const messageText = String(err?.message || '').toLowerCase()
+    return bodyText.includes('tutor session not found') || messageText.includes('tutor session not found')
+  }
+
+  async function createFreshTutorSession(uploadIdParam) {
+    const created = await createSession(uploadIdParam)
+    const sid = created?.sessionId || created?.id || null
+    if (!sid) {
+      throw new Error('Unable to start guided mode: missing session id')
+    }
+    setSessionId(sid)
+    return sid
+  }
 
   async function handleSendMessage() {
     const text = message.trim()
@@ -208,7 +254,128 @@ export default function Workspace() {
       setIndexState('ready')
     } catch (err) {
       console.error('Index build failed', err)
+      if (isHttpStatus(err, 404)) {
+        setMissingUploadMessage(missingUploadText)
+      }
       setIndexState('error')
+    }
+  }
+
+  async function handleOpenGuidedMode() {
+    setShowNotes(false)
+    setWorkspaceMode('guided')
+
+    if (tutorStep || indexState !== 'ready' || !uploadId) return
+
+    setIsTutorLoading(true)
+    setTutorDisabledMessage(null)
+
+    try {
+      let sid = sessionId
+      if (!sid) {
+        sid = await createFreshTutorSession(uploadId)
+      }
+      let step
+      try {
+        step = await startTutor(sid, uploadId)
+      } catch (err) {
+        if (!isTutorSessionMissingError(err)) throw err
+        sid = await createFreshTutorSession(uploadId)
+        step = await startTutor(sid, uploadId)
+      }
+      if (step?.status === 'disabled') {
+        setTutorDisabledMessage(
+          'Guided Mode is not available for this document yet. You can still use Chat Q&A.'
+        )
+        setTutorStep(null)
+        return
+      }
+
+      // Extract and store the tutor sessionId from the response
+      const tSessionId = step?.sessionId || null
+      setTutorSessionId(tSessionId)
+
+      setGuidedStartStep(step)
+      setGuidedPathTitle(null)
+      setTutorStep(step)
+      setTutorDisabledMessage(null)
+    } catch (err) {
+      console.error('Tutor start failed', err)
+      if (isHttpStatus(err, 401)) {
+        setTutorDisabledMessage('Your session expired. Please sign in again to continue Guided Mode.')
+        toast.error('Session expired — please sign in again')
+      } else if (isHttpStatus(err, 404)) {
+        setMissingUploadMessage(missingUploadText)
+        setTutorDisabledMessage(missingUploadText)
+        toast.error(missingUploadText)
+      } else {
+        toast.error('Failed to start guided mode: ' + err.message)
+      }
+    } finally {
+      setIsTutorLoading(false)
+    }
+  }
+
+  async function handleTutorChoice(choiceId) {
+    // Guard: only proceed if we have a tutor sessionId and tutorStep from backend
+    if (!tutorSessionId || !tutorStep) {
+      return
+    }
+
+    const selectedChoice = Array.isArray(tutorStep.choices)
+      ? tutorStep.choices.find(choice => choice.id === choiceId)
+      : null
+    const choiceMeta = getChoiceFocusMeta(selectedChoice || {})
+    if (!guidedPathTitle) {
+      setGuidedPathTitle(choiceMeta.title || selectedChoice?.label || 'Learning path')
+    }
+    
+    setLoadingChoiceId(choiceId)
+    setIsTutorLoading(true)
+    try {
+      let nextStep
+      try {
+        // Use tutorSessionId (from /tutor/start response), NOT the chat sessionId
+        nextStep = await stepTutor(tutorSessionId, choiceId)
+      } catch (err) {
+        if (!isTutorSessionMissingError(err) || !uploadId || !sessionId) throw err
+
+        // Recovery: create fresh chat session, get new tutor session, and retry
+        const refreshedSessionId = await createFreshTutorSession(uploadId)
+        const refreshedStart = await startTutor(refreshedSessionId, uploadId)
+        const refreshedTutorSessionId = refreshedStart?.sessionId || null
+
+        setTutorSessionId(refreshedTutorSessionId)
+        setGuidedStartStep(refreshedStart)
+        setGuidedPathTitle(null)
+
+        // Retry step with new tutor sessionId
+        nextStep = await stepTutor(refreshedTutorSessionId, choiceId)
+      }
+
+      if (nextStep?.status === 'disabled') {
+        setTutorDisabledMessage(
+          'Guided Mode is not available for this document yet. You can still use Chat Q&A.'
+        )
+        setTutorStep(null)
+        return
+      }
+
+      setTutorStep(nextStep)
+    } catch (err) {
+      console.error('Tutor choice failed', err)
+      if (isHttpStatus(err, 401)) {
+        setTutorDisabledMessage('Your session expired. Please sign in again to continue Guided Mode.')
+        toast.error('Session expired — please sign in again')
+      } else if (isHttpStatus(err, 404)) {
+        setTutorDisabledMessage(missingUploadText)
+        toast.error(missingUploadText)
+      } else {
+        toast.error('Failed to advance: ' + err.message)
+      }
+    } finally {
+      setIsTutorLoading(false)
+      setLoadingChoiceId(null)
     }
   }
 
@@ -225,7 +392,14 @@ export default function Workspace() {
       const token = getAuthToken()
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
       const res = await fetch(url, { headers })
-      if (!res.ok) throw new Error(`Status ${res.status}`)
+      if (!res.ok) {
+        if (res.status === 404) {
+          setMissingUploadMessage(missingUploadText)
+          setIndexState('error')
+          return
+        }
+        throw new Error(`Status ${res.status}`)
+      }
       const js = await res.json()
 
       // if index in memory or on disk -> consider it ready (lazy-load from disk)
@@ -243,10 +417,16 @@ export default function Workspace() {
         setIndexState('ready')
       } catch (err) {
         console.error('Auto-build index failed', err)
+        if (isHttpStatus(err, 404)) {
+          setMissingUploadMessage(missingUploadText)
+        }
         setIndexState('error')
       }
     } catch (err) {
       console.error('Failed to fetch index status', err)
+      if (isHttpStatus(err, 404)) {
+        setMissingUploadMessage(missingUploadText)
+      }
       // do not show toast; surface retry via button
       setIndexState('error')
     }
@@ -594,6 +774,7 @@ export default function Workspace() {
   const [pdfCtrl, setPdfCtrl] = useState(null)
   const [caseTitle, setCaseTitle] = useState(null)
   const [pdfLoadError, setPdfLoadError] = useState(null)
+  const [missingUploadMessage, setMissingUploadMessage] = useState(null)
   const [uploadDate, setUploadDate] = useState(null)
   const [indexState, setIndexState] = useState('not-indexed') // 'not-indexed' | 'indexing' | 'ready' | 'error'
   const [indexSummary, setIndexSummary] = useState(null)
@@ -633,6 +814,7 @@ export default function Workspace() {
     // reset index state when switching uploads
     setIndexSummary(null)
     retriedRef.current = false
+    setMissingUploadMessage(null)
     if (uploadId) {
       checkIndexStatus(uploadId)
     } else {
@@ -644,6 +826,13 @@ export default function Workspace() {
       ;(async () => {
         try {
           const meta = await getUploadSummary(uploadId)
+          // Store full metadata for debugging
+          _setUploadMetadata(meta)
+          console.log('[Workspace] Upload metadata:', meta)
+          console.log('[Workspace] Document classification:', meta?.classification)
+          console.log('[Workspace] Document type:', meta?.type)
+          console.log('[Workspace] Full metadata keys:', meta ? Object.keys(meta) : 'null')
+          
           // prefer explicit title, fall back to originalFileName or filename
           const t =
             meta?.title || meta?.originalFileName || meta?.fileName || meta?.filename || null
@@ -674,7 +863,13 @@ export default function Workspace() {
           }
           setUploadDate(formatted)
         } catch (err) {
-          console.debug('[Workspace] failed to fetch upload summary', err)
+          console.error('[Workspace] FAILED to fetch upload summary:', err)
+          console.error('[Workspace] Error message:', err?.message)
+          console.error('[Workspace] Error stack:', err?.stack)
+          if (isHttpStatus(err, 404)) {
+            setMissingUploadMessage(missingUploadText)
+          }
+          _setUploadMetadata(null)
           setCaseTitle(null)
           setUploadDate(null)
         }
@@ -682,6 +877,7 @@ export default function Workspace() {
     } else {
       setCaseTitle(null)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uploadId])
 
   // Guided mode removed; no mode gating required.
@@ -804,19 +1000,35 @@ export default function Workspace() {
               <div className="hidden md:flex items-center gap-1 rounded-full bg-[#f6f0e8]/80 px-1 py-1">
                 <button
                   type="button"
-                  className={getTabClass(!showNotes)}
-                  style={getTabStyle(!showNotes)}
-                  onClick={() => setShowNotes(false)}
-                  aria-pressed={!showNotes}
+                  className={getTabClass(!showNotes && workspaceMode === 'chat')}
+                  style={getTabStyle(!showNotes && workspaceMode === 'chat')}
+                  onClick={() => {
+                    setShowNotes(false)
+                    setWorkspaceMode('chat')
+                  }}
+                  aria-pressed={!showNotes && workspaceMode === 'chat'}
                 >
                   <MessageSquare className="w-3 h-3" />
                   <span>Chat</span>
                 </button>
                 <button
                   type="button"
+                  className={getTabClass(workspaceMode === 'guided')}
+                  style={getTabStyle(workspaceMode === 'guided')}
+                  onClick={handleOpenGuidedMode}
+                  aria-pressed={workspaceMode === 'guided'}
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>Guided</span>
+                </button>
+                <button
+                  type="button"
                   className={getTabClass(showNotes)}
                   style={getTabStyle(showNotes)}
-                  onClick={() => setShowNotes(true)}
+                  onClick={() => {
+                    setWorkspaceMode('chat')
+                    setShowNotes(true)
+                  }}
                   aria-pressed={showNotes}
                 >
                   <StickyNote className="w-3 h-3" />
@@ -843,6 +1055,11 @@ export default function Workspace() {
         {/* Demo banner removed */}
 
         <div aria-hidden={showHistory || showFigures || showNotes ? 'true' : 'false'}>
+          {missingUploadMessage && (
+            <div className="mx-4 mt-4 rounded-xl border border-[#e4d6c7] bg-[#fff8f0] px-4 py-3 text-sm text-[#5C4C3C]">
+              {missingUploadMessage}
+            </div>
+          )}
           {/* On lg+ we bound the content area to the viewport height minus the header
               so the page itself doesn't scroll; only the chat panel is scrollable.
               Assumption: header is h-14 (3.5rem). If header height changes, replace
@@ -851,7 +1068,7 @@ export default function Workspace() {
       {/* Permanent sidebar on md+; falls back to drawer on small screens */}
       {/* On large screens keep the history panel visually fixed (no internal scroll).
         On smaller screens allow overflow so the drawer can scroll. */}
-  <aside className="hidden lg:flex lg:flex-col lg:flex-[0_0_20%] lg:min-w-0 border-r border-[#e4d6c7] bg-white shadow-sm lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden">
+  <aside className={`hidden lg:flex lg:flex-col transition-width ${workspaceMode === 'guided' ? 'lg:flex-[0_0_15%]' : 'lg:flex-[0_0_20%]'} lg:min-w-0 border-r border-[#e4d6c7] bg-white shadow-sm lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden`}>
               <div className="flex flex-col flex-1 overflow-hidden">
                 <div className="sticky top-0 z-10 border-b border-[#E8DDD0] bg-white px-4 py-4">
                   <div className="flex items-center justify-between">
@@ -904,7 +1121,7 @@ export default function Workspace() {
       {/* Center PDF area: allow normal vertical scrolling on small screens
         but keep fixed (no internal scroll) on large screens so only the
         chat panel scrolls. */}
-      <div className="flex-1 min-w-0 border-r border-[#e4d6c7] bg-[#faf6f0] overflow-hidden lg:flex-[0_0_45%] lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)]">
+      <div className={`flex-1 min-w-0 transition-width border-r border-[#e4d6c7] bg-[#faf6f0] overflow-hidden ${workspaceMode === 'guided' ? 'lg:flex-[0_0_40%]' : 'lg:flex-[0_0_45%]'} lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)]`}>
               <div className="p-6 max-w-3xl mx-auto">
                 <Card className="bg-card">
                   <div className="p-4">
@@ -929,6 +1146,9 @@ export default function Workspace() {
                               // capture structured PDF fetch errors (eg. 401) so parent can show UX
                               try {
                                 setPdfLoadError(err || null)
+                                if (Number(err?.status) === 404) {
+                                  setMissingUploadMessage(missingUploadText)
+                                }
                               } catch {
                                 /* ignore */
                               }
@@ -950,6 +1170,8 @@ export default function Workspace() {
                                   <div className="text-xs text-foreground/80">
                                     {pdfLoadError?.status === 401
                                       ? 'This document requires authentication. Please sign in to view it.'
+                                      : pdfLoadError?.status === 404
+                                        ? missingUploadText
                                       : pdfLoadError?.message || 'An unexpected error occurred while loading the PDF.'}
                                   </div>
                                   <div className="pt-2 flex items-center gap-2">
@@ -1053,15 +1275,16 @@ export default function Workspace() {
               </div>
             </div>
 
-            <div className="w-full md:flex-1 lg:flex-[0_0_35%] lg:min-w-[24rem] flex-shrink-0 flex flex-col bg-white border border-[#e4d6c7] shadow-sm">
+            <div className={`w-full md:flex-1 transition-width ${workspaceMode === 'guided' ? 'lg:flex-[0_0_45%] lg:min-w-[20rem]' : 'lg:flex-[0_0_35%] lg:min-w-[24rem]'} flex-shrink-0 flex flex-col bg-white border border-[#e4d6c7] shadow-sm`}>
+              {/* Right panel header intentionally left minimal (navigation in top header) */}
+
               <div className="flex-1 flex flex-col overflow-hidden">
-                {/* Messages */}
+                {/* Chat View */}
+                {workspaceMode === 'chat' && (
                 <div
                   ref={chatRef}
                   className={`flex-1 overflow-auto p-4 space-y-4 pb-20 ${showFigures ? 'pr-64' : ''}`}
                 >
-                  {/* tutor gating removed: guided mode intentionally disabled for now */}
-
                   {messages.map((msg, idx) => {
                     const isUser = msg.role === 'user'
                     return (
@@ -1158,8 +1381,10 @@ export default function Workspace() {
                     </div>
                   </div>
                 </div>
+                )}
 
-                {/* Input */}
+                {/* Input - only shown in chat mode */}
+                {workspaceMode === 'chat' && (
                 <div className="border-t border-[#e4d6c7] p-4 bg-white sticky bottom-0 z-20">
                   {/* Indexing control */}
                   {uploadId && indexState !== 'ready' && (
@@ -1217,6 +1442,64 @@ export default function Workspace() {
                     </div>
                   </div>
                 </div>
+                )}
+
+                {/* Guided Mode View */}
+                {workspaceMode === 'guided' && (
+                <div className="flex-1 overflow-auto p-4 space-y-4 pb-20">
+                  {/* Debug information removed from Guided Mode view */}
+                  
+                  {tutorDisabledMessage ? (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="w-full max-w-xl rounded-3xl border border-[#e4d6c7] bg-[#faf8f5] p-6 text-center shadow-sm">
+                        <Sparkles className="h-12 w-12 text-[#e4d6c7] mx-auto mb-4" />
+                        <h3 className="text-xl font-semibold text-[#2C2218]">Guided Mode unavailable</h3>
+                        <p className="mt-2 text-sm text-[#5C4C3C]">
+                          {tutorDisabledMessage || 'This document does not support guided analysis yet.'}
+                        </p>
+                        <div className="mt-6">
+                          <Button
+                            type="button"
+                            onClick={() => setWorkspaceMode('chat')}
+                            className="h-auto min-h-11 px-4 py-3 bg-[#C96A08] text-white hover:bg-[#b85f0a]"
+                          >
+                            Use Chat Q&A
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : tutorStep ? (
+                    <>
+                      <GuidedModeFlow
+                        tutorStep={tutorStep}
+                        onChoice={handleTutorChoice}
+                        isLoading={isTutorLoading}
+                        loadingChoiceId={loadingChoiceId}
+                        activePathTitle={guidedPathTitle}
+                        onResetPath={() => {
+                          if (guidedStartStep) setTutorStep(guidedStartStep)
+                          setGuidedPathTitle(null)
+                          setTutorDisabledMessage(null)
+                        }}
+                      />
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      {isTutorLoading ? (
+                        <div className="text-center">
+                          <div className="animate-spin h-8 w-8 border-4 border-[#C96A0A] border-t-transparent rounded-full mx-auto mb-4" />
+                          <p className="text-sm text-[#5C4C3C]">Loading guided mode...</p>
+                        </div>
+                      ) : (
+                        <div className="text-center">
+                          <Sparkles className="h-12 w-12 text-[#e4d6c7] mx-auto mb-4" />
+                          <p className="text-sm text-[#9a8577]">No guided session active</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                )}
               </div>
             </div>
           </div>

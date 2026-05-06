@@ -3,18 +3,15 @@ import React from 'react'
 const details = [
   {
     title: 'Student-focused data use',
-    body:
-      'CasePilot processes case materials, notes, and interaction history solely to power guided analysis and keep every insight traceable to the source document.',
+    body: 'CasePilot processes case materials, notes, and interaction history solely to power guided analysis and keep every insight traceable to the source document.',
   },
   {
     title: 'Transparency & control',
-    body:
-      'You decide which files are uploaded, what notes stay private, and when to archive a session; the workspace does not share your documents outside your class unless explicitly configured to do so.',
+    body: 'You decide which files are uploaded, what notes stay private, and when to archive a session; the workspace does not share your documents outside your class unless explicitly configured to do so.',
   },
   {
     title: 'Security posture',
-    body:
-      'Credentials are hashed, files are stored with layered encryption, and the platform undergoes routine reviews so your study materials remain protected while you learn.',
+    body: 'Credentials are hashed, files are stored with layered encryption, and the platform undergoes routine reviews so your study materials remain protected while you learn.',
   },
 ]
 
@@ -48,7 +45,8 @@ export default function Privacy() {
           <p className="mt-3 text-[15px] leading-[1.6] text-[#5c4c3c]">
             Your uploaded case notes and highlights stay tied to the class workspace defined by your
             instructor. We keep logs for continuity, but you can delete or export any session when
-            you no longer need it. If you have questions, reach out to support@casepilot.com and we will clarify retention, export, or access controls for your account.
+            you no longer need it. If you have questions, reach out to support@casepilot.com and we
+            will clarify retention, export, or access controls for your account.
           </p>
         </div>
       </div>

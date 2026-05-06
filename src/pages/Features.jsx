@@ -1,11 +1,5 @@
 import React from 'react'
-import {
-  BookOpen,
-  ClipboardList,
-  LayoutDashboard,
-  Clock3,
-  Search,
-} from 'lucide-react'
+import { BookOpen, ClipboardList, LayoutDashboard, Clock3, Search } from 'lucide-react'
 
 const features = [
   {
@@ -47,9 +41,9 @@ export default function Features() {
         <header className="space-y-4 text-center">
           <h1 className="text-[38px] font-semibold tracking-tight text-[#2c2218]">Features</h1>
           <p className="mx-auto max-w-[760px] text-[17px] leading-7 text-[#5c4c3c]">
-            CasePilot helps students engage with case materials in a deliberate, evidence-based
-            way, combining guided analysis with annotated sources to keep every conclusion anchored
-            in the work itself.
+            CasePilot helps students engage with case materials in a deliberate, evidence-based way,
+            combining guided analysis with annotated sources to keep every conclusion anchored in
+            the work itself.
           </p>
         </header>
 
@@ -63,7 +57,9 @@ export default function Features() {
                 <feature.icon className="h-5 w-5" />
               </div>
               <h2 className="mt-6 text-[18px] font-semibold text-[#2c2218]">{feature.title}</h2>
-              <p className="mt-3 flex-1 text-[15px] leading-[1.6] text-[#5c4c3c]">{feature.description}</p>
+              <p className="mt-3 flex-1 text-[15px] leading-[1.6] text-[#5c4c3c]">
+                {feature.description}
+              </p>
             </article>
           ))}
         </div>
