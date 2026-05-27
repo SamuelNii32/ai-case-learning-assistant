@@ -15,6 +15,7 @@ export default function SignUpPage() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [role, setRole] = useState('student')
+  const [instructorInviteCode, setInstructorInviteCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState(null)
 
@@ -25,15 +26,19 @@ export default function SignUpPage() {
     const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
     const url = base ? `${base}/auth/signup` : '/auth/signup'
     try {
+      const payload = {
+        fullName: name,
+        email,
+        password,
+      }
+      // If instructor role, add the invite code
+      if (role === 'instructor') {
+        payload.instructorInviteCode = instructorInviteCode
+      }
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fullName: name,
-          email,
-          password,
-          isInstructor: role === 'instructor',
-        }),
+        body: JSON.stringify(payload),
       })
       if (!res.ok) {
         const txt = await res.text().catch(() => '')
@@ -160,6 +165,23 @@ export default function SignUpPage() {
               </div>
 
               <RoleSelector role={role} onRoleChange={setRole} />
+
+              {role === 'instructor' && (
+                <div className="space-y-2">
+                  <Label htmlFor="invite-code">Instructor Invite Code</Label>
+                  <Input
+                    id="invite-code"
+                    type="text"
+                    placeholder="Enter your invite code"
+                    value={instructorInviteCode}
+                    onChange={e => setInstructorInviteCode(e.target.value)}
+                    required
+                  />
+                  <p className="text-xs text-[#7a5c3c]">
+                    Ask your administrator for an instructor invite code
+                  </p>
+                </div>
+              )}
 
               <Button
                 type="submit"

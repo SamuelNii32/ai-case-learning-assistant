@@ -128,9 +128,9 @@ export default function Classes() {
                 >
                   <div className="flex flex-col h-full gap-4 text-[#2c2218]">
                     <div>
-                      <h3 className="text-lg font-semibold">{cls.name}</h3>
+                      <h3 className="text-lg font-semibold">{typeof cls.name === 'string' ? cls.name : cls?.title ?? JSON.stringify(cls.name)}</h3>
                       {cls.description && (
-                        <p className="text-sm text-[#5C4C3C] mt-1">{cls.description}</p>
+                        <p className="text-sm text-[#5C4C3C] mt-1">{typeof cls.description === 'string' ? cls.description : cls?.description?.title ?? JSON.stringify(cls.description)}</p>
                       )}
                     </div>
                     <div className="flex flex-wrap items-center gap-6 text-sm text-[#5C4C3C]">
@@ -145,13 +145,6 @@ export default function Classes() {
                         <BookOpen size={16} className="text-[#C96A08]" />
                         <span className="font-semibold text-[#2c2218]">{cls.caseCount || 0}</span>
                         <span>cases</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[#C96A08] text-lg leading-none">•</span>
-                        <span className="font-semibold text-[#2c2218]">
-                          {cls.activeSessions ?? cls.activeSessionCount ?? 0}
-                        </span>
-                        <span>active sessions</span>
                       </div>
                     </div>
                     <div className="mt-auto">

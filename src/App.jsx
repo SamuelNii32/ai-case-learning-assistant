@@ -26,7 +26,9 @@ const AdminClasses = lazy(() => import('./pages/admin/Classes'))
 const AdminClassDetail = lazy(() => import('./pages/admin/ClassDetail'))
 const StudentClasses = lazy(() => import('./pages/StudentClasses'))
 import { Toaster } from 'react-hot-toast'
+const AdminTutorProgressDetail = lazy(() => import('./pages/admin/TutorProgressDetail'))
 import RequireAuth from './components/RequireAuth'
+import ErrorBoundary from './components/ErrorBoundary'
 
 // Demo flow removed per request — demo route and redirect no longer included
 
@@ -235,9 +237,10 @@ function App() {
               }
             >
               <Route path="classes" element={<AdminClasses />} />
-              <Route path="classes/:classId" element={<AdminClassDetail />} />
+              <Route path="classes/:classId" element={<ErrorBoundary><AdminClassDetail /></ErrorBoundary>} />
               <Route path="sessions" element={<AdminSessions />} />
               <Route path="sessions/:sessionId" element={<AdminSessionDetail />} />
+                            <Route path="classes/:classId/tutor-progress/:studentId/:uploadId" element={<AdminTutorProgressDetail />} />
               <Route path="upload" element={<Upload />} />
             </Route>
             <Route

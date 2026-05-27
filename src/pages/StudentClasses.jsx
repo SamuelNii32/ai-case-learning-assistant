@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useContext } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AuthContext } from '@/contexts/AuthContext'
-import { getEnrolledClasses } from '@/lib/api'
+import { getEnrolledClasses, joinClass } from '@/lib/api'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Users, BookOpen } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -12,20 +13,52 @@ export default function StudentClasses() {
   const auth = useContext(AuthContext)
   const [loading, setLoading] = useState(true)
   const [classes, setClasses] = useState([])
+  const [joinCode, setJoinCode] = useState('')
+  const [joiningClass, setJoiningClass] = useState(false)
+
+  function renderText(value, fallback = '') {
+    if (value == null) return fallback
+    if (typeof value === 'string') return value
+    if (typeof value === 'number') return String(value)
+    if (typeof value === 'object') return value.title ?? value.name ?? JSON.stringify(value)
+    return String(value)
+  }
+
+  async function loadClasses() {
+    try {
+      setLoading(true)
+      const data = await getEnrolledClasses()
+      setClasses(Array.isArray(data) ? data : [])
+    } catch (err) {
+      console.error('Failed to load enrolled classes', err)
+      toast.error('Failed to load your classes')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleJoinClass(e) {
+    e.preventDefault()
+    const code = joinCode.trim()
+    if (!code) {
+      toast.error('Please enter a class join code')
+      return
+    }
+    setJoiningClass(true)
+    try {
+      await joinClass(code)
+      toast.success('Successfully joined the class!')
+      setJoinCode('')
+      await loadClasses()
+    } catch (err) {
+      toast.error(err?.message || 'Failed to join class')
+    } finally {
+      setJoiningClass(false)
+    }
+  }
 
   useEffect(() => {
-    ;(async () => {
-      try {
-        setLoading(true)
-        const data = await getEnrolledClasses()
-        setClasses(Array.isArray(data) ? data : [])
-      } catch (err) {
-        console.error('Failed to load enrolled classes', err)
-        toast.error('Failed to load your classes')
-      } finally {
-        setLoading(false)
-      }
-    })()
+    loadClasses()
   }, [])
 
   if (!auth?.loggedIn) {
@@ -50,7 +83,35 @@ export default function StudentClasses() {
         <div className="bg-white border border-slate-200 rounded-lg p-6 md:p-8 text-center">
           <p className="text-slate-500">Loading your classes…</p>
         </div>
-      ) : classes.length === 0 ? (
+      ) : (
+        <div className="space-y-6">
+          {/* Join a Class Card */}
+          <Card className="p-6 space-y-4 border-2 border-[#C96A08]/20 bg-gradient-to-br from-[#fdf4eb] to-[#f9f1e8]">
+            <div>
+              <h2 className="text-lg font-semibold text-[#2c2218]">Join a Class</h2>
+              <p className="text-sm text-[#7a5c3c] mt-1">Enter a class code to join a new class</p>
+            </div>
+            <form onSubmit={handleJoinClass} className="flex gap-3">
+              <Input
+                type="text"
+                placeholder="Enter class join code"
+                value={joinCode}
+                onChange={e => setJoinCode(e.target.value)}
+                disabled={joiningClass}
+                className="flex-1"
+              />
+              <Button
+                type="submit"
+                variant="warm"
+                disabled={joiningClass || !joinCode.trim()}
+              >
+                {joiningClass ? 'Joining…' : 'Join'}
+              </Button>
+            </form>
+          </Card>
+
+          {/* Classes Grid */}
+          {classes.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-lg p-6 md:p-8 text-center">
           <p className="text-slate-500">You are not enrolled in any classes yet.</p>
         </div>
@@ -65,9 +126,9 @@ export default function StudentClasses() {
               >
                 <div className="space-y-3">
                   <div>
-                    <h3 className="text-lg font-semibold text-[#2C2218]">{cls.name}</h3>
+                    <h3 className="text-lg font-semibold text-[#2C2218]">{renderText(cls.name)}</h3>
                     {cls.description && (
-                      <p className="text-sm text-[#5C4C3C] mt-1">{cls.description}</p>
+                      <p className="text-sm text-[#5C4C3C] mt-1">{renderText(cls.description)}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-4 text-sm text-[#5C4C3C]">
@@ -107,6 +168,8 @@ export default function StudentClasses() {
               </Card>
             )
           })}
+        </div>
+      )}
         </div>
       )}
     </div>

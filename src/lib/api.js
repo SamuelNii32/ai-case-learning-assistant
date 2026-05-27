@@ -291,6 +291,79 @@ export async function stepTutor(sessionId, choiceId) {
   return res.json()
 }
 
+// -----------------------------
+// Reading Coach API helpers
+// -----------------------------
+
+export async function getReadingResume(uploadId) {
+  const url = makeUrl(`/tutor/reading/resume/${encodeURIComponent(uploadId)}`)
+  const res = await requestWithRetry(url, { method: 'GET' })
+
+  if (res.status === 401) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt, `/tutor/reading/resume/${encodeURIComponent(uploadId)}`)
+    throw createHttpError('Reading resume failed: unauthorized', 401, txt)
+  }
+
+  if (res.status === 404) {
+    // Expose body for callers to inspect canStart flag
+    const txt = await res.text().catch(() => '')
+    const err = createHttpError('Reading resume: not found', 404, txt)
+    throw err
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw createHttpError(`Reading resume failed: ${res.status} ${txt}`.trim(), res.status, txt)
+  }
+
+  return res.json()
+}
+
+export async function startReading(uploadId) {
+  const url = makeUrl(`/tutor/reading/start/${encodeURIComponent(uploadId)}`)
+  const res = await requestWithRetry(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uploadId }),
+  })
+
+  if (res.status === 401) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt, `/tutor/reading/start/${encodeURIComponent(uploadId)}`)
+    throw createHttpError('Reading start failed: unauthorized', 401, txt)
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw createHttpError(`Reading start failed: ${res.status} ${txt}`.trim(), res.status, txt)
+  }
+
+  return res.json()
+}
+
+export async function submitReadingAnswer(sessionId, stepId, answer) {
+  const url = makeUrl('/tutor/reading/answer')
+  const res = await requestWithRetry(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, stepId, answer }),
+  })
+
+  if (res.status === 401) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt, '/tutor/reading/answer')
+    throw createHttpError('Reading answer failed: unauthorized', 401, txt)
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw createHttpError(`Reading answer failed: ${res.status} ${txt}`.trim(), res.status, txt)
+  }
+
+  return res.json()
+}
+
 export async function listSessionsMine() {
   const url = makeUrl('/sessions/mine')
   if (isDemoModeEnabled() && isDemoSessionActive()) {
@@ -845,4 +918,115 @@ export async function deleteStudentFromClass(classId, studentId) {
   } catch {
     return true
   }
+}
+
+// -----------------------------------------------
+// Reading Coach / Tutor Progress (Instructor)
+// -----------------------------------------------
+
+export async function getClassTutorProgress(classId) {
+  const url = makeUrl(`/admin/classes/${encodeURIComponent(classId)}/tutor-progress`)
+  const res = await requestWithRetry(url, { method: 'GET' })
+
+  if (res.status === 401 || res.status === 403) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt)
+    throw new Error('Get tutor progress failed: unauthorized')
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`Get tutor progress failed (${res.status}): ${txt}`)
+  }
+
+  return res.json()
+}
+
+export async function getStudentTutorProgress(classId, studentId, uploadId) {
+  const url = makeUrl(
+    `/admin/classes/${encodeURIComponent(classId)}/tutor-progress/${encodeURIComponent(
+      studentId
+    )}/${encodeURIComponent(uploadId)}`
+  )
+  const res = await requestWithRetry(url, { method: 'GET' })
+
+  if (res.status === 401 || res.status === 403) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt)
+    throw new Error('Get student tutor progress failed: unauthorized')
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`Get student tutor progress failed (${res.status}): ${txt}`)
+  }
+
+  return res.json()
+}
+
+// -----------------------------------------------
+// Class Join Codes
+// -----------------------------------------------
+
+export async function getJoinCode(classId) {
+  const url = makeUrl(`/classes/${encodeURIComponent(classId)}/join-code`)
+  const res = await requestWithRetry(url, { method: 'GET' })
+
+  if (res.status === 401 || res.status === 403) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt)
+    throw new Error('Get join code failed: unauthorized')
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`Get join code failed (${res.status}): ${txt}`)
+  }
+
+  return res.json()
+}
+
+export async function regenerateJoinCode(classId) {
+  const url = makeUrl(`/classes/${encodeURIComponent(classId)}/join-code/regenerate`)
+  const res = await requestWithRetry(url, { method: 'POST' })
+
+  if (res.status === 401 || res.status === 403) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt)
+    throw new Error('Regenerate join code failed: unauthorized')
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`Regenerate join code failed (${res.status}): ${txt}`)
+  }
+
+  return res.json()
+}
+
+export async function joinClass(joinCode) {
+  const url = makeUrl('/classes/join')
+  const res = await requestWithRetry(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ joinCode }),
+  })
+
+  if (res.status === 401 || res.status === 403) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt)
+    throw new Error('Join class failed: unauthorized')
+  }
+
+  if (res.status === 404) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`Join class failed: class not found (${txt || 'invalid join code'})`)
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`Join class failed (${res.status}): ${txt}`)
+  }
+
+  return res.json()
 }

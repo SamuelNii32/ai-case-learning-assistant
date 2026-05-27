@@ -6,6 +6,7 @@ import Badge from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import WorkspaceNotesPanel from '@/components/WorkspaceNotesPanel.clean'
 import GuidedModeFlow from '@/components/GuidedModeFlow'
+import ReadingCoachPanel from '@/components/ReadingCoachPanel'
 import { getChoiceFocusMeta } from '@/components/guidedModeCatalog'
 import { PdfControllerProvider } from '@/contexts/pdf-controller'
 
@@ -21,6 +22,7 @@ import {
   listSessionsMine,
   ensureFreshToken,
 } from '@/lib/api'
+import { getReadingResume, startReading, submitReadingAnswer } from '@/lib/api'
 
 import toast from 'react-hot-toast'
 import {
@@ -35,6 +37,8 @@ import {
   Menu,
   X,
   Clock,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 // Lazy-load the PDF viewer so heavy pdf.js code is deferred until needed
 const PdfViewer = React.lazy(() => import('@/components/PdfViewer.jsx'))
@@ -74,6 +78,15 @@ export default function Workspace() {
   const [showNotes, setShowNotes] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [showFigures, setShowFigures] = useState(false)
+  // Assistant tabs: readingCoach | chat | guided
+  const [activeAssistantTab, setActiveAssistantTab] = useState('chat')
+
+  // Reading Coach state
+  const [readingCoachState, setReadingCoachState] = useState(null)
+  const [readingCoachLoading, setReadingCoachLoading] = useState(false)
+  const [readingCoachError, setReadingCoachError] = useState(null)
+  const [readingCoachAnswerDraft, setReadingCoachAnswerDraft] = useState('')
+  const [readingCoachSubmitting, setReadingCoachSubmitting] = useState(false)
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -103,6 +116,8 @@ export default function Workspace() {
   const [guidedStartStep, setGuidedStartStep] = useState(null)
   const [guidedPathTitle, setGuidedPathTitle] = useState(null)
   const [_uploadMetadata, _setUploadMetadata] = useState(null)
+
+  const [historyCollapsed, setHistoryCollapsed] = useState(false)
 
   const isHttpStatus = (err, code) => {
     if (Number(err?.status) === Number(code)) return true
@@ -264,6 +279,7 @@ export default function Workspace() {
   async function handleOpenGuidedMode() {
     setShowNotes(false)
     setWorkspaceMode('guided')
+    setActiveAssistantTab('guided')
 
     if (tutorStep || indexState !== 'ready' || !uploadId) return
 
@@ -379,6 +395,60 @@ export default function Workspace() {
     }
   }
 
+    // ------------------------
+    // Reading Coach helpers
+    // ------------------------
+    async function loadReadingCoach(uploadIdParam) {
+      if (!uploadIdParam) return
+      setReadingCoachLoading(true)
+      setReadingCoachError(null)
+      try {
+        let resp = null
+        try {
+          resp = await getReadingResume(uploadIdParam)
+        } catch (err) {
+          if (!(err?.status === 404 || String(err?.message).toLowerCase().includes('not found'))) {
+            throw err
+          }
+        }
+
+        if (resp) {
+          setReadingCoachState(resp)
+          return
+        }
+
+        // No resumable session exists yet, so start one immediately.
+        const started = await startReading(uploadIdParam)
+        setReadingCoachState(started)
+      } catch (err) {
+        console.error('[Workspace] loadReadingCoach error', err)
+        setReadingCoachError(err?.message || String(err))
+        setReadingCoachState(null)
+      } finally {
+        setReadingCoachLoading(false)
+      }
+    }
+
+    async function handleSubmitReadingAnswer() {
+      if (!readingCoachState) return
+      const answer = String(readingCoachAnswerDraft || '').trim()
+      if (!answer) {
+        toast.error('Please enter an answer before submitting.')
+        return
+      }
+      setReadingCoachSubmitting(true)
+      try {
+        const resp = await submitReadingAnswer(readingCoachState.sessionId, readingCoachState.stepId, answer)
+        setReadingCoachState(resp)
+        setReadingCoachAnswerDraft('')
+      } catch (err) {
+        console.error('Submit reading answer failed', err)
+        toast.error('Failed to submit answer: ' + (err?.message || ''))
+      } finally {
+        setReadingCoachSubmitting(false)
+      }
+    }
+
   // Check index status on server: inMemory | onDisk | none
   async function checkIndexStatus(uploadIdParam) {
     if (!uploadIdParam) return
@@ -435,7 +505,7 @@ export default function Workspace() {
   // docType/classification removed along with guided-mode behavior
 
   // Start an EventSource stream to the server ask stream endpoint and wire events to the assistant message.
-  async function startAskStream(uploadIdParam, q, assistantId, sessionIdParam) {
+  async function startAskStream(uploadIdParam, q, assistantId, sessionIdParam, tutorSessionIdParam, tutorStepIdParam) {
     // close any existing stream/abort controller
     try {
       if (sseRef.current?.abort) sseRef.current.abort()
@@ -447,9 +517,11 @@ export default function Workspace() {
     const enc = encodeURIComponent(q || '')
     const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
     const extra = sessionIdParam ? `&sessionId=${encodeURIComponent(sessionIdParam)}` : ''
+    const tutorExtra = tutorSessionIdParam ? `&tutorSessionId=${encodeURIComponent(tutorSessionIdParam)}` : ''
+    const tutorStepExtra = tutorStepIdParam ? `&tutorStepId=${encodeURIComponent(tutorStepIdParam)}` : ''
     const url = API_BASE
-      ? `${base}/ask/stream/${encodeURIComponent(uploadIdParam)}?q=${enc}${extra}`
-      : `/ask/stream/${encodeURIComponent(uploadIdParam)}?q=${enc}${extra}`
+      ? `${base}/ask/stream/${encodeURIComponent(uploadIdParam)}?q=${enc}${extra}${tutorExtra}${tutorStepExtra}`
+      : `/ask/stream/${encodeURIComponent(uploadIdParam)}?q=${enc}${extra}${tutorExtra}${tutorStepExtra}`
 
     const controller = new AbortController()
     sseRef.current = controller
@@ -798,6 +870,12 @@ export default function Workspace() {
     borderBottomColor: '#c96a0a',
   })
 
+  // Responsive width classes for the main panes. When history is collapsed
+  // keep the PDF and assistant panels equal in width.
+  const centerWidthClass = 'lg:flex-[1_1_0%] lg:min-w-0'
+
+  const rightWidthClass = 'lg:flex-[1_1_0%] lg:min-w-0'
+
   const scrollToBottom = (smooth = false) => {
     const el = chatRef.current
     if (!el) return
@@ -862,6 +940,19 @@ export default function Workspace() {
             }
           }
           setUploadDate(formatted)
+
+          // Auto-select Reading Coach for supported document types
+          const cls = (meta?.classification || meta?.type || '').toLowerCase()
+          const isAcademic = cls.includes('academic') || cls.includes('research') || cls.includes('academicresearch')
+          const isBusinessCase = cls.includes('business') || cls.includes('case') || cls.includes('businesscase')
+          if (isAcademic || isBusinessCase) {
+            setActiveAssistantTab('readingCoach')
+            // Only load Reading Coach on first uploadId load, not on tab switches
+            // The tab click handler will load if there's no state
+          } else {
+            // unsupported: default to chat
+            setActiveAssistantTab('chat')
+          }
         } catch (err) {
           console.error('[Workspace] FAILED to fetch upload summary:', err)
           console.error('[Workspace] Error message:', err?.message)
@@ -998,42 +1089,77 @@ export default function Workspace() {
 
             <div className="flex items-center gap-2 flex-shrink-0">
               <div className="hidden md:flex items-center gap-1 rounded-full bg-[#f6f0e8]/80 px-1 py-1">
-                <button
-                  type="button"
-                  className={getTabClass(!showNotes && workspaceMode === 'chat')}
-                  style={getTabStyle(!showNotes && workspaceMode === 'chat')}
-                  onClick={() => {
-                    setShowNotes(false)
-                    setWorkspaceMode('chat')
-                  }}
-                  aria-pressed={!showNotes && workspaceMode === 'chat'}
-                >
-                  <MessageSquare className="w-3 h-3" />
-                  <span>Chat</span>
-                </button>
-                <button
-                  type="button"
-                  className={getTabClass(workspaceMode === 'guided')}
-                  style={getTabStyle(workspaceMode === 'guided')}
-                  onClick={handleOpenGuidedMode}
-                  aria-pressed={workspaceMode === 'guided'}
-                >
-                  <Sparkles className="w-3 h-3" />
-                  <span>Guided</span>
-                </button>
-                <button
-                  type="button"
-                  className={getTabClass(showNotes)}
-                  style={getTabStyle(showNotes)}
-                  onClick={() => {
-                    setWorkspaceMode('chat')
-                    setShowNotes(true)
-                  }}
-                  aria-pressed={showNotes}
-                >
-                  <StickyNote className="w-3 h-3" />
-                  <span>Notes</span>
-                </button>
+                {missingUploadMessage && (
+                  <span className="text-xs text-red-600 px-4">{missingUploadMessage}</span>
+                )}
+                <>
+                  <button
+                    type="button"
+                    className={getTabClass(activeAssistantTab === 'readingCoach')}
+                    style={{
+                      ...getTabStyle(activeAssistantTab === 'readingCoach'),
+                      pointerEvents: 'auto'
+                    }}
+                    onClick={() => {
+                      setShowNotes(false)
+                      setWorkspaceMode('chat')
+                      setActiveAssistantTab('readingCoach')
+                      // Only load Reading Coach if we don't have state and are not already loading
+                      if (uploadId && !readingCoachState && !readingCoachLoading) {
+                        loadReadingCoach(uploadId)
+                      }
+                    }}
+                    aria-pressed={activeAssistantTab === 'readingCoach'}
+                  >
+                    <span>Reading Coach</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={getTabClass(activeAssistantTab === 'chat')}
+                    style={getTabStyle(activeAssistantTab === 'chat')}
+                    onClick={() => {
+                      setShowNotes(false)
+                      setWorkspaceMode('chat')
+                      setActiveAssistantTab('chat')
+                    }}
+                    aria-pressed={activeAssistantTab === 'chat'}
+                  >
+                    <span>Chat</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={getTabClass(activeAssistantTab === 'guided')}
+                    style={{
+                      ...getTabStyle(activeAssistantTab === 'guided'),
+                      pointerEvents: 'auto'
+                    }}
+                    onClick={() => {
+                      setShowNotes(false)
+                      setWorkspaceMode('guided')
+                      setActiveAssistantTab('guided')
+                      // Only start guided mode if we don't have a session and are not already loading
+                      if (!tutorStep && !isTutorLoading) {
+                        handleOpenGuidedMode()
+                      }
+                    }}
+                    aria-pressed={activeAssistantTab === 'guided'}
+                  >
+                    <span>Guided Analysis</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={getTabClass(showNotes)}
+                    style={getTabStyle(showNotes)}
+                    onClick={() => {
+                      setWorkspaceMode('chat')
+                      setShowNotes(true)
+                    }}
+                    aria-pressed={showNotes}
+                  >
+                    <StickyNote className="w-3 h-3" />
+                    <span>Notes</span>
+                  </button>
+                </>
               </div>
 
               <Button
@@ -1068,65 +1194,96 @@ export default function Workspace() {
       {/* Permanent sidebar on md+; falls back to drawer on small screens */}
       {/* On large screens keep the history panel visually fixed (no internal scroll).
         On smaller screens allow overflow so the drawer can scroll. */}
-  <aside className={`hidden lg:flex lg:flex-col transition-width ${workspaceMode === 'guided' ? 'lg:flex-[0_0_15%]' : 'lg:flex-[0_0_20%]'} lg:min-w-0 border-r border-[#e4d6c7] bg-white shadow-sm lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden`}>
+  <aside className={`hidden lg:flex lg:flex-col transition-width ${historyCollapsed ? 'lg:w-16 lg:min-w-[4rem]' : workspaceMode === 'guided' ? 'lg:flex-[0_0_15%]' : 'lg:flex-[0_0_20%]'} border-r border-[#e4d6c7] bg-white shadow-sm lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden`}>
               <div className="flex flex-col flex-1 overflow-hidden">
-                <div className="sticky top-0 z-10 border-b border-[#E8DDD0] bg-white px-4 py-4">
+                <div className="sticky top-0 z-10 border-b border-[#E8DDD0] bg-white px-4 py-3">
                   <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-foreground">Conversation History</h3>
+                    <h3 className={`${historyCollapsed ? 'sr-only' : 'font-semibold text-foreground'}`}>Conversation History</h3>
+                    <div className="flex items-center gap-2">
+                      {/* New Conversation button removed per UX feedback */}
+                      <button
+                        type="button"
+                        aria-expanded={!historyCollapsed}
+                        onClick={() => setHistoryCollapsed(v => !v)}
+                        className="p-1 rounded hover:bg-[#f6eee5]"
+                        title={historyCollapsed ? 'Expand history' : 'Collapse history'}
+                      >
+                        {historyCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div className="flex-1 overflow-auto p-4 space-y-2">
-                  {conversationHistory.map(c => {
-                    const isActive = sessionId === c.id
-                    return (
-                      <Card
-                        key={c.id}
-                        className={getHistoryCardClass(isActive)}
-                        onClick={() => {
-                          // uploadId for this conversation (PDF case). Fallback to sessionId if ever needed.
-                          const uploadIdForNav = c.caseId || c.id
-
-                          const url = `/workspace/${encodeURIComponent(
-                            uploadIdForNav
-                          )}?sessionId=${encodeURIComponent(c.id)}`
-
-                          navigate(url)
-                          setShowHistory(false)
-                        }}
-                      >
-                        <div className="space-y-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <h4 className="text-sm font-semibold text-foreground/90 line-clamp-1">
-                              {c.title}
-                            </h4>
-                            <span className="text-xs text-muted-foreground/80 whitespace-nowrap">
-                              {c.messageCount}
-                            </span>
+                {historyCollapsed ? (
+                  <div className="flex flex-col items-center gap-3 p-3">
+                    {conversationHistory.map(c => {
+                      const isActive = sessionId === c.id
+                      const label = (c.title && String(c.title).trim().charAt(0).toUpperCase()) || '?'
+                      return (
+                        <button
+                          key={c.id}
+                          title={`${c.title} · ${c.date}`}
+                          onClick={() => {
+                            const uploadIdForNav = c.caseId || c.id
+                            const url = `/workspace/${encodeURIComponent(uploadIdForNav)}?sessionId=${encodeURIComponent(c.id)}`
+                            navigate(url)
+                            setShowHistory(false)
+                          }}
+                          className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium ${isActive ? 'bg-[#f6eee5] text-[#6A3A0A]' : 'bg-[#faf6f0] text-[#6A3A0A]'} shadow-sm`}
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-auto p-4 space-y-2">
+                    {conversationHistory.map(c => {
+                      const isActive = sessionId === c.id
+                      return (
+                        <Card
+                          key={c.id}
+                          className={getHistoryCardClass(isActive)}
+                          onClick={() => {
+                            const uploadIdForNav = c.caseId || c.id
+                            const url = `/workspace/${encodeURIComponent(uploadIdForNav)}?sessionId=${encodeURIComponent(c.id)}`
+                            navigate(url)
+                            setShowHistory(false)
+                          }}
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <h4 className="text-sm font-semibold text-foreground/90 line-clamp-1">
+                                {c.title}
+                              </h4>
+                              <span className="text-xs text-muted-foreground/80 whitespace-nowrap">
+                                {c.messageCount}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground/70 line-clamp-2">
+                              {c.preview}
+                            </p>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground/70">
+                              <Clock className="w-3 h-3" />
+                              {c.date}
+                            </div>
                           </div>
-                          <p className="text-xs text-muted-foreground/70 line-clamp-2">
-                            {c.preview}
-                          </p>
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground/70">
-                            <Clock className="w-3 h-3" />
-                            {c.date}
-                          </div>
-                        </div>
-                      </Card>
-                    )
-                  })}
-                </div>
+                        </Card>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             </aside>
 
       {/* Center PDF area: allow normal vertical scrolling on small screens
         but keep fixed (no internal scroll) on large screens so only the
         chat panel scrolls. */}
-      <div className={`flex-1 min-w-0 transition-width border-r border-[#e4d6c7] bg-[#faf6f0] overflow-hidden ${workspaceMode === 'guided' ? 'lg:flex-[0_0_40%]' : 'lg:flex-[0_0_45%]'} lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)]`}>
-              <div className="p-6 max-w-3xl mx-auto">
-                <Card className="bg-card">
-                  <div className="p-4">
+      <div className={`flex-1 min-w-0 transition-width bg-[#faf6f0] overflow-hidden ${centerWidthClass} lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)]`}>
+              <div className="p-0 w-full h-full">
+                <div className="w-full h-full">
+                  <div className="w-full h-full">
                     {uploadId ? (
-                      <div className="w-full h-[70vh] lg:h-[calc(100vh-3.5rem)] bg-white rounded overflow-hidden border border-[#e4d6c7] relative shadow-sm">
+                      <div className="w-full h-[70vh] lg:h-[calc(100vh-3.5rem)] bg-white overflow-hidden relative">
                         <React.Suspense
                           fallback={
                             <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
@@ -1271,16 +1428,18 @@ export default function Workspace() {
                       </div>
                     )}
                   </div>
-                </Card>
+                </div>
               </div>
             </div>
 
-            <div className={`w-full md:flex-1 transition-width ${workspaceMode === 'guided' ? 'lg:flex-[0_0_45%] lg:min-w-[20rem]' : 'lg:flex-[0_0_35%] lg:min-w-[24rem]'} flex-shrink-0 flex flex-col bg-white border border-[#e4d6c7] shadow-sm`}>
+            <div className={`w-full md:flex-1 transition-width ${rightWidthClass} flex-shrink-0 flex flex-col bg-white`}>
               {/* Right panel header intentionally left minimal (navigation in top header) */}
 
               <div className="flex-1 flex flex-col overflow-hidden">
+                {/* Assistant Tabs */}
+                {/* Remove inner assistant tab row; now handled by top tab row only */}
                 {/* Chat View */}
-                {workspaceMode === 'chat' && (
+                {activeAssistantTab === 'chat' && (
                 <div
                   ref={chatRef}
                   className={`flex-1 overflow-auto p-4 space-y-4 pb-20 ${showFigures ? 'pr-64' : ''}`}
@@ -1384,7 +1543,7 @@ export default function Workspace() {
                 )}
 
                 {/* Input - only shown in chat mode */}
-                {workspaceMode === 'chat' && (
+                {activeAssistantTab === 'chat' && (
                 <div className="border-t border-[#e4d6c7] p-4 bg-white sticky bottom-0 z-20">
                   {/* Indexing control */}
                   {uploadId && indexState !== 'ready' && (
@@ -1444,8 +1603,29 @@ export default function Workspace() {
                 </div>
                 )}
 
+                {/* Reading Coach View */}
+                {activeAssistantTab === 'readingCoach' && (
+                  <ReadingCoachPanel
+                    state={readingCoachState}
+                    loading={readingCoachLoading}
+                    error={readingCoachError}
+                    answerDraft={readingCoachAnswerDraft}
+                    onAnswerChange={setReadingCoachAnswerDraft}
+                    onSubmit={handleSubmitReadingAnswer}
+                    submitting={readingCoachSubmitting}
+                    onRetry={() => loadReadingCoach(uploadId)}
+                    onAskForHelp={() => {
+                      // Switch to Chat and prefill with context
+                      if (readingCoachState?.question) {
+                        setMessage(`I need help with this Reading Coach step: ${readingCoachState.question}`)
+                      }
+                      setActiveAssistantTab('chat')
+                    }}
+                  />
+                )}
+
                 {/* Guided Mode View */}
-                {workspaceMode === 'guided' && (
+                {activeAssistantTab === 'guided' && (
                 <div className="flex-1 overflow-auto p-4 space-y-4 pb-20">
                   {/* Debug information removed from Guided Mode view */}
                   
@@ -1460,7 +1640,7 @@ export default function Workspace() {
                         <div className="mt-6">
                           <Button
                             type="button"
-                            onClick={() => setWorkspaceMode('chat')}
+                            onClick={() => setActiveAssistantTab('chat')}
                             className="h-auto min-h-11 px-4 py-3 bg-[#C96A08] text-white hover:bg-[#b85f0a]"
                           >
                             Use Chat Q&A
@@ -1516,23 +1696,18 @@ export default function Workspace() {
             {/* Drawer - only show on small screens and tablet (hidden on lg+) */}
             <div className="fixed top-14 bottom-0 left-0 w-80 bg-white border-r border-[#e4d6c7] shadow-xl z-50 overflow-auto lg:hidden">
               <div className="p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-foreground">Conversation History</h3>
-                  <Button
-                    ref={closeHistoryBtnRef}
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowHistory(false)}
-                    aria-label="Close conversation history"
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
-                </div>
-
-                <Button className="w-full" size="sm">
-                  <MessageSquare className="w-4 h-4 mr-2" />
-                  New Conversation
-                </Button>
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-foreground">Conversation History</h3>
+                    <Button
+                      ref={closeHistoryBtnRef}
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowHistory(false)}
+                      aria-label="Close conversation history"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
 
                 <div className="space-y-2">
                   {conversationHistory.map(c => {
