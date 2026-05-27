@@ -162,7 +162,7 @@ export default function GuidedModeFlow({
 
   if (isRecap) {
     return (
-      <section className="space-y-6 rounded-3xl border border-[#e4d6c7] bg-[#faf8f5] p-6 shadow-sm font-serif">
+      <section className="space-y-6 rounded-3xl border border-[#e4d6c7] bg-[#faf8f5] p-6 shadow-sm font-sans">
         <div className="space-y-2">
           <div className="inline-flex items-center gap-2 rounded-full border border-[#e4d6c7] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[#9a8577]">
             <Sparkles className="h-3.5 w-3.5 text-[#C96A08]" />
@@ -201,16 +201,13 @@ export default function GuidedModeFlow({
 
   if (isEntry) {
     return (
-      <section className="space-y-10 rounded-3xl border border-[#e4d6c7] bg-[#faf8f5] p-8 shadow-sm font-serif">
+      <section className="space-y-10 rounded-3xl border border-[#e4d6c7] bg-[#faf8f5] p-8 shadow-sm font-sans">
         <div className="space-y-6 max-w-3xl">
           <div className="inline-flex items-center gap-2 rounded-full border border-[#e4d6c7] bg-white px-3 py-1 text-[0.8rem] font-semibold uppercase tracking-[0.24em] text-[#C96A08] shadow-sm">
             <Sparkles className="h-3.5 w-3.5 text-[#C96A08]" />
             Guided Mode
           </div>
-          <h2
-            className="max-w-2xl text-[2.2rem] leading-[1.05] font-semibold tracking-tight text-[#2C2218] lg:text-[2.6rem]"
-            style={{ fontFamily: 'Fraunces, serif' }}
-          >
+          <h2 className="max-w-2xl text-[2.2rem] leading-[1.05] font-semibold tracking-tight text-[#2C2218] lg:text-[2.6rem]">
             Start a guided analysis.
           </h2>
           <p className="max-w-2xl text-[0.98rem] leading-[1.65] text-[#5C4C3C] lg:text-[1.05rem]">
@@ -236,7 +233,7 @@ export default function GuidedModeFlow({
   }
 
   return (
-    <section className="space-y-5 rounded-3xl border border-[#e4d6c7] bg-[#faf8f5] p-6 shadow-sm font-serif">
+    <section className="space-y-5 rounded-3xl border border-[#e4d6c7] bg-[#faf8f5] p-6 shadow-sm font-sans">
       <div className="flex flex-col gap-4 border-b border-[#e4d6c7] pb-5">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
