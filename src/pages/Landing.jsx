@@ -51,7 +51,7 @@ export default function Landing() {
             <div className="flex justify-end">
               <article className="bg-[#241710] rounded-[20px] border border-[#6c4c38] shadow-[0_16px_30px_rgba(15,10,7,0.32)] px-5 py-4 text-white transition-transform duration-200 hover:-translate-y-[2px] hover:shadow-[0_22px_38px_rgba(15,10,7,0.4)] md:max-w-[220px]">
                 <p className="text-sm text-white/80 leading-relaxed">
-                  Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+                  Case notes, coach feedback, and summaries stay aligned!
                 </p>
               </article>
             </div>

@@ -177,9 +177,7 @@ export default function SignInPage() {
       console.error('Login error', { err: e, url })
       const msg = String(e?.message || e)
       if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
-        setErr(
-          'Network error while contacting the API. This may be caused by CORS, an incorrect VITE_API_BASE, or mixed HTTP/HTTPS on the deployed backend. Check the browser Network tab for the request URL and response.'
-        )
+        setErr('We could not sign you in right now. Please try again in a moment.')
       } else {
         setErr(msg)
       }
