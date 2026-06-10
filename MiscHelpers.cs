@@ -76,7 +76,28 @@ public static class PdfImageUtils
                 Count++;
         }
 
-        public ICollection<EventType> GetSupportedEvents() => null;
+        public ICollection<EventType> GetSupportedEvents() => null!;
+    }
+
+    private sealed class ImageCounterByPageListener : IEventListener
+    {
+        private readonly Dictionary<int, int> _counts = new();
+        private int _page;
+
+        public void SetPage(int page) => _page = page;
+
+        public void EventOccurred(IEventData data, EventType type)
+        {
+            if (type != EventType.RENDER_IMAGE)
+                return;
+
+            _counts.TryGetValue(_page, out var count);
+            _counts[_page] = count + 1;
+        }
+
+        public ICollection<EventType> GetSupportedEvents() => null!;
+
+        public Dictionary<int, int> Counts => _counts;
     }
 
     public static int CountRasterImagesExact(string path)
@@ -93,5 +114,20 @@ public static class PdfImageUtils
         }
 
         return total;
+    }
+
+    public static Dictionary<int, int> CountRasterImagesByPage(string path)
+    {
+        using var pdf = new PdfDocument(new PdfReader(path));
+        var listener = new ImageCounterByPageListener();
+        var processor = new PdfCanvasProcessor(listener);
+
+        for (int i = 1; i <= pdf.GetNumberOfPages(); i++)
+        {
+            listener.SetPage(i);
+            processor.ProcessPageContent(pdf.GetPage(i));
+        }
+
+        return listener.Counts;
     }
 }

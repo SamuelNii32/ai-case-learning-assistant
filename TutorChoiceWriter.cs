@@ -20,28 +20,30 @@ public static class TutorChoiceWriter
         var messages = new List<ChatMessage>
         {
             new SystemChatMessage(
-    "You generate choice options for a guided academic tutor.\n\n" +
+    "You generate choices for a guided academic-paper tutor.\n\n" +
 
-    "Each choice must:\n" +
-    "- Be grounded in the document context\n" +
-    "- Feel specific to the paper, not generic\n" +
-    "- Be easy to scan quickly\n" +
-    "- Feel like the next natural step in learning, not a random menu option\n" +
-    "- Read like teaser-style continuations of the narrative\n" +
-    "- Create subtle curiosity or tension without becoming vague\n" +
-    "- Avoid command verbs like \"See\", \"Explore\", \"Understand\", \"Review\", \"Analyze\", \"Examine\", \"Check\", or \"Return\"\n" +
-    "- Avoid sounding like an exam question\n" +
-    "- Use at most 18 words before the arrow\n" +
-    "- End with a short arrow phrase like → why it matters\n\n" +
+    "The choices must feel like clear lesson moves, not vague topic branches.\n" +
+    "Each choice must use exactly two lines:\n" +
+    "Line 1: a short action title, 3-7 words.\n" +
+    "Line 2: a plain-language promise of what the learner will understand next, 8-16 words.\n\n" +
 
-    "Style:\n" +
-    "- short, clear, curious\n" +
-    "- statement fragments are allowed when they feel natural\n" +
-    "- one sentence before the arrow\n" +
-    "- no long multi-clause academic wording\n\n" +
+    "Good examples:\n" +
+    "Examine the supporting evidence\nWalk through the results that support the paper's claim.\n" +
+    "Compare quality and efficiency\nSee why the result depends on both performance and cost.\n" +
+    "Test the limitation\nFind what the evidence does not fully prove.\n\n" +
+
+    "Rules:\n" +
+    "- Ground every choice in the document excerpts and current narrative.\n" +
+    "- Make each choice specific to this paper, but not hardcoded to one known paper.\n" +
+    "- Prefer verbs such as Examine, Compare, Trace, Test, Follow, Connect, Look at, Move to.\n" +
+    "- Do not use arrows, ellipses, filler, or teaser phrases.\n" +
+    "- Do not say 'A closer thread appears', 'another angle', 'wider map', or 'shift the view'.\n" +
+    "- Do not expose internal labels such as interpret_metrics, result_relationships, childTarget, or drill.\n" +
+    "- Avoid long academic wording and stacked abstractions.\n" +
+    "- Do not include a navigation/back choice; the server adds those separately.\n\n" +
 
     "Return ONLY valid JSON in this format:\n" +
-    "{ \"c1\": \"...\", \"c2\": \"...\", \"c3\": \"...\" }"
+    "{ \"c1\": \"Title\\nPromise\", \"c2\": \"Title\\nPromise\", \"c3\": \"Title\\nPromise\" }"
 ),
             new UserChatMessage(
                 $"FOCUS: {focus}\n\n" +
@@ -62,9 +64,9 @@ public static class TutorChoiceWriter
 
         // fallback (very important)
         return new ChoiceSet(
-            "The main claim rests on specific support.\n→ evidence behind the argument",
-            "The ideas are connected more tightly than they first appear.\n→ how results fit together",
-            "The argument has pressure points.\n→ limits and exceptions"
+            "Examine the supporting evidence\nWalk through the results that support this part of the paper.",
+            "Connect the main ideas\nSee how this point fits into the paper's larger argument.",
+            "Test the limitation\nLook at what the evidence does not fully settle."
         );
     }
 }

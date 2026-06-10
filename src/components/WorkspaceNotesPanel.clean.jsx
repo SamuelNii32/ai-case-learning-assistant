@@ -13,6 +13,7 @@ import { listSessionNotes, addSessionNote, updateSessionNote, deleteSessionNote 
  * - onOpenChange (fn)
  * - currentCaseId (string)
  * - currentSessionId (string)
+ * - refreshKey (number|string)
  * - panelRef (ref?) optional
  */
 export default function WorkspaceNotesPanel({
@@ -20,6 +21,7 @@ export default function WorkspaceNotesPanel({
   onOpenChange,
   currentCaseId,
   currentSessionId,
+  refreshKey = 0,
   panelRef = null,
 }) {
   const localPanelRef = useRef(null)
@@ -71,7 +73,7 @@ export default function WorkspaceNotesPanel({
     return () => {
       cancelled = true
     }
-  }, [open, currentSessionId, hasSession])
+  }, [open, currentSessionId, hasSession, refreshKey])
 
   // ---- Local autosave state for the composer ----
   const storageKey = `notes:${currentCaseId || 'no-id'}:${currentSessionId || 'default'}`

@@ -5,10 +5,10 @@ import { Card } from '@/components/ui/card'
 import Badge from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import WorkspaceNotesPanel from '@/components/WorkspaceNotesPanel.clean'
-import GuidedModeFlow from '@/components/GuidedModeFlow'
-import ReadingCoachPanel from '@/components/ReadingCoachPanel'
-import { getChoiceFocusMeta } from '@/components/guidedModeCatalog'
+// Use the working implementation while original file is being cleaned
+// Guided mode removed per request
 import { PdfControllerProvider } from '@/contexts/pdf-controller'
+import initPdfWorker from '@/lib/pdfjs-setup'
 
 import { API_BASE } from '@/config'
 import {
@@ -16,13 +16,15 @@ import {
   getAuthToken,
   getUploadSummary,
   createSession,
-  startTutor,
-  stepTutor,
   getSession,
   listSessionsMine,
   ensureFreshToken,
+  startReadingCoach,
+  answerReadingCoach,
+  addSessionNote,
+  getUploadLayout,
+  deleteSession,
 } from '@/lib/api'
-import { getReadingResume, startReading, submitReadingAnswer } from '@/lib/api'
 
 import toast from 'react-hot-toast'
 import {
@@ -37,11 +39,120 @@ import {
   Menu,
   X,
   Clock,
-  ChevronLeft,
-  ChevronRight,
+  GraduationCap,
+  CheckCircle,
+  Table2,
+  Trash2,
 } from 'lucide-react'
 // Lazy-load the PDF viewer so heavy pdf.js code is deferred until needed
 const PdfViewer = React.lazy(() => import('@/components/PdfViewer.jsx'))
+
+function EvidencePreview({ pdfUrl, page, bbox, kind }) {
+  const canvasRef = useRef(null)
+  const [state, setState] = useState('idle')
+
+  useEffect(() => {
+    let cancelled = false
+    let loadingTask = null
+
+    async function renderPreview() {
+      if (!pdfUrl || !page || !canvasRef.current) return
+
+      try {
+        setState('loading')
+        await initPdfWorker()
+        const pdfjs = await import('pdfjs-dist')
+        const token = getAuthToken()
+        loadingTask = pdfjs.getDocument({
+          url: pdfUrl,
+          httpHeaders: token ? { Authorization: `Bearer ${token}` } : undefined,
+          withCredentials: false,
+        })
+
+        const pdf = await loadingTask.promise
+        if (cancelled) return
+
+        const pdfPage = await pdf.getPage(page)
+        if (cancelled) return
+
+        const viewport = pdfPage.getViewport({ scale: 1.25 })
+        const source = document.createElement('canvas')
+        const sourceCtx = source.getContext('2d')
+        source.width = Math.floor(viewport.width)
+        source.height = Math.floor(viewport.height)
+        await pdfPage.render({ canvasContext: sourceCtx, viewport }).promise
+        if (cancelled) return
+
+        const scale = viewport.width / pdfPage.getViewport({ scale: 1 }).width
+        let sx = 0
+        let sy = 0
+        let sw = source.width
+        let sh = source.height
+
+        if (bbox && typeof bbox.left === 'number' && typeof bbox.top === 'number') {
+          const pad = 24
+          const pageHeightPt = pdfPage.getViewport({ scale: 1 }).height
+          const boxLeft = bbox.left * scale
+          const boxTop = (pageHeightPt - bbox.top) * scale
+          const boxWidth = Math.max(1, (bbox.width || 1) * scale)
+          const boxHeight = Math.max(1, (bbox.height || 1) * scale)
+
+          if (kind === 'table') {
+            sx = Math.max(0, boxLeft - pad)
+            sy = Math.max(0, boxTop - pad)
+            sw = Math.min(source.width - sx, boxWidth + pad * 2)
+            sh = Math.min(source.height - sy, Math.max(boxHeight + pad * 2, 120))
+          } else {
+            sx = 0
+            sw = source.width
+            const figureHeight = Math.min(source.height * 0.45, 360)
+            sy = Math.max(0, boxTop - figureHeight)
+            sh = Math.min(source.height - sy, figureHeight + boxHeight + pad)
+          }
+        }
+
+        const canvas = canvasRef.current
+        const ctx = canvas.getContext('2d')
+        const targetWidth = 260
+        const targetHeight = Math.max(110, Math.round((sh / sw) * targetWidth))
+        canvas.width = targetWidth
+        canvas.height = targetHeight
+        ctx.fillStyle = '#fff'
+        ctx.fillRect(0, 0, targetWidth, targetHeight)
+        ctx.drawImage(source, sx, sy, sw, sh, 0, 0, targetWidth, targetHeight)
+        setState('ready')
+      } catch (err) {
+        console.debug('[EvidencePreview] render failed', err)
+        if (!cancelled) setState('error')
+      }
+    }
+
+    renderPreview()
+
+    return () => {
+      cancelled = true
+      try {
+        loadingTask?.destroy?.()
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [bbox, kind, page, pdfUrl])
+
+  return (
+    <div className="mb-3 overflow-hidden rounded border border-[#e4d6c7] bg-[#faf6f0]">
+      <canvas ref={canvasRef} className="block w-full" aria-label="Detected visual preview" />
+      {state === 'loading' && (
+        <div className="px-3 py-2 text-xs text-muted-foreground">Rendering preview...</div>
+      )}
+      {state === 'error' && (
+        <div className="px-3 py-2 text-xs text-muted-foreground">
+          Preview unavailable. Open the page to inspect this evidence.
+        </div>
+      )}
+    </div>
+  )
+}
 // put this near the top of the file
 
 function appendSmart(prev = '', next = '') {
@@ -63,30 +174,14 @@ export default function Workspace() {
   const [searchParams] = useSearchParams()
   const caseType = searchParams.get('type') || 'personal'
 
-  // Log which API backend is being used
-  if (typeof window !== 'undefined') {
-    console.log('[Workspace] API_BASE configured as:', API_BASE || '(not set - will use relative URLs)')
-    console.log('[Workspace] Full API URLs will be:', {
-      base: API_BASE || '(using relative)',
-      example: `${API_BASE ? API_BASE : window.location.origin}/uploads/{id}/summary`
-    })
-  }
-
-  // Toggle between Chat and Guided Mode views
-  const [workspaceMode, setWorkspaceMode] = useState('chat') // 'chat' or 'guided'
+  // Chat-only mode: guided mode has been removed. The workspace always renders chat.
 
   const [showNotes, setShowNotes] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [showFigures, setShowFigures] = useState(false)
-  // Assistant tabs: readingCoach | chat | guided
-  const [activeAssistantTab, setActiveAssistantTab] = useState('chat')
-
-  // Reading Coach state
-  const [readingCoachState, setReadingCoachState] = useState(null)
-  const [readingCoachLoading, setReadingCoachLoading] = useState(false)
-  const [readingCoachError, setReadingCoachError] = useState(null)
-  const [readingCoachAnswerDraft, setReadingCoachAnswerDraft] = useState('')
-  const [readingCoachSubmitting, setReadingCoachSubmitting] = useState(false)
+  const [layoutEvidence, setLayoutEvidence] = useState([])
+  const [layoutLoading, setLayoutLoading] = useState(false)
+  const [layoutError, setLayoutError] = useState(null)
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -95,60 +190,32 @@ export default function Workspace() {
     },
   ])
   const [message, setMessage] = useState('')
+  const [readingStep, setReadingStep] = useState(null)
+  const [pendingReadingStep, setPendingReadingStep] = useState(null)
+  const [readingAnswer, setReadingAnswer] = useState('')
+  const [readingLoading, setReadingLoading] = useState(false)
+  const [readingError, setReadingError] = useState(null)
+  const [notesRefreshKey, setNotesRefreshKey] = useState(0)
   // Use the local pdf controller state (`pdfCtrl`) which is provided below via PdfControllerProvider.
   // We avoid calling the context consumer here because the Provider is created later in this component.
 
   // Real conversation history from /sessions/mine
   const [conversationHistory, setConversationHistory] = useState([])
   const [_conversationLoading, setConversationLoading] = useState(false)
+  const [conversationError, setConversationError] = useState('')
+  const [deletingConversationId, setDeletingConversationId] = useState(null)
 
   // Active session (for this workspace)
   const [sessionId, setSessionId] = useState(() => {
     return searchParams.get('sessionId') || null
   })
   const [_sessionLoading, setSessionLoading] = useState(false)
-  // Separate tutor session ID returned from /tutor/start endpoint
-  const [tutorSessionId, setTutorSessionId] = useState(null)
-  const [tutorStep, setTutorStep] = useState(null)
-  const [isTutorLoading, setIsTutorLoading] = useState(false)
-  const [loadingChoiceId, setLoadingChoiceId] = useState(null)
-  const [tutorDisabledMessage, setTutorDisabledMessage] = useState(null)
-  const [guidedStartStep, setGuidedStartStep] = useState(null)
-  const [guidedPathTitle, setGuidedPathTitle] = useState(null)
-  const [_uploadMetadata, _setUploadMetadata] = useState(null)
-
-  const [historyCollapsed, setHistoryCollapsed] = useState(false)
-
-  const isHttpStatus = (err, code) => {
-    if (Number(err?.status) === Number(code)) return true
-    return new RegExp(`(^|\\D)${code}(\\D|$)`).test(String(err?.message || ''))
-  }
-
-  const missingUploadText =
-    'This upload could not be found. It may have been moved or deleted.'
-
-  const isTutorSessionMissingError = err => {
-    if (!isHttpStatus(err, 404)) return false
-    const bodyText = String(err?.body || '').toLowerCase()
-    const messageText = String(err?.message || '').toLowerCase()
-    return bodyText.includes('tutor session not found') || messageText.includes('tutor session not found')
-  }
-
-  async function createFreshTutorSession(uploadIdParam) {
-    const created = await createSession(uploadIdParam)
-    const sid = created?.sessionId || created?.id || null
-    if (!sid) {
-      throw new Error('Unable to start guided mode: missing session id')
-    }
-    setSessionId(sid)
-    return sid
-  }
 
   async function handleSendMessage() {
     const text = message.trim()
     if (!text) return
 
-    if (uploadId && indexState === 'ready') {
+    if (uploadId) {
       const q = text
 
       // Ensure we have a sessionId for this upload
@@ -183,8 +250,33 @@ export default function Workspace() {
         },
       ])
 
+      if (indexState !== 'ready') {
+        updateAssistantMessage(assistantId, {
+          content: 'Preparing this document for Q&A...',
+          streaming: true,
+        })
+        try {
+          setIndexState('indexing')
+          const summary = await buildIndex(uploadId)
+          setIndexSummary(summary)
+          setIndexState('ready')
+        } catch (err) {
+          console.error('[Workspace] failed to prepare document for chat', err)
+          setIndexState('error')
+          updateAssistantMessage(assistantId, {
+            content: 'I could not prepare this document for Q&A. Please rebuild the index and try again.',
+            streaming: false,
+          })
+          toast.error('Document indexing failed')
+          return
+        }
+      }
+
       // use streaming ask endpoint with sessionId (if we have one)
-      startAskStream(uploadId, q, assistantId, sid)
+      startAskStream(uploadId, q, assistantId, sid, {
+        tutorSessionId: readingStep?.sessionId,
+        tutorStepId: readingStep?.stepId,
+      })
       return
     }
 
@@ -260,6 +352,152 @@ export default function Workspace() {
     es.addEventListener('error', finish)
   }
 
+  async function ensureWorkspaceSession() {
+    if (sessionId) return sessionId
+    if (!uploadId) return null
+
+    const created = await createSession(uploadId)
+    const sid = created?.sessionId || created?.id || null
+    if (sid) setSessionId(sid)
+    return sid
+  }
+
+  async function handleStartReadingCoach() {
+    if (!uploadId) return
+
+    setReadingLoading(true)
+    setReadingError(null)
+    try {
+      if (indexState !== 'ready') {
+        setIndexState('indexing')
+        const summary = await buildIndex(uploadId)
+        setIndexSummary(summary)
+        setIndexState('ready')
+      }
+
+      const step = await startReadingCoach(uploadId)
+      setReadingStep(step)
+      setPendingReadingStep(null)
+      setReadingAnswer('')
+    } catch (err) {
+      console.error('[Workspace] failed to start reading coach', err)
+      setIndexState(prev => (prev === 'indexing' ? 'error' : prev))
+      setReadingError(err?.message || 'Failed to start Reading Coach')
+      toast.error('Reading Coach failed to start')
+    } finally {
+      setReadingLoading(false)
+    }
+  }
+
+  async function handleSubmitReadingAnswer() {
+    const answer = readingAnswer.trim()
+    if (!answer || !readingStep?.sessionId || !readingStep?.stepId) return
+
+    setReadingLoading(true)
+    setReadingError(null)
+    try {
+      const next = await answerReadingCoach(readingStep.sessionId, readingStep.stepId, answer)
+      if (next?.feedback && next?.stage === 'retry') {
+        setPendingReadingStep(null)
+        setReadingStep({
+          ...next,
+          narrative: readingStep.narrative || next.narrative,
+        })
+        setReadingAnswer('')
+      } else if (next?.feedback) {
+        setPendingReadingStep(next)
+        setReadingStep({
+          ...readingStep,
+          feedback: next.feedback,
+          stage: 'feedback_pause',
+        })
+      } else {
+        setPendingReadingStep(null)
+        setReadingStep(next)
+        setReadingAnswer('')
+      }
+    } catch (err) {
+      console.error('[Workspace] failed to submit reading coach answer', err)
+      setReadingError(err?.message || 'Failed to submit answer')
+      toast.error('Reading Coach answer failed')
+    } finally {
+      setReadingLoading(false)
+    }
+  }
+
+  function handleContinueReadingCoach() {
+    if (!pendingReadingStep) return
+    setReadingStep(pendingReadingStep)
+    setPendingReadingStep(null)
+    setReadingAnswer('')
+  }
+
+  function handleAskReadingCoachHelp() {
+    if (!readingStep?.question) return
+    setMessage(`I need help with this Reading Coach step: ${readingStep.question}`)
+    requestAnimationFrame(() => scrollToBottom(true))
+  }
+
+  async function saveTextToNotes(text, successMessage = 'Saved to notes') {
+    const content = (text || '').trim()
+    if (!content) return
+
+    try {
+      const sid = await ensureWorkspaceSession()
+      if (!sid) {
+        toast.error('Open a document session before saving notes.')
+        return
+      }
+
+      await addSessionNote(sid, content)
+      setNotesRefreshKey(key => key + 1)
+      toast.success(successMessage)
+    } catch (err) {
+      console.error('[Workspace] failed to save note', err)
+      toast.error('Failed to save note')
+    }
+  }
+
+  function formatReadingCoachNote() {
+    if (!readingStep) return ''
+
+    const lines = [
+      `Reading Coach - ${readingStep.stepSummary || readingStep.stepId || 'Step'}`,
+      '',
+      readingStep.narrative || '',
+    ]
+
+    if (readingStep.question) {
+      lines.push('', `Checkpoint: ${readingStep.question}`)
+    }
+
+    if (readingStep.feedback?.verdict) {
+      lines.push('', `Feedback: ${readingStep.feedback.verdict}`)
+    }
+
+    if (readingStep.feedback?.hint) {
+      lines.push(`Hint: ${readingStep.feedback.hint}`)
+    }
+
+    if (Array.isArray(readingStep.cites) && readingStep.cites.length > 0) {
+      lines.push('', `Sources: ${readingStep.cites.map(page => `[p:${page}]`).join(' ')}`)
+    }
+
+    return lines.filter(line => line != null).join('\n')
+  }
+
+  function formatChatNote(msg) {
+    const lines = ['Chat answer', '', msg?.content || '']
+    if (Array.isArray(msg?.sources) && msg.sources.length > 0) {
+      lines.push('', `Sources: ${msg.sources.map(source => `[p:${source.page}]`).join(' ')}`)
+    }
+    return lines.join('\n')
+  }
+
+  function updateAssistantMessage(assistantId, patch) {
+    setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, ...patch } : m)))
+  }
+
   async function handleStartIndex() {
     if (!uploadId) return
     try {
@@ -269,185 +507,90 @@ export default function Workspace() {
       setIndexState('ready')
     } catch (err) {
       console.error('Index build failed', err)
-      if (isHttpStatus(err, 404)) {
-        setMissingUploadMessage(missingUploadText)
-      }
       setIndexState('error')
     }
   }
 
-  async function handleOpenGuidedMode() {
-    setShowNotes(false)
-    setWorkspaceMode('guided')
-    setActiveAssistantTab('guided')
+  function normalizeLayoutEvidence(layout) {
+    const captions = layout?.captions || layout?.Captions || []
+    const tableCandidates = layout?.tables || layout?.Tables || []
 
-    if (tutorStep || indexState !== 'ready' || !uploadId) return
-
-    setIsTutorLoading(true)
-    setTutorDisabledMessage(null)
-
-    try {
-      let sid = sessionId
-      if (!sid) {
-        sid = await createFreshTutorSession(uploadId)
+    const normalizeBox = box => {
+      if (!box) return null
+      return {
+        left: box.left ?? box.Left ?? 0,
+        top: box.top ?? box.Top ?? 0,
+        width: box.width ?? box.Width ?? 0,
+        height: box.height ?? box.Height ?? 0,
       }
-      let step
-      try {
-        step = await startTutor(sid, uploadId)
-      } catch (err) {
-        if (!isTutorSessionMissingError(err)) throw err
-        sid = await createFreshTutorSession(uploadId)
-        step = await startTutor(sid, uploadId)
-      }
-      if (step?.status === 'disabled') {
-        setTutorDisabledMessage(
-          'Guided Mode is not available for this document yet. You can still use Chat Q&A.'
-        )
-        setTutorStep(null)
-        return
-      }
-
-      // Extract and store the tutor sessionId from the response
-      const tSessionId = step?.sessionId || null
-      setTutorSessionId(tSessionId)
-
-      setGuidedStartStep(step)
-      setGuidedPathTitle(null)
-      setTutorStep(step)
-      setTutorDisabledMessage(null)
-    } catch (err) {
-      console.error('Tutor start failed', err)
-      if (isHttpStatus(err, 401)) {
-        setTutorDisabledMessage('Your session expired. Please sign in again to continue Guided Mode.')
-        toast.error('Session expired — please sign in again')
-      } else if (isHttpStatus(err, 404)) {
-        setMissingUploadMessage(missingUploadText)
-        setTutorDisabledMessage(missingUploadText)
-        toast.error(missingUploadText)
-      } else {
-        toast.error('Failed to start guided mode: ' + err.message)
-      }
-    } finally {
-      setIsTutorLoading(false)
     }
+
+    const captionItems = captions.map(item => {
+      const kind = (item.kind || item.Kind || '').toLowerCase() === 'table' ? 'table' : 'figure'
+      return {
+        id: item.id || item.Id || `${kind}-${item.page || item.Page}-${item.label || item.Label}`,
+        kind,
+        label: item.label || item.Label || (kind === 'table' ? 'Table' : 'Figure'),
+        page: item.page || item.Page || 1,
+        text: item.text || item.Text || '',
+        confidence: item.confidence ?? item.Confidence ?? null,
+        reasons: item.reasons || item.Reasons || [],
+        bbox: normalizeBox(item.bbox || item.BBox),
+        source: 'caption',
+      }
+    })
+
+    const candidateItems = tableCandidates.map(item => ({
+      id: item.id || item.Id || `table-candidate-${item.page || item.Page}-${item.label || item.Label}`,
+      kind: 'table',
+      label: item.label || item.Label || 'Table candidate',
+      page: item.page || item.Page || 1,
+      text: item.textPreview || item.TextPreview || '',
+      confidence: item.confidence ?? item.Confidence ?? null,
+      reasons: item.reasons || item.Reasons || [],
+      bbox: normalizeBox(item.bbox || item.BBox),
+      source: 'candidate',
+    }))
+
+    const seen = new Set()
+    return [...captionItems, ...candidateItems]
+      .filter(item => {
+        const key = `${item.kind}:${item.page}:${item.text}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .sort((a, b) => a.page - b.page || a.label.localeCompare(b.label))
   }
 
-  async function handleTutorChoice(choiceId) {
-    // Guard: only proceed if we have a tutor sessionId and tutorStep from backend
-    if (!tutorSessionId || !tutorStep) {
-      return
-    }
+  useEffect(() => {
+    if (!showFigures || !uploadId) return
 
-    const selectedChoice = Array.isArray(tutorStep.choices)
-      ? tutorStep.choices.find(choice => choice.id === choiceId)
-      : null
-    const choiceMeta = getChoiceFocusMeta(selectedChoice || {})
-    if (!guidedPathTitle) {
-      setGuidedPathTitle(choiceMeta.title || selectedChoice?.label || 'Learning path')
-    }
-    
-    setLoadingChoiceId(choiceId)
-    setIsTutorLoading(true)
-    try {
-      let nextStep
+    let cancelled = false
+    async function loadLayoutEvidence() {
+      setLayoutLoading(true)
+      setLayoutError(null)
       try {
-        // Use tutorSessionId (from /tutor/start response), NOT the chat sessionId
-        nextStep = await stepTutor(tutorSessionId, choiceId)
-      } catch (err) {
-        if (!isTutorSessionMissingError(err) || !uploadId || !sessionId) throw err
-
-        // Recovery: create fresh chat session, get new tutor session, and retry
-        const refreshedSessionId = await createFreshTutorSession(uploadId)
-        const refreshedStart = await startTutor(refreshedSessionId, uploadId)
-        const refreshedTutorSessionId = refreshedStart?.sessionId || null
-
-        setTutorSessionId(refreshedTutorSessionId)
-        setGuidedStartStep(refreshedStart)
-        setGuidedPathTitle(null)
-
-        // Retry step with new tutor sessionId
-        nextStep = await stepTutor(refreshedTutorSessionId, choiceId)
-      }
-
-      if (nextStep?.status === 'disabled') {
-        setTutorDisabledMessage(
-          'Guided Mode is not available for this document yet. You can still use Chat Q&A.'
-        )
-        setTutorStep(null)
-        return
-      }
-
-      setTutorStep(nextStep)
-    } catch (err) {
-      console.error('Tutor choice failed', err)
-      if (isHttpStatus(err, 401)) {
-        setTutorDisabledMessage('Your session expired. Please sign in again to continue Guided Mode.')
-        toast.error('Session expired — please sign in again')
-      } else if (isHttpStatus(err, 404)) {
-        setTutorDisabledMessage(missingUploadText)
-        toast.error(missingUploadText)
-      } else {
-        toast.error('Failed to advance: ' + err.message)
-      }
-    } finally {
-      setIsTutorLoading(false)
-      setLoadingChoiceId(null)
-    }
-  }
-
-    // ------------------------
-    // Reading Coach helpers
-    // ------------------------
-    async function loadReadingCoach(uploadIdParam) {
-      if (!uploadIdParam) return
-      setReadingCoachLoading(true)
-      setReadingCoachError(null)
-      try {
-        let resp = null
-        try {
-          resp = await getReadingResume(uploadIdParam)
-        } catch (err) {
-          if (!(err?.status === 404 || String(err?.message).toLowerCase().includes('not found'))) {
-            throw err
-          }
+        const layout = await getUploadLayout(uploadId)
+        if (!cancelled) {
+          setLayoutEvidence(normalizeLayoutEvidence(layout))
         }
-
-        if (resp) {
-          setReadingCoachState(resp)
-          return
+      } catch (err) {
+        console.error('[Workspace] failed to load layout evidence', err)
+        if (!cancelled) {
+          setLayoutEvidence([])
+          setLayoutError(err?.message || 'Failed to load figures and tables')
         }
-
-        // No resumable session exists yet, so start one immediately.
-        const started = await startReading(uploadIdParam)
-        setReadingCoachState(started)
-      } catch (err) {
-        console.error('[Workspace] loadReadingCoach error', err)
-        setReadingCoachError(err?.message || String(err))
-        setReadingCoachState(null)
       } finally {
-        setReadingCoachLoading(false)
+        if (!cancelled) setLayoutLoading(false)
       }
     }
 
-    async function handleSubmitReadingAnswer() {
-      if (!readingCoachState) return
-      const answer = String(readingCoachAnswerDraft || '').trim()
-      if (!answer) {
-        toast.error('Please enter an answer before submitting.')
-        return
-      }
-      setReadingCoachSubmitting(true)
-      try {
-        const resp = await submitReadingAnswer(readingCoachState.sessionId, readingCoachState.stepId, answer)
-        setReadingCoachState(resp)
-        setReadingCoachAnswerDraft('')
-      } catch (err) {
-        console.error('Submit reading answer failed', err)
-        toast.error('Failed to submit answer: ' + (err?.message || ''))
-      } finally {
-        setReadingCoachSubmitting(false)
-      }
+    loadLayoutEvidence()
+    return () => {
+      cancelled = true
     }
+  }, [showFigures, uploadId])
 
   // Check index status on server: inMemory | onDisk | none
   async function checkIndexStatus(uploadIdParam) {
@@ -462,14 +605,7 @@ export default function Workspace() {
       const token = getAuthToken()
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
       const res = await fetch(url, { headers })
-      if (!res.ok) {
-        if (res.status === 404) {
-          setMissingUploadMessage(missingUploadText)
-          setIndexState('error')
-          return
-        }
-        throw new Error(`Status ${res.status}`)
-      }
+      if (!res.ok) throw new Error(`Status ${res.status}`)
       const js = await res.json()
 
       // if index in memory or on disk -> consider it ready (lazy-load from disk)
@@ -487,16 +623,10 @@ export default function Workspace() {
         setIndexState('ready')
       } catch (err) {
         console.error('Auto-build index failed', err)
-        if (isHttpStatus(err, 404)) {
-          setMissingUploadMessage(missingUploadText)
-        }
         setIndexState('error')
       }
     } catch (err) {
       console.error('Failed to fetch index status', err)
-      if (isHttpStatus(err, 404)) {
-        setMissingUploadMessage(missingUploadText)
-      }
       // do not show toast; surface retry via button
       setIndexState('error')
     }
@@ -505,7 +635,7 @@ export default function Workspace() {
   // docType/classification removed along with guided-mode behavior
 
   // Start an EventSource stream to the server ask stream endpoint and wire events to the assistant message.
-  async function startAskStream(uploadIdParam, q, assistantId, sessionIdParam, tutorSessionIdParam, tutorStepIdParam) {
+  async function startAskStream(uploadIdParam, q, assistantId, sessionIdParam, tutorContext = {}) {
     // close any existing stream/abort controller
     try {
       if (sseRef.current?.abort) sseRef.current.abort()
@@ -514,14 +644,14 @@ export default function Workspace() {
     }
     sseRef.current = null
 
-    const enc = encodeURIComponent(q || '')
     const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
-    const extra = sessionIdParam ? `&sessionId=${encodeURIComponent(sessionIdParam)}` : ''
-    const tutorExtra = tutorSessionIdParam ? `&tutorSessionId=${encodeURIComponent(tutorSessionIdParam)}` : ''
-    const tutorStepExtra = tutorStepIdParam ? `&tutorStepId=${encodeURIComponent(tutorStepIdParam)}` : ''
+    const params = new URLSearchParams({ q: q || '' })
+    if (sessionIdParam) params.set('sessionId', sessionIdParam)
+    if (tutorContext?.tutorSessionId) params.set('tutorSessionId', tutorContext.tutorSessionId)
+    if (tutorContext?.tutorStepId) params.set('tutorStepId', tutorContext.tutorStepId)
     const url = API_BASE
-      ? `${base}/ask/stream/${encodeURIComponent(uploadIdParam)}?q=${enc}${extra}${tutorExtra}${tutorStepExtra}`
-      : `/ask/stream/${encodeURIComponent(uploadIdParam)}?q=${enc}${extra}${tutorExtra}${tutorStepExtra}`
+      ? `${base}/ask/stream/${encodeURIComponent(uploadIdParam)}?${params.toString()}`
+      : `/ask/stream/${encodeURIComponent(uploadIdParam)}?${params.toString()}`
 
     const controller = new AbortController()
     sseRef.current = controller
@@ -636,6 +766,20 @@ export default function Workspace() {
             // No need to abort here; stream will naturally finish.
             if (sseRef.current === controller) sseRef.current = null
             requestAnimationFrame(() => scrollToBottom(true))
+          } else if (event === 'error') {
+            let parsed = null
+            try {
+              parsed = JSON.parse(data)
+            } catch {
+              parsed = { message: data }
+            }
+            const message = parsed?.message || parsed?.error || 'The assistant could not answer this request.'
+            updateAssistant(m => ({
+              ...m,
+              content: m.content ? `${m.content}\n\n${message}` : message,
+              streaming: false,
+            }))
+            toast.error(message)
           }
         }
 
@@ -690,7 +834,7 @@ export default function Workspace() {
                 /* empty */
               }
               if (sseRef.current === controller) sseRef.current = null
-              startAskStream(uploadIdParam, q, assistantId, sessionIdParam)
+              startAskStream(uploadIdParam, q, assistantId, sessionIdParam, tutorContext)
               return
             } catch (err2) {
               console.error('Reindex retry failed', err2)
@@ -728,6 +872,43 @@ export default function Workspace() {
     return trimmed
   }
 
+  async function handleDeleteConversation(conversation, event) {
+    event?.stopPropagation()
+    if (!conversation?.id) return
+
+    const confirmed = window.confirm(
+      'Delete this conversation and its notes? This cannot be undone.'
+    )
+    if (!confirmed) return
+
+    try {
+      setDeletingConversationId(conversation.id)
+      await deleteSession(conversation.id)
+      setConversationHistory(prev => prev.filter(item => item.id !== conversation.id))
+
+      if (sessionId === conversation.id) {
+        setSessionId(null)
+        setMessages([
+          {
+            role: 'assistant',
+            content:
+              "Hello! I've analyzed your case study. What would you like to explore first?",
+          },
+        ])
+        navigate(`/workspace/${encodeURIComponent(uploadId || conversation.caseId || '')}`, {
+          replace: true,
+        })
+      }
+
+      toast.success('Conversation deleted')
+    } catch (err) {
+      console.error('[Workspace] failed to delete conversation', err)
+      toast.error(err?.message || 'Failed to delete conversation')
+    } finally {
+      setDeletingConversationId(null)
+    }
+  }
+
   // Load conversation list for the left "Conversation History" panel
   useEffect(() => {
     let cancelled = false
@@ -735,6 +916,7 @@ export default function Workspace() {
     async function loadConversations() {
       try {
         setConversationLoading(true)
+        setConversationError('')
         const sessions = await listSessionsMine()
 
         if (cancelled) return
@@ -763,6 +945,7 @@ export default function Workspace() {
         setConversationHistory(mapped)
       } catch (err) {
         console.error('[Workspace] failed to load conversation history', err)
+        if (!cancelled) setConversationError(err?.message || 'Failed to load conversation history')
       } finally {
         if (!cancelled) setConversationLoading(false)
       }
@@ -846,7 +1029,6 @@ export default function Workspace() {
   const [pdfCtrl, setPdfCtrl] = useState(null)
   const [caseTitle, setCaseTitle] = useState(null)
   const [pdfLoadError, setPdfLoadError] = useState(null)
-  const [missingUploadMessage, setMissingUploadMessage] = useState(null)
   const [uploadDate, setUploadDate] = useState(null)
   const [indexState, setIndexState] = useState('not-indexed') // 'not-indexed' | 'indexing' | 'ready' | 'error'
   const [indexSummary, setIndexSummary] = useState(null)
@@ -870,12 +1052,6 @@ export default function Workspace() {
     borderBottomColor: '#c96a0a',
   })
 
-  // Responsive width classes for the main panes. When history is collapsed
-  // keep the PDF and assistant panels equal in width.
-  const centerWidthClass = 'lg:flex-[1_1_0%] lg:min-w-0'
-
-  const rightWidthClass = 'lg:flex-[1_1_0%] lg:min-w-0'
-
   const scrollToBottom = (smooth = false) => {
     const el = chatRef.current
     if (!el) return
@@ -892,7 +1068,6 @@ export default function Workspace() {
     // reset index state when switching uploads
     setIndexSummary(null)
     retriedRef.current = false
-    setMissingUploadMessage(null)
     if (uploadId) {
       checkIndexStatus(uploadId)
     } else {
@@ -904,13 +1079,6 @@ export default function Workspace() {
       ;(async () => {
         try {
           const meta = await getUploadSummary(uploadId)
-          // Store full metadata for debugging
-          _setUploadMetadata(meta)
-          console.log('[Workspace] Upload metadata:', meta)
-          console.log('[Workspace] Document classification:', meta?.classification)
-          console.log('[Workspace] Document type:', meta?.type)
-          console.log('[Workspace] Full metadata keys:', meta ? Object.keys(meta) : 'null')
-          
           // prefer explicit title, fall back to originalFileName or filename
           const t =
             meta?.title || meta?.originalFileName || meta?.fileName || meta?.filename || null
@@ -940,27 +1108,8 @@ export default function Workspace() {
             }
           }
           setUploadDate(formatted)
-
-          // Auto-select Reading Coach for supported document types
-          const cls = (meta?.classification || meta?.type || '').toLowerCase()
-          const isAcademic = cls.includes('academic') || cls.includes('research') || cls.includes('academicresearch')
-          const isBusinessCase = cls.includes('business') || cls.includes('case') || cls.includes('businesscase')
-          if (isAcademic || isBusinessCase) {
-            setActiveAssistantTab('readingCoach')
-            // Only load Reading Coach on first uploadId load, not on tab switches
-            // The tab click handler will load if there's no state
-          } else {
-            // unsupported: default to chat
-            setActiveAssistantTab('chat')
-          }
         } catch (err) {
-          console.error('[Workspace] FAILED to fetch upload summary:', err)
-          console.error('[Workspace] Error message:', err?.message)
-          console.error('[Workspace] Error stack:', err?.stack)
-          if (isHttpStatus(err, 404)) {
-            setMissingUploadMessage(missingUploadText)
-          }
-          _setUploadMetadata(null)
+          console.debug('[Workspace] failed to fetch upload summary', err)
           setCaseTitle(null)
           setUploadDate(null)
         }
@@ -968,7 +1117,6 @@ export default function Workspace() {
     } else {
       setCaseTitle(null)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uploadId])
 
   // Guided mode removed; no mode gating required.
@@ -1089,77 +1237,26 @@ export default function Workspace() {
 
             <div className="flex items-center gap-2 flex-shrink-0">
               <div className="hidden md:flex items-center gap-1 rounded-full bg-[#f6f0e8]/80 px-1 py-1">
-                {missingUploadMessage && (
-                  <span className="text-xs text-red-600 px-4">{missingUploadMessage}</span>
-                )}
-                <>
-                  <button
-                    type="button"
-                    className={getTabClass(activeAssistantTab === 'readingCoach')}
-                    style={{
-                      ...getTabStyle(activeAssistantTab === 'readingCoach'),
-                      pointerEvents: 'auto'
-                    }}
-                    onClick={() => {
-                      setShowNotes(false)
-                      setWorkspaceMode('chat')
-                      setActiveAssistantTab('readingCoach')
-                      // Only load Reading Coach if we don't have state and are not already loading
-                      if (uploadId && !readingCoachState && !readingCoachLoading) {
-                        loadReadingCoach(uploadId)
-                      }
-                    }}
-                    aria-pressed={activeAssistantTab === 'readingCoach'}
-                  >
-                    <span>Reading Coach</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={getTabClass(activeAssistantTab === 'chat')}
-                    style={getTabStyle(activeAssistantTab === 'chat')}
-                    onClick={() => {
-                      setShowNotes(false)
-                      setWorkspaceMode('chat')
-                      setActiveAssistantTab('chat')
-                    }}
-                    aria-pressed={activeAssistantTab === 'chat'}
-                  >
-                    <span>Chat</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={getTabClass(activeAssistantTab === 'guided')}
-                    style={{
-                      ...getTabStyle(activeAssistantTab === 'guided'),
-                      pointerEvents: 'auto'
-                    }}
-                    onClick={() => {
-                      setShowNotes(false)
-                      setWorkspaceMode('guided')
-                      setActiveAssistantTab('guided')
-                      // Only start guided mode if we don't have a session and are not already loading
-                      if (!tutorStep && !isTutorLoading) {
-                        handleOpenGuidedMode()
-                      }
-                    }}
-                    aria-pressed={activeAssistantTab === 'guided'}
-                  >
-                    <span>Guided Analysis</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={getTabClass(showNotes)}
-                    style={getTabStyle(showNotes)}
-                    onClick={() => {
-                      setWorkspaceMode('chat')
-                      setShowNotes(true)
-                    }}
-                    aria-pressed={showNotes}
-                  >
-                    <StickyNote className="w-3 h-3" />
-                    <span>Notes</span>
-                  </button>
-                </>
+                <button
+                  type="button"
+                  className={getTabClass(!showNotes)}
+                  style={getTabStyle(!showNotes)}
+                  onClick={() => setShowNotes(false)}
+                  aria-pressed={!showNotes}
+                >
+                  <MessageSquare className="w-3 h-3" />
+                  <span>Chat</span>
+                </button>
+                <button
+                  type="button"
+                  className={getTabClass(showNotes)}
+                  style={getTabStyle(showNotes)}
+                  onClick={() => setShowNotes(true)}
+                  aria-pressed={showNotes}
+                >
+                  <StickyNote className="w-3 h-3" />
+                  <span>Notes</span>
+                </button>
               </div>
 
               <Button
@@ -1181,11 +1278,6 @@ export default function Workspace() {
         {/* Demo banner removed */}
 
         <div aria-hidden={showHistory || showFigures || showNotes ? 'true' : 'false'}>
-          {missingUploadMessage && (
-            <div className="mx-4 mt-4 rounded-xl border border-[#e4d6c7] bg-[#fff8f0] px-4 py-3 text-sm text-[#5C4C3C]">
-              {missingUploadMessage}
-            </div>
-          )}
           {/* On lg+ we bound the content area to the viewport height minus the header
               so the page itself doesn't scroll; only the chat panel is scrollable.
               Assumption: header is h-14 (3.5rem). If header height changes, replace
@@ -1194,96 +1286,87 @@ export default function Workspace() {
       {/* Permanent sidebar on md+; falls back to drawer on small screens */}
       {/* On large screens keep the history panel visually fixed (no internal scroll).
         On smaller screens allow overflow so the drawer can scroll. */}
-  <aside className={`hidden lg:flex lg:flex-col transition-width ${historyCollapsed ? 'lg:w-16 lg:min-w-[4rem]' : workspaceMode === 'guided' ? 'lg:flex-[0_0_15%]' : 'lg:flex-[0_0_20%]'} border-r border-[#e4d6c7] bg-white shadow-sm lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden`}>
+  <aside className="hidden lg:flex lg:flex-col lg:flex-[0_0_20%] lg:min-w-0 border-r border-[#e4d6c7] bg-white shadow-sm lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden">
               <div className="flex flex-col flex-1 overflow-hidden">
-                <div className="sticky top-0 z-10 border-b border-[#E8DDD0] bg-white px-4 py-3">
+                <div className="sticky top-0 z-10 border-b border-[#E8DDD0] bg-white px-4 py-4">
                   <div className="flex items-center justify-between">
-                    <h3 className={`${historyCollapsed ? 'sr-only' : 'font-semibold text-foreground'}`}>Conversation History</h3>
-                    <div className="flex items-center gap-2">
-                      {/* New Conversation button removed per UX feedback */}
-                      <button
-                        type="button"
-                        aria-expanded={!historyCollapsed}
-                        onClick={() => setHistoryCollapsed(v => !v)}
-                        className="p-1 rounded hover:bg-[#f6eee5]"
-                        title={historyCollapsed ? 'Expand history' : 'Collapse history'}
-                      >
-                        {historyCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-                      </button>
-                    </div>
+                    <h3 className="font-semibold text-foreground">Conversation History</h3>
                   </div>
                 </div>
-                {historyCollapsed ? (
-                  <div className="flex flex-col items-center gap-3 p-3">
-                    {conversationHistory.map(c => {
-                      const isActive = sessionId === c.id
-                      const label = (c.title && String(c.title).trim().charAt(0).toUpperCase()) || '?'
-                      return (
-                        <button
-                          key={c.id}
-                          title={`${c.title} · ${c.date}`}
-                          onClick={() => {
-                            const uploadIdForNav = c.caseId || c.id
-                            const url = `/workspace/${encodeURIComponent(uploadIdForNav)}?sessionId=${encodeURIComponent(c.id)}`
-                            navigate(url)
-                            setShowHistory(false)
-                          }}
-                          className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium ${isActive ? 'bg-[#f6eee5] text-[#6A3A0A]' : 'bg-[#faf6f0] text-[#6A3A0A]'} shadow-sm`}
-                        >
-                          {label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <div className="flex-1 overflow-auto p-4 space-y-2">
-                    {conversationHistory.map(c => {
-                      const isActive = sessionId === c.id
-                      return (
-                        <Card
-                          key={c.id}
-                          className={getHistoryCardClass(isActive)}
-                          onClick={() => {
-                            const uploadIdForNav = c.caseId || c.id
-                            const url = `/workspace/${encodeURIComponent(uploadIdForNav)}?sessionId=${encodeURIComponent(c.id)}`
-                            navigate(url)
-                            setShowHistory(false)
-                          }}
-                        >
-                          <div className="space-y-2">
-                            <div className="flex items-start justify-between gap-2">
-                              <h4 className="text-sm font-semibold text-foreground/90 line-clamp-1">
-                                {c.title}
-                              </h4>
+                <div className="flex-1 overflow-auto p-4 space-y-2">
+                  {conversationError && (
+                    <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                      <div className="font-medium">Could not load conversations.</div>
+                      <div className="mt-1 text-red-600">Refresh the page or sign in again.</div>
+                    </div>
+                  )}
+                  {!conversationError && conversationHistory.length === 0 && (
+                    <div className="rounded-md border border-[#E8DDD0] bg-[#faf6f0] p-3 text-xs text-[#5C4C3C]">
+                      No conversations yet.
+                    </div>
+                  )}
+                  {conversationHistory.map(c => {
+                    const isActive = sessionId === c.id
+                    return (
+                      <Card
+                        key={c.id}
+                        className={getHistoryCardClass(isActive)}
+                        onClick={() => {
+                          // uploadId for this conversation (PDF case). Fallback to sessionId if ever needed.
+                          const uploadIdForNav = c.caseId || c.id
+
+                          const url = `/workspace/${encodeURIComponent(
+                            uploadIdForNav
+                          )}?sessionId=${encodeURIComponent(c.id)}`
+
+                          navigate(url)
+                          setShowHistory(false)
+                        }}
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <h4 className="text-sm font-semibold text-foreground/90 line-clamp-1">
+                              {c.title}
+                            </h4>
+                            <div className="flex items-center gap-1">
                               <span className="text-xs text-muted-foreground/80 whitespace-nowrap">
                                 {c.messageCount}
                               </span>
-                            </div>
-                            <p className="text-xs text-muted-foreground/70 line-clamp-2">
-                              {c.preview}
-                            </p>
-                            <div className="flex items-center gap-1 text-xs text-muted-foreground/70">
-                              <Clock className="w-3 h-3" />
-                              {c.date}
+                              <button
+                                type="button"
+                                className="rounded p-1 text-muted-foreground/60 transition hover:bg-red-50 hover:text-red-600"
+                                aria-label="Delete conversation"
+                                disabled={deletingConversationId === c.id}
+                                onClick={event => handleDeleteConversation(c, event)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                           </div>
-                        </Card>
-                      )
-                    })}
-                  </div>
-                )}
+                          <p className="text-xs text-muted-foreground/70 line-clamp-2">
+                            {c.preview}
+                          </p>
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground/70">
+                            <Clock className="w-3 h-3" />
+                            {c.date}
+                          </div>
+                        </div>
+                      </Card>
+                    )
+                  })}
+                </div>
               </div>
             </aside>
 
       {/* Center PDF area: allow normal vertical scrolling on small screens
         but keep fixed (no internal scroll) on large screens so only the
         chat panel scrolls. */}
-      <div className={`flex-1 min-w-0 transition-width bg-[#faf6f0] overflow-hidden ${centerWidthClass} lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)]`}>
-              <div className="p-0 w-full h-full">
-                <div className="w-full h-full">
-                  <div className="w-full h-full">
+      <div className="flex-1 min-w-0 border-r border-[#e4d6c7] bg-[#faf6f0] overflow-hidden lg:flex-[0_0_45%] lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)]">
+              <div className="p-6 max-w-3xl mx-auto">
+                <Card className="bg-card">
+                  <div className="p-4">
                     {uploadId ? (
-                      <div className="w-full h-[70vh] lg:h-[calc(100vh-3.5rem)] bg-white overflow-hidden relative">
+                      <div className="w-full h-[70vh] lg:h-[calc(100vh-3.5rem)] bg-white rounded overflow-hidden border border-[#e4d6c7] relative shadow-sm">
                         <React.Suspense
                           fallback={
                             <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
@@ -1303,9 +1386,6 @@ export default function Workspace() {
                               // capture structured PDF fetch errors (eg. 401) so parent can show UX
                               try {
                                 setPdfLoadError(err || null)
-                                if (Number(err?.status) === 404) {
-                                  setMissingUploadMessage(missingUploadText)
-                                }
                               } catch {
                                 /* ignore */
                               }
@@ -1327,8 +1407,6 @@ export default function Workspace() {
                                   <div className="text-xs text-foreground/80">
                                     {pdfLoadError?.status === 401
                                       ? 'This document requires authentication. Please sign in to view it.'
-                                      : pdfLoadError?.status === 404
-                                        ? missingUploadText
                                       : pdfLoadError?.message || 'An unexpected error occurred while loading the PDF.'}
                                   </div>
                                   <div className="pt-2 flex items-center gap-2">
@@ -1428,22 +1506,185 @@ export default function Workspace() {
                       </div>
                     )}
                   </div>
-                </div>
+                </Card>
               </div>
             </div>
 
-            <div className={`w-full md:flex-1 transition-width ${rightWidthClass} flex-shrink-0 flex flex-col bg-white`}>
-              {/* Right panel header intentionally left minimal (navigation in top header) */}
-
+            <div className="w-full md:flex-1 lg:flex-[0_0_35%] lg:min-w-[24rem] flex-shrink-0 flex flex-col bg-white border border-[#e4d6c7] shadow-sm">
               <div className="flex-1 flex flex-col overflow-hidden">
-                {/* Assistant Tabs */}
-                {/* Remove inner assistant tab row; now handled by top tab row only */}
-                {/* Chat View */}
-                {activeAssistantTab === 'chat' && (
+                {/* Messages */}
                 <div
                   ref={chatRef}
                   className={`flex-1 overflow-auto p-4 space-y-4 pb-20 ${showFigures ? 'pr-64' : ''}`}
                 >
+                  <Card className="border-[#e4d6c7] bg-[#fffaf4] p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2 text-sm font-semibold text-[#2c2218]">
+                          <GraduationCap className="h-4 w-4 text-[#B86A17]" />
+                          Reading Coach
+                        </div>
+                        <p className="mt-1 text-xs leading-relaxed text-[#7a5c3e]">
+                          Work through the paper step by step, answer short checks, and get feedback
+                          before moving on.
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="warm"
+                        onClick={handleStartReadingCoach}
+                        disabled={!uploadId || readingLoading}
+                        className="shrink-0"
+                      >
+                        {readingLoading
+                          ? indexState === 'indexing'
+                            ? 'Preparing...'
+                            : 'Starting...'
+                          : readingStep
+                            ? 'Restart'
+                            : 'Start'}
+                      </Button>
+                    </div>
+
+                    {readingError && (
+                      <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                        {readingError}
+                      </p>
+                    )}
+
+                    {readingStep && (
+                      <div className="mt-4 space-y-3 border-t border-[#ead8c7] pt-4">
+                        <div className="flex items-center justify-between gap-3 text-xs text-[#7a5c3e]">
+                          <span>
+                            Step {readingStep.stepNumber || 1} of {readingStep.totalSteps || 6}
+                          </span>
+                          <span className="rounded-full bg-white px-2 py-1 font-medium text-[#6A3A0A]">
+                            {readingStep.stage === 'recap'
+                              ? 'Recap'
+                              : readingStep.stage === 'feedback_pause'
+                                ? 'Feedback'
+                                : 'Check'}
+                          </span>
+                        </div>
+
+                        {readingStep.feedback && (
+                          <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                            <div className="flex items-center gap-2 font-semibold">
+                              <CheckCircle className="h-3.5 w-3.5" />
+                              Feedback
+                            </div>
+                            <p className="mt-1">{readingStep.feedback.verdict}</p>
+                            {readingStep.feedback.hint && (
+                              <p className="mt-1 text-emerald-800">Coaching note: {readingStep.feedback.hint}</p>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="whitespace-pre-wrap text-sm leading-relaxed text-[#2c2218]">
+                          {readingStep.narrative}
+                        </div>
+
+                        {Array.isArray(readingStep.cites) && readingStep.cites.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {readingStep.cites.slice(0, 4).map(page => (
+                              <button
+                                key={page}
+                                type="button"
+                                disabled={!pdfCtrl}
+                                onClick={() => pdfCtrl?.showHighlight({ page })}
+                                className="rounded-full border border-[#E4C6A1] bg-white px-2 py-1 text-xs text-[#6A3A0A] transition-colors hover:bg-[#F6EEE5] disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                p.{page}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {readingStep.stage === 'feedback_pause' && (
+                          <div className="space-y-3 rounded-md border border-[#E4C6A1] bg-white px-3 py-3">
+                            <div>
+                              <p className="text-sm font-medium text-[#2c2218]">
+                                {readingStep.question}
+                              </p>
+                              {readingAnswer.trim() ? (
+                                <p className="mt-2 rounded bg-[#faf6f0] px-3 py-2 text-sm text-[#5C4C3C]">
+                                  {readingAnswer.trim()}
+                                </p>
+                              ) : null}
+                            </div>
+                            <Button
+                              size="sm"
+                              type="button"
+                              onClick={handleContinueReadingCoach}
+                              disabled={!pendingReadingStep}
+                              className="bg-[#C96A0A] text-white hover:bg-[#B85F0A]"
+                            >
+                              Continue
+                            </Button>
+                          </div>
+                        )}
+
+                        {readingStep.stage !== 'recap' && readingStep.stage !== 'feedback_pause' && readingStep.question && (
+                          <div className="space-y-2">
+                            <p className="text-sm font-medium text-[#2c2218]">
+                              {readingStep.question}
+                            </p>
+                            <Textarea
+                              value={readingAnswer}
+                              onChange={e => setReadingAnswer(e.target.value)}
+                              placeholder="Answer in your own words..."
+                              className="min-h-[84px] bg-white text-sm"
+                            />
+                            <Button
+                              size="sm"
+                              onClick={handleSubmitReadingAnswer}
+                              disabled={readingLoading || !readingAnswer.trim()}
+                              className="bg-[#C96A0A] text-white hover:bg-[#B85F0A]"
+                            >
+                              {readingLoading ? 'Checking...' : 'Submit answer'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              type="button"
+                              onClick={handleAskReadingCoachHelp}
+                              disabled={!readingStep?.question}
+                              className="ml-2 border-[#E4C6A1] text-[#6A3A0A] hover:bg-[#F6EEE5]"
+                            >
+                              Ask for help
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              type="button"
+                              onClick={() =>
+                                saveTextToNotes(formatReadingCoachNote(), 'Reading Coach saved to notes')
+                              }
+                              disabled={!readingStep?.narrative}
+                              className="ml-2 border-[#E4C6A1] text-[#6A3A0A] hover:bg-[#F6EEE5]"
+                            >
+                              Save to notes
+                            </Button>
+                          </div>
+                        )}
+                        {readingStep.stage === 'recap' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            type="button"
+                            onClick={() =>
+                              saveTextToNotes(formatReadingCoachNote(), 'Recap saved to notes')
+                            }
+                            disabled={!readingStep?.narrative}
+                            className="border-[#E4C6A1] text-[#6A3A0A] hover:bg-[#F6EEE5]"
+                          >
+                            Save recap to notes
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </Card>
+
                   {messages.map((msg, idx) => {
                     const isUser = msg.role === 'user'
                     return (
@@ -1510,6 +1751,17 @@ export default function Workspace() {
                                     </div>
                                   </div>
                                 )}
+                                {!isUser && !msg.streaming && (msg.content || '').trim() && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      saveTextToNotes(formatChatNote(msg), 'Chat answer saved to notes')
+                                    }
+                                    className="mt-2 text-xs font-medium text-[#6A3A0A] hover:text-[#C96A0A]"
+                                  >
+                                    Save to notes
+                                  </button>
+                                )}
                               </div>
                             </div>
                       </div>
@@ -1540,10 +1792,8 @@ export default function Workspace() {
                     </div>
                   </div>
                 </div>
-                )}
 
-                {/* Input - only shown in chat mode */}
-                {activeAssistantTab === 'chat' && (
+                {/* Input */}
                 <div className="border-t border-[#e4d6c7] p-4 bg-white sticky bottom-0 z-20">
                   {/* Indexing control */}
                   {uploadId && indexState !== 'ready' && (
@@ -1601,85 +1851,6 @@ export default function Workspace() {
                     </div>
                   </div>
                 </div>
-                )}
-
-                {/* Reading Coach View */}
-                {activeAssistantTab === 'readingCoach' && (
-                  <ReadingCoachPanel
-                    state={readingCoachState}
-                    loading={readingCoachLoading}
-                    error={readingCoachError}
-                    answerDraft={readingCoachAnswerDraft}
-                    onAnswerChange={setReadingCoachAnswerDraft}
-                    onSubmit={handleSubmitReadingAnswer}
-                    submitting={readingCoachSubmitting}
-                    onRetry={() => loadReadingCoach(uploadId)}
-                    onAskForHelp={() => {
-                      // Switch to Chat and prefill with context
-                      if (readingCoachState?.question) {
-                        setMessage(`I need help with this Reading Coach step: ${readingCoachState.question}`)
-                      }
-                      setActiveAssistantTab('chat')
-                    }}
-                  />
-                )}
-
-                {/* Guided Mode View */}
-                {activeAssistantTab === 'guided' && (
-                <div className="flex-1 overflow-auto p-4 space-y-4 pb-20">
-                  {/* Debug information removed from Guided Mode view */}
-                  
-                  {tutorDisabledMessage ? (
-                    <div className="flex items-center justify-center h-full">
-                      <div className="w-full max-w-xl rounded-3xl border border-[#e4d6c7] bg-[#faf8f5] p-6 text-center shadow-sm">
-                        <Sparkles className="h-12 w-12 text-[#e4d6c7] mx-auto mb-4" />
-                        <h3 className="text-xl font-semibold text-[#2C2218]">Guided Mode unavailable</h3>
-                        <p className="mt-2 text-sm text-[#5C4C3C]">
-                          {tutorDisabledMessage || 'This document does not support guided analysis yet.'}
-                        </p>
-                        <div className="mt-6">
-                          <Button
-                            type="button"
-                            onClick={() => setActiveAssistantTab('chat')}
-                            className="h-auto min-h-11 px-4 py-3 bg-[#C96A08] text-white hover:bg-[#b85f0a]"
-                          >
-                            Use Chat Q&A
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : tutorStep ? (
-                    <>
-                      <GuidedModeFlow
-                        tutorStep={tutorStep}
-                        onChoice={handleTutorChoice}
-                        isLoading={isTutorLoading}
-                        loadingChoiceId={loadingChoiceId}
-                        activePathTitle={guidedPathTitle}
-                        onResetPath={() => {
-                          if (guidedStartStep) setTutorStep(guidedStartStep)
-                          setGuidedPathTitle(null)
-                          setTutorDisabledMessage(null)
-                        }}
-                      />
-                    </>
-                  ) : (
-                    <div className="flex items-center justify-center h-full">
-                      {isTutorLoading ? (
-                        <div className="text-center">
-                          <div className="animate-spin h-8 w-8 border-4 border-[#C96A0A] border-t-transparent rounded-full mx-auto mb-4" />
-                          <p className="text-sm text-[#5C4C3C]">Loading guided mode...</p>
-                        </div>
-                      ) : (
-                        <div className="text-center">
-                          <Sparkles className="h-12 w-12 text-[#e4d6c7] mx-auto mb-4" />
-                          <p className="text-sm text-[#9a8577]">No guided session active</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-                )}
               </div>
             </div>
           </div>
@@ -1696,20 +1867,36 @@ export default function Workspace() {
             {/* Drawer - only show on small screens and tablet (hidden on lg+) */}
             <div className="fixed top-14 bottom-0 left-0 w-80 bg-white border-r border-[#e4d6c7] shadow-xl z-50 overflow-auto lg:hidden">
               <div className="p-4 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-foreground">Conversation History</h3>
-                    <Button
-                      ref={closeHistoryBtnRef}
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowHistory(false)}
-                      aria-label="Close conversation history"
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
-                  </div>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-foreground">Conversation History</h3>
+                  <Button
+                    ref={closeHistoryBtnRef}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowHistory(false)}
+                    aria-label="Close conversation history"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+
+                <Button className="w-full" size="sm">
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  New Conversation
+                </Button>
 
                 <div className="space-y-2">
+                  {conversationError && (
+                    <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                      <div className="font-medium">Could not load conversations.</div>
+                      <div className="mt-1 text-red-600">Refresh the page or sign in again.</div>
+                    </div>
+                  )}
+                  {!conversationError && conversationHistory.length === 0 && (
+                    <div className="rounded-md border border-[#E8DDD0] bg-[#faf6f0] p-3 text-xs text-[#5C4C3C]">
+                      No conversations yet.
+                    </div>
+                  )}
                   {conversationHistory.map(c => {
                     const isActive = sessionId === c.id
                     return (
@@ -1732,9 +1919,20 @@ export default function Workspace() {
                             <h4 className="text-sm font-semibold text-foreground/90 line-clamp-1">
                               {c.title}
                             </h4>
-                            <span className="text-xs text-muted-foreground/80 whitespace-nowrap">
-                              {c.messageCount}
-                            </span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-muted-foreground/80 whitespace-nowrap">
+                                {c.messageCount}
+                              </span>
+                              <button
+                                type="button"
+                                className="rounded p-1 text-muted-foreground/60 transition hover:bg-red-50 hover:text-red-600"
+                                aria-label="Delete conversation"
+                                disabled={deletingConversationId === c.id}
+                                onClick={event => handleDeleteConversation(c, event)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </div>
                           <p className="text-xs text-muted-foreground/70 line-clamp-2">
                             {c.preview}
@@ -1754,10 +1952,15 @@ export default function Workspace() {
         )}
 
         {showFigures && (
-          <div className="fixed top-0 bottom-0 right-0 w-64 bg-white border-l border-[#e4d6c7] shadow-xl z-60 overflow-auto">
+          <div className="fixed top-0 bottom-0 right-0 w-full max-w-sm bg-white border-l border-[#e4d6c7] shadow-xl z-60 overflow-auto">
             <div className="p-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-foreground">Figures & Charts</h3>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-foreground">Figures & Tables</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Evidence detected from the document layout.
+                  </p>
+                </div>
                 <Button
                   ref={closeFiguresBtnRef}
                   variant="ghost"
@@ -1770,29 +1973,102 @@ export default function Workspace() {
               </div>
 
               <div className="space-y-3">
-                {[1, 2, 3].map(num => {
-                  const targetPage = num + 2
-                  const disabled = !pdfCtrl
-                  return (
-                    <Card
-                      key={num}
-                      className={`p-3 cursor-pointer hover:border-primary/50 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      onClick={() => {
-                        if (!pdfCtrl) return
-                        pdfCtrl.showHighlight({ page: targetPage }) // this scrolls + flashes
-                      }}
-                      aria-disabled={disabled}
-                      role="button"
-                      tabIndex={disabled ? -1 : 0}
-                    >
-                      <div className="aspect-video bg-muted rounded mb-2 flex items-center justify-center" />
-                      <p className="text-xs text-muted-foreground">Figure {num}</p>
-                      <p className="text-xs text-foreground font-medium">
-                        Chart on page {targetPage}
-                      </p>
-                    </Card>
-                  )
-                })}
+                {layoutLoading ? (
+                  <Card className="p-4 text-sm text-muted-foreground">
+                    Scanning layout evidence...
+                  </Card>
+                ) : layoutError ? (
+                  <Card className="p-4 text-sm text-red-700 bg-red-50 border-red-200">
+                    {layoutError}
+                  </Card>
+                ) : layoutEvidence.length === 0 ? (
+                  <Card className="p-4 text-sm text-muted-foreground">
+                    No figures or tables were detected in this document yet.
+                  </Card>
+                ) : (
+                  layoutEvidence.map(item => {
+                    const disabled = !pdfCtrl
+                    const previewPdfUrl = API_BASE
+                      ? `${String(API_BASE).replace(/\/$/, '')}/uploads/${uploadId}.pdf`
+                      : `/uploads/${uploadId}.pdf`
+                    const confidence =
+                      typeof item.confidence === 'number'
+                        ? `${Math.round(item.confidence * 100)}%`
+                        : null
+                    const hasRegion =
+                      item.bbox &&
+                      typeof item.bbox.width === 'number' &&
+                      typeof item.bbox.height === 'number'
+                    return (
+                      <Card
+                        key={item.id}
+                        className={`p-3 cursor-pointer hover:border-primary/50 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        onClick={() => {
+                          if (!pdfCtrl) return
+                          pdfCtrl.showHighlight({ page: item.page })
+                        }}
+                        aria-disabled={disabled}
+                        role="button"
+                        tabIndex={disabled ? -1 : 0}
+                        onKeyDown={event => {
+                          if (disabled) return
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            pdfCtrl?.showHighlight({ page: item.page })
+                          }
+                        }}
+                      >
+                        <EvidencePreview
+                          pdfUrl={previewPdfUrl}
+                          page={item.page}
+                          bbox={item.bbox}
+                          kind={item.kind}
+                        />
+                        <div className="mb-3 flex items-start gap-3">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-[#E4C6A1] bg-[#F6EEE5] text-[#6A3A0A]">
+                            {item.kind === 'table' ? (
+                              <Table2 className="h-4 w-4" />
+                            ) : (
+                              <ImageIcon className="h-4 w-4" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-semibold text-foreground">{item.label}</p>
+                              {item.source === 'candidate' && (
+                                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800 border border-amber-200">
+                                  detected
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Page {item.page}
+                              {confidence ? ` - confidence ${confidence}` : ''}
+                              {hasRegion ? ' - page region detected' : ''}
+                            </p>
+                          </div>
+                        </div>
+
+                        <p className="text-xs leading-relaxed text-foreground/90">
+                          {item.text || 'No caption text available.'}
+                        </p>
+
+                        {Array.isArray(item.reasons) && item.reasons.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {item.reasons.slice(0, 3).map(reason => (
+                              <span
+                                key={reason}
+                                className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] text-slate-600 border border-slate-200"
+                              >
+                                {String(reason).replaceAll('_', ' ')}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </Card>
+                    )
+                  })
+                )}
               </div>
             </div>
           </div>
@@ -1802,6 +2078,7 @@ export default function Workspace() {
           onOpenChange={setShowNotes}
           currentCaseId={uploadId}
           currentSessionId={sessionId || 'session-current'}
+          refreshKey={notesRefreshKey}
           panelRef={notesPanelRef}
         />
       </div>

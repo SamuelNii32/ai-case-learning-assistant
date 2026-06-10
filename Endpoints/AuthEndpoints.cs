@@ -19,8 +19,7 @@ public static class AuthEndpoints
             using var reader = new StreamReader(ctx.Request.Body);
             var body = await reader.ReadToEndAsync();
 
-            string email = "", password = "", fullName = "";
-            bool isInstructor = false; // NEW: drives IsSuperUser
+            string email = "", password = "", fullName = "", instructorInviteCode = "";
 
             try
             {
@@ -34,20 +33,8 @@ public static class AuthEndpoints
                 if (obj.TryGetProperty("fullName", out var n))
                     fullName = (n.GetString() ?? "").Trim();
 
-                // NEW: optional flag from frontend
-                // Frontend: send { ..., "isInstructor": true } if they chose Instructor
-                if (obj.TryGetProperty("isInstructor", out var inst))
-                {
-                    try
-                    {
-                        isInstructor = inst.GetBoolean();
-                    }
-                    catch
-                    {
-                        // invalid type? treat as false
-                        isInstructor = false;
-                    }
-                }
+                if (obj.TryGetProperty("instructorInviteCode", out var invite))
+                    instructorInviteCode = (invite.GetString() ?? "").Trim();
             }
             catch
             {
@@ -57,11 +44,15 @@ public static class AuthEndpoints
             if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
                 return Results.BadRequest(new { error = "email and password required" });
 
+            if (!IsValidEmail(email))
+                return Results.BadRequest(new { error = "Enter a valid email address" });
+
             if (password.Length < 8)
                 return Results.BadRequest(new { error = "password must be at least 8 characters" });
 
             var userId = Guid.NewGuid().ToString("N");
             var hash = BCrypt.Net.BCrypt.HashPassword(password);
+            var isInstructor = IsValidInstructorInviteCode(instructorInviteCode);
 
             using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
             await conn.OpenAsync();
@@ -83,11 +74,11 @@ public static class AuthEndpoints
             cmd.Parameters.AddWithValue("$h", hash);
             cmd.Parameters.AddWithValue("$n", string.IsNullOrWhiteSpace(fullName) ? DBNull.Value : fullName);
             cmd.Parameters.AddWithValue("$t", DateTime.UtcNow.ToString("o"));
-            cmd.Parameters.AddWithValue("$su", isInstructor ? 1 : 0); // NEW: instructor ⇒ superuser
+            cmd.Parameters.AddWithValue("$su", isInstructor ? 1 : 0);
 
             await cmd.ExecuteNonQueryAsync();
 
-            return Results.Ok(new { userId, email, fullName });
+            return Results.Ok(new { userId, email, fullName, role = isInstructor ? "instructor" : "student" });
 
         });
 
@@ -121,7 +112,7 @@ public static class AuthEndpoints
 
             string? userId = null, hash = null, fullName = null;
             bool isSuperUser = false;
-            int rawIsSuperUser = -999;
+            int rawIsSuperUser = 0;
 
             var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT Id, PasswordHash, IFNULL(FullName,''), IFNULL(IsSuperUser,0) FROM Users WHERE Email = $e LIMIT 1";
@@ -137,12 +128,6 @@ public static class AuthEndpoints
                     isSuperUser = rawIsSuperUser != 0;
                 }
             }
-
-            if (email == "timothywong@gmail.com")
-                isSuperUser = true;
-
-            Console.WriteLine($"[LOGIN DEBUG] email={email}, rawIsSuperUser={rawIsSuperUser}, isSuperUserBool={isSuperUser}");
-
             if (userId is null || hash is null || !BCrypt.Net.BCrypt.Verify(password, hash))
                 return Results.Unauthorized();
 
@@ -178,5 +163,47 @@ public static class AuthEndpoints
         });
 
         return app;
+    }
+
+    private static bool IsValidInstructorInviteCode(string inviteCode)
+    {
+        if (string.IsNullOrWhiteSpace(inviteCode))
+        {
+            return false;
+        }
+
+        var configured = Environment.GetEnvironmentVariable("INSTRUCTOR_INVITE_CODES") ?? "";
+        var validCodes = configured
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => !string.IsNullOrWhiteSpace(x));
+
+        return validCodes.Any(code => string.Equals(code, inviteCode, StringComparison.Ordinal));
+    }
+
+    private static bool IsValidEmail(string email)
+    {
+        if (string.IsNullOrWhiteSpace(email) || email.Length > 254)
+        {
+            return false;
+        }
+
+        try
+        {
+            var parsed = new System.Net.Mail.MailAddress(email);
+            if (!string.Equals(parsed.Address, email, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var domain = parsed.Host;
+            return domain.Contains('.') &&
+                   !domain.StartsWith(".", StringComparison.Ordinal) &&
+                   !domain.EndsWith(".", StringComparison.Ordinal) &&
+                   domain.Split('.', StringSplitOptions.RemoveEmptyEntries).All(part => part.Length > 0);
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

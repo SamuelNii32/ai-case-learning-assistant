@@ -13,53 +13,49 @@ export default function StudentClasses() {
   const auth = useContext(AuthContext)
   const [loading, setLoading] = useState(true)
   const [classes, setClasses] = useState([])
+  const [loadError, setLoadError] = useState('')
   const [joinCode, setJoinCode] = useState('')
-  const [joiningClass, setJoiningClass] = useState(false)
-
-  function renderText(value, fallback = '') {
-    if (value == null) return fallback
-    if (typeof value === 'string') return value
-    if (typeof value === 'number') return String(value)
-    if (typeof value === 'object') return value.title ?? value.name ?? JSON.stringify(value)
-    return String(value)
-  }
+  const [joining, setJoining] = useState(false)
 
   async function loadClasses() {
     try {
       setLoading(true)
+      setLoadError('')
       const data = await getEnrolledClasses()
       setClasses(Array.isArray(data) ? data : [])
     } catch (err) {
       console.error('Failed to load enrolled classes', err)
+      setLoadError(err?.message || 'Failed to load your classes')
       toast.error('Failed to load your classes')
     } finally {
       setLoading(false)
     }
   }
 
+  useEffect(() => {
+    loadClasses()
+  }, [])
+
   async function handleJoinClass(e) {
     e.preventDefault()
     const code = joinCode.trim()
     if (!code) {
-      toast.error('Please enter a class join code')
+      toast.error('Enter a class code')
       return
     }
-    setJoiningClass(true)
+
     try {
+      setJoining(true)
       await joinClass(code)
-      toast.success('Successfully joined the class!')
       setJoinCode('')
+      toast.success('Joined class')
       await loadClasses()
     } catch (err) {
-      toast.error(err?.message || 'Failed to join class')
+      toast.error(err?.message || 'Could not join class')
     } finally {
-      setJoiningClass(false)
+      setJoining(false)
     }
   }
-
-  useEffect(() => {
-    loadClasses()
-  }, [])
 
   if (!auth?.loggedIn) {
     return (
@@ -79,39 +75,43 @@ export default function StudentClasses() {
         </p>
       </header>
 
+      <Card className="mb-6 p-4 md:p-5">
+        <form onSubmit={handleJoinClass} className="flex flex-col gap-3 md:flex-row md:items-end">
+          <div className="flex-1">
+            <label htmlFor="classJoinCode" className="text-sm font-medium text-[#2C2218]">
+              Join a class
+            </label>
+            <p className="mb-2 text-xs text-[#5C4C3C]">
+              Enter the class code your instructor gave you.
+            </p>
+            <Input
+              id="classJoinCode"
+              value={joinCode}
+              onChange={e => setJoinCode(e.target.value)}
+              placeholder="Example: CP4K8QZ"
+            />
+          </div>
+          <Button type="submit" variant="warm" disabled={joining}>
+            {joining ? 'Joining...' : 'Join class'}
+          </Button>
+        </form>
+      </Card>
+
       {loading ? (
         <div className="bg-white border border-slate-200 rounded-lg p-6 md:p-8 text-center">
           <p className="text-slate-500">Loading your classes…</p>
         </div>
-      ) : (
-        <div className="space-y-6">
-          {/* Join a Class Card */}
-          <Card className="p-6 space-y-4 border-2 border-[#C96A08]/20 bg-gradient-to-br from-[#fdf4eb] to-[#f9f1e8]">
-            <div>
-              <h2 className="text-lg font-semibold text-[#2c2218]">Join a Class</h2>
-              <p className="text-sm text-[#7a5c3c] mt-1">Enter a class code to join a new class</p>
-            </div>
-            <form onSubmit={handleJoinClass} className="flex gap-3">
-              <Input
-                type="text"
-                placeholder="Enter class join code"
-                value={joinCode}
-                onChange={e => setJoinCode(e.target.value)}
-                disabled={joiningClass}
-                className="flex-1"
-              />
-              <Button
-                type="submit"
-                variant="warm"
-                disabled={joiningClass || !joinCode.trim()}
-              >
-                {joiningClass ? 'Joining…' : 'Join'}
-              </Button>
-            </form>
-          </Card>
-
-          {/* Classes Grid */}
-          {classes.length === 0 ? (
+      ) : loadError ? (
+        <div className="bg-white border border-red-200 rounded-lg p-6 md:p-8 text-center">
+          <p className="font-medium text-red-700">Could not load your classes.</p>
+          <p className="mt-1 text-sm text-slate-600">
+            Check your connection and try again. If this keeps happening, sign out and sign back in.
+          </p>
+          <Button type="button" variant="outline" className="mt-4" onClick={loadClasses}>
+            Retry
+          </Button>
+        </div>
+      ) : classes.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-lg p-6 md:p-8 text-center">
           <p className="text-slate-500">You are not enrolled in any classes yet.</p>
         </div>
@@ -126,9 +126,9 @@ export default function StudentClasses() {
               >
                 <div className="space-y-3">
                   <div>
-                    <h3 className="text-lg font-semibold text-[#2C2218]">{renderText(cls.name)}</h3>
+                    <h3 className="text-lg font-semibold text-[#2C2218]">{cls.name}</h3>
                     {cls.description && (
-                      <p className="text-sm text-[#5C4C3C] mt-1">{renderText(cls.description)}</p>
+                      <p className="text-sm text-[#5C4C3C] mt-1">{cls.description}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-4 text-sm text-[#5C4C3C]">
@@ -168,8 +168,6 @@ export default function StudentClasses() {
               </Card>
             )
           })}
-        </div>
-      )}
         </div>
       )}
     </div>

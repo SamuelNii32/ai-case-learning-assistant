@@ -6,6 +6,30 @@ using Microsoft.Data.Sqlite;
 
 public static class TutorSessionPersistence
 {
+    public static async Task<TutorSession?> TryLoadLatestReadingAsync(string connString, Guid uploadId, string userId)
+    {
+        using var conn = new SqliteConnection(connString);
+        await conn.OpenAsync();
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+SELECT SessionId
+FROM TutorSessions
+WHERE UserId = $userId
+  AND UPPER(UploadId) = UPPER($uploadId)
+  AND Focus = 'reading_coach'
+ORDER BY UpdatedAt DESC
+LIMIT 1;
+";
+        cmd.Parameters.AddWithValue("$userId", userId);
+        cmd.Parameters.AddWithValue("$uploadId", uploadId.ToString());
+
+        var sessionId = await cmd.ExecuteScalarAsync() as string;
+        return string.IsNullOrWhiteSpace(sessionId)
+            ? null
+            : await TryLoadAsync(connString, sessionId);
+    }
+
     public static async Task<TutorSession?> TryLoadAsync(string connString, string sessionId)
     {
         using var conn = new SqliteConnection(connString);

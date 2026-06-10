@@ -11,7 +11,7 @@ export default function Hero() {
               <div className="w-9 h-9 bg-white/10 rounded-md flex items-center justify-center">
                 <Sparkles className="w-5 h-5 text-white" />
               </div>
-              <span className="text-sm opacity-90">Introducing CaseAI</span>
+              <span className="text-sm opacity-90">Introducing CasePilot</span>
             </div>
 
             <h1 className="text-4xl md:text-5xl font-bold leading-tight mb-6">

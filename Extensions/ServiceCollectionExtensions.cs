@@ -10,17 +10,10 @@ namespace Api.Extensions;
 
 public static class ServiceCollectionExtensions
 {
-    // NOTE:
-    // Program.cs defines JWT constants as top-level consts (file-scoped),
-    // so we duplicate the VALUES here for service registration only,
-    // to avoid touching endpoints. Values are identical.
-    private const string JwtSecret = "samnii_JWT_secret_key_2025_super_strong_01_long_xyz";
-    private const string JwtIssuer = "IngestionApi";
-    private const string JwtAudience = "IngestionClient";
-
     public static IServiceCollection AddAppServices(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        AuthSettings authSettings)
     {
         // Read OpenAI config (API key + models)
         var openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
@@ -48,9 +41,9 @@ public static class ServiceCollectionExtensions
                     ValidateIssuerSigningKey = true,
                     ValidateLifetime = true,
 
-                    ValidIssuer = JwtIssuer,
-                    ValidAudience = JwtAudience,
-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtSecret)),
+                    ValidIssuer = authSettings.JwtIssuer,
+                    ValidAudience = authSettings.JwtAudience,
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(authSettings.JwtSecret)),
                     ClockSkew = TimeSpan.FromMinutes(1)
                 };
             });

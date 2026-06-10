@@ -214,7 +214,7 @@ public static class QaRetrieval
 
         while (chosen.Count < K && remaining.Count > 0)
         {
-            Cand best = null;
+            Cand? best = null;
             float bestScore = float.NegativeInfinity;
 
             foreach (var c in remaining)

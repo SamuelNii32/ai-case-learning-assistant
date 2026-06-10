@@ -4,34 +4,34 @@ using OpenAI.Chat;
 
 public static class QuestionClassifier
 {
-   public  static async Task<QuestionType> ClassifyQuestionAsync(string question)
+   public  static Task<QuestionType> ClassifyQuestionAsync(string question)
     {
         // Very short or empty → treat as Other
         if (string.IsNullOrWhiteSpace(question))
-            return QuestionType.Other;
+            return Task.FromResult(QuestionType.Other);
 
         // IMPROVED: Do simple pattern matching FIRST before calling the model
         var q = question.ToLowerInvariant();
 
         // Strong methodology signals
         if (Regex.IsMatch(q, @"\b(method(s|ology)?|approach(es)?|procedure|technique|experimental (setup|design|approach)|how (did|were).*?(conduct|perform|collect|measure|analyze))\b"))
-            return QuestionType.Method;
+            return Task.FromResult(QuestionType.Method);
 
         // Strong findings signals
         if (Regex.IsMatch(q, @"\b(finding(s)?|result(s)?|outcome(s)?|what (did|were).*?(find|discover|observe|show|demonstrate))\b"))
-            return QuestionType.Findings;
+            return Task.FromResult(QuestionType.Findings);
 
         // Strong summary signals
         if (Regex.IsMatch(q, @"\b(summary|summarize|overview|about|main (point|idea)|key (point|takeaway)|abstract)\b"))
-            return QuestionType.Summary;
+            return Task.FromResult(QuestionType.Summary);
 
         // Strong fact signals
         if (Regex.IsMatch(q, @"\b(who|when|where|which|what (is|are|was|were))\b"))
-            return QuestionType.Fact;
+            return Task.FromResult(QuestionType.Fact);
 
         // Strong explanation signals
         if (Regex.IsMatch(q, @"\b(why|how|explain|rationale|reason)\b"))
-            return QuestionType.WhyExplain;
+            return Task.FromResult(QuestionType.WhyExplain);
 
         // If patterns didn't match, fall back to model classification
         var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
@@ -58,7 +58,7 @@ public static class QuestionClassifier
         var raw = string.Concat(result.Content.Select(part => part.Text ?? string.Empty));
         var label = raw.Trim().ToUpperInvariant();
 
-        return label switch
+        return Task.FromResult(label switch
         {
             "SUMMARY" => QuestionType.Summary,
             "FACT" => QuestionType.Fact,
@@ -66,6 +66,6 @@ public static class QuestionClassifier
             "FINDINGS" => QuestionType.Findings,
             "WHY_EXPLAIN" => QuestionType.WhyExplain,
             _ => QuestionType.Other
-        };
+        });
     }
 }

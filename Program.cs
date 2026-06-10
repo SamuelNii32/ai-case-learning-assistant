@@ -1,11 +1,9 @@
 ﻿using System.Collections.Concurrent;
-using System.Data;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Api.Endpoints;
 using Api.Extensions;
-using Dapper;
 // iText7 for page count + raster image counting
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas.Parser; 
@@ -30,41 +28,11 @@ using PdfPigDoc = UglyToad.PdfPig.PdfDocument;
 
 
 
-static async Task SaveMessageAsync(
-    IDbConnection db,
-    Guid sessionId,
-    string role,           
-    string content,
-    string? citationsJson, 
-    string? pagesJson      
-)
+ 
 
 
 
 
-{
-    const string sql = @"
-        INSERT INTO Messages (Id, SessionId, Role, Content, Citations, PagesUsed, CreatedAt)
-        VALUES (@Id, @SessionId, @Role, @Content, @Citations, @PagesUsed, @CreatedAt);";
-
-    await db.ExecuteAsync(sql, new
-    {
-        Id = Guid.NewGuid(),
-        SessionId = sessionId,
-        Role = role,
-        Content = content,
-        Citations = citationsJson,
-        PagesUsed = pagesJson,
-        CreatedAt = DateTime.UtcNow
-    });
-}
-
-
-
-
-const string JwtSecret = "samnii_JWT_secret_key_2025_super_strong_01_long_xyz";
-const string JwtIssuer = "IngestionApi";
-const string JwtAudience = "IngestionClient";
 
 
 
@@ -75,7 +43,8 @@ const string JwtAudience = "IngestionClient";
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddAppServices(builder.Configuration);
+var authSettings = AuthSettings.Load(builder.Configuration);
+builder.Services.AddAppServices(builder.Configuration, authSettings);
 // Read OpenAI config (API key + models)
 var openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
     ?? throw new InvalidOperationException("OPENAI_API_KEY not set.");
@@ -174,6 +143,7 @@ CREATE TABLE IF NOT EXISTS Classes (
   InstructorId TEXT NOT NULL,
   Name TEXT NOT NULL,
   Description TEXT NULL,
+  JoinCode TEXT NULL,
   CreatedAt TEXT NOT NULL
 );
 
@@ -187,6 +157,9 @@ CREATE TABLE IF NOT EXISTS ClassStudents (
 CREATE TABLE IF NOT EXISTS ClassCases (
   ClassId TEXT NOT NULL,
   UploadId TEXT NOT NULL,
+  Objective TEXT NULL,
+  Focus TEXT NULL,
+  DueAt TEXT NULL,
   AssignedAt TEXT NOT NULL,
   PRIMARY KEY (ClassId, UploadId)
 );
@@ -206,6 +179,30 @@ CREATE TABLE IF NOT EXISTS TutorSessions (
   PendingDrillChoicesJson TEXT NULL,
   CreatedAt TEXT NOT NULL,
   UpdatedAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS TutorAnswers (
+  Id INTEGER PRIMARY KEY AUTOINCREMENT,
+  SessionId TEXT NOT NULL,
+  UserId TEXT NOT NULL,
+  UploadId TEXT NOT NULL,
+  StepId TEXT NOT NULL,
+  Question TEXT NOT NULL,
+  Answer TEXT NOT NULL,
+  Feedback TEXT NOT NULL,
+  Score REAL NOT NULL,
+  CreatedAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS TutorHelpEvents (
+  Id INTEGER PRIMARY KEY AUTOINCREMENT,
+  UserId TEXT NOT NULL,
+  UploadId TEXT NOT NULL,
+  ChatSessionId TEXT NULL,
+  TutorSessionId TEXT NULL,
+  StepId TEXT NULL,
+  Question TEXT NOT NULL,
+  CreatedAt TEXT NOT NULL
 );
 
 
@@ -264,14 +261,79 @@ CREATE TABLE IF NOT EXISTS TutorSessions (
         // Column already exists -> ignore
     }
 
-   
+    try
+    {
+        using var mig5 = conn.CreateCommand();
+        mig5.CommandText = "ALTER TABLE Classes ADD COLUMN JoinCode TEXT NULL";
+        mig5.ExecuteNonQuery();
+    }
+    catch
+    {
+        // Column already exists -> ignore
+    }
 
+    try
+    {
+        using var mig6 = conn.CreateCommand();
+        mig6.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS IX_Classes_JoinCode ON Classes(JoinCode)";
+        mig6.ExecuteNonQuery();
+    }
+    catch
+    {
+        // Existing schema may not support index creation; ignore at startup.
+    }
 
+    try
+    {
+        using var mig7 = conn.CreateCommand();
+        mig7.CommandText = "ALTER TABLE ClassCases ADD COLUMN Objective TEXT NULL";
+        mig7.ExecuteNonQuery();
+    }
+    catch
+    {
+        // Column already exists -> ignore
+    }
 
-    cmd.ExecuteNonQuery();
+    try
+    {
+        using var mig8 = conn.CreateCommand();
+        mig8.CommandText = "ALTER TABLE ClassCases ADD COLUMN Focus TEXT NULL";
+        mig8.ExecuteNonQuery();
+    }
+    catch
+    {
+        // Column already exists -> ignore
+    }
+
+    try
+    {
+        using var mig9 = conn.CreateCommand();
+        mig9.CommandText = "ALTER TABLE ClassCases ADD COLUMN DueAt TEXT NULL";
+        mig9.ExecuteNonQuery();
+    }
+    catch
+    {
+        // Column already exists -> ignore
+    }
+
+    using (var indexes = conn.CreateCommand())
+    {
+        indexes.CommandText = @"
+CREATE INDEX IF NOT EXISTS IX_Uploads_UserId ON Uploads(UserId);
+CREATE INDEX IF NOT EXISTS IX_Sessions_UserId ON Sessions(UserId);
+CREATE INDEX IF NOT EXISTS IX_Sessions_UploadId ON Sessions(UploadId);
+CREATE INDEX IF NOT EXISTS IX_Messages_SessionId ON Messages(SessionId);
+CREATE INDEX IF NOT EXISTS IX_Notes_SessionId ON Notes(SessionId);
+CREATE INDEX IF NOT EXISTS IX_Notes_UploadId ON Notes(UploadId);
+CREATE INDEX IF NOT EXISTS IX_ClassStudents_StudentId ON ClassStudents(StudentId);
+CREATE INDEX IF NOT EXISTS IX_ClassCases_UploadId ON ClassCases(UploadId);
+CREATE INDEX IF NOT EXISTS IX_TutorSessions_UserUpload ON TutorSessions(UserId, UploadId);
+";
+        indexes.ExecuteNonQuery();
+    }
 }
 
-app.MapAuthEndpoints(connString, JwtSecret, JwtIssuer, JwtAudience);
+app.MapAuthEndpoints(connString, authSettings.JwtSecret, authSettings.JwtIssuer, authSettings.JwtAudience);
 app.MapDebugEndpoints(connString);
 app.MapUploadEndpoints(connString);
 app.MapTutorEndpoints(connString);
@@ -279,26 +341,12 @@ app.MapTutorEndpoints(connString);
 
 
 
-string MapDocTypeToString(DocType t) => t switch
-{
-    DocType.AcademicResearch => "AcademicResearch",
-    DocType.BusinessCase => "BusinessCase",
-    DocType.LegalCase => "LegalCase",
-    _ => "Other"
-};
-
-
 bool IsInstructor(HttpContext ctx)
 {
     return ctx.User.HasClaim("role", "instructor");
 }
 
-bool IsStudent(HttpContext ctx)
-{
-    return ctx.User.HasClaim("role", "student");
-}
-
-IResult RequireInstructor(HttpContext ctx)
+IResult? RequireInstructor(HttpContext ctx)
 {
     if (!IsInstructor(ctx))
         return Results.Forbid();
@@ -306,12 +354,32 @@ IResult RequireInstructor(HttpContext ctx)
     return null;
 }
 
-IResult RequireStudent(HttpContext ctx)
+async Task<bool> CanAccessUploadAsync(Guid uploadId, string userId)
 {
-    if (!IsStudent(ctx))
-        return Results.Forbid();
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+    await conn.OpenAsync();
 
-    return null;
+    using var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+SELECT 1
+FROM Uploads u
+WHERE UPPER(u.UploadId) = UPPER($uploadId)
+  AND (
+        u.UserId = $userId
+     OR EXISTS (
+            SELECT 1
+            FROM ClassCases cc
+            JOIN ClassStudents cs ON cs.ClassId = cc.ClassId
+            WHERE UPPER(cc.UploadId) = UPPER(u.UploadId)
+              AND cs.StudentId = $userId
+        )
+  )
+LIMIT 1;
+";
+    cmd.Parameters.AddWithValue("$uploadId", uploadId.ToString());
+    cmd.Parameters.AddWithValue("$userId", userId);
+
+    return await cmd.ExecuteScalarAsync() is not null;
 }
 
 
@@ -382,20 +450,59 @@ app.MapGet("/api/chat/stream", async (HttpContext ctx) =>
     }
 });
 
-// Figures/visuals for a document (MVP: stub data)
+// Figures/visuals for a document (MVP: backed by layout manifest)
 // GET /api/documents/{caseId}/figures
-app.MapGet("/api/documents/{caseId}/figures", (string caseId) =>
+app.MapGet("/api/documents/{caseId}/figures", async (string caseId, HttpContext ctx, IWebHostEnvironment env) =>
 {
-    // TODO: Replace this stub with your real analysis lookup for `caseId`
-    // Shape: [{ id, page, type:"image", caption, bbox:null }]
-    var stub = new[]
+    if (!Guid.TryParse(caseId, out var uploadId))
     {
-        new { id = $"{caseId}-p3-1",  page = 3,  type = "image", caption = "Visual on page 3",  bbox = (object?)null },
-        new { id = $"{caseId}-p7-1",  page = 7,  type = "image", caption = "Visual on page 7",  bbox = (object?)null },
-        new { id = $"{caseId}-p10-1", page = 10, type = "image", caption = "Visual on page 10", bbox = (object?)null },
-    };
+        return Results.BadRequest(new { error = "invalid upload id" });
+    }
 
-    return Results.Json(stub);
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
+    if (!await CanAccessUploadAsync(uploadId, me)) return Results.NotFound(new { error = "not found" });
+
+    var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
+    var layoutPath = Path.Combine(uploadsRoot, $"{uploadId}.layout.json");
+    if (!File.Exists(layoutPath))
+    {
+        var pdfPath = Path.Combine(uploadsRoot, $"{uploadId}.pdf");
+        if (!File.Exists(pdfPath)) return Results.NotFound(new { error = "PDF not found" });
+        await DocumentLayoutAnalyzer.AnalyzeAndSaveAsync(uploadId, env);
+    }
+
+    var json = await File.ReadAllTextAsync(layoutPath);
+    var manifest = System.Text.Json.JsonSerializer.Deserialize<LayoutManifest>(json);
+    var captionedEvidence = (manifest?.Captions ?? new List<LayoutCaption>())
+        .Select(c => new
+        {
+            id = c.Id,
+            page = c.Page,
+            type = c.Kind,
+            label = c.Label,
+            caption = c.Text,
+            bbox = c.BBox,
+            confidence = c.Confidence,
+            reasons = c.Reasons,
+            source = "caption"
+        });
+
+    var tableCandidates = (manifest?.Tables ?? new List<LayoutTableCandidate>())
+        .Select(t => new
+        {
+            id = t.Id,
+            page = t.Page,
+            type = "table",
+            label = t.Label,
+            caption = t.TextPreview,
+            bbox = t.BBox,
+            confidence = t.Confidence,
+            reasons = t.Reasons,
+            source = "candidate"
+        });
+
+    return Results.Json(captionedEvidence.Concat(tableCandidates).OrderBy(x => x.page).ThenBy(x => x.label));
 });
 
 
@@ -413,8 +520,12 @@ static IEnumerable<(int page, string text)> ExtractPerPageText(string path)
 }
 
 // GET /uploads/{id}/pages/preview  -> returns first few page snippets (no embeddings yet)
-app.MapGet("/uploads/{uploadId:guid}/pages/preview", (Guid uploadId, IWebHostEnvironment env) =>
+app.MapGet("/uploads/{uploadId:guid}/pages/preview", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
 {
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
+    if (!await CanAccessUploadAsync(uploadId, me)) return Results.NotFound();
+
     var pdfPath = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.pdf");
     if (!System.IO.File.Exists(pdfPath)) return Results.NotFound();
 
@@ -435,29 +546,14 @@ app.MapGet("/uploads/{uploadId:guid}/pages/preview", (Guid uploadId, IWebHostEnv
 app.MapPost("/index/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
 {
     // ownership check
-    var me = (string?)ctx.Items["userId"] ?? ctx.User.FindFirst("sub")?.Value;
+    var me = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(me))
     {
         return Results.Unauthorized();
     }
 
-    using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString))
-    {
-        await conn.OpenAsync();
-        using var chk = conn.CreateCommand();
-        chk.CommandText = @"
-SELECT 1
-FROM Uploads
-WHERE UPPER(UploadId) = UPPER($u)
-  AND UserId = $me
-LIMIT 1";
-        chk.Parameters.AddWithValue("$u", uploadId.ToString());
-        chk.Parameters.AddWithValue("$me", me);
-
-        var ok = await chk.ExecuteScalarAsync();
-        if (ok is null)
-            return Results.NotFound(new { error = "not found" }); // don't leak existence
-    }
+    if (!await CanAccessUploadAsync(uploadId, me))
+        return Results.NotFound(new { error = "not found" }); // don't leak existence
 
     var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
         ?? throw new InvalidOperationException("OPENAI_API_KEY not set.");
@@ -545,8 +641,12 @@ LIMIT 1";
 });
 
 // GET /uploads/{uploadId}/classification -> returns doc type & confidence
-app.MapGet("/uploads/{uploadId:guid}/classification", (Guid uploadId, IWebHostEnvironment env) =>
+app.MapGet("/uploads/{uploadId:guid}/classification", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
 {
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
+    if (!await CanAccessUploadAsync(uploadId, me)) return Results.NotFound(new { error = "No classification stored for this uploadId." });
+
     if (DocTypePersistence.TryLoad(uploadId, env, out var cls) && cls != null)
         return Results.Json(cls);
 
@@ -557,8 +657,12 @@ app.MapGet("/uploads/{uploadId:guid}/classification", (Guid uploadId, IWebHostEn
 
 
 // GET /search/{uploadId}?q=...  -> top-k chunks by cosine similarity
-app.MapGet("/search/{uploadId:guid}", (Guid uploadId, string q, IWebHostEnvironment env) =>
+app.MapGet("/search/{uploadId:guid}", async (Guid uploadId, string q, HttpContext ctx, IWebHostEnvironment env) =>
 {
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
+    if (!await CanAccessUploadAsync(uploadId, me)) return Results.NotFound(new { error = "Not indexed. POST /index/{uploadId} first." });
+
     // Lazy-load index from disk if missing in RAM
     if (!InMemoryStore.VectorIndex.TryGetValue(uploadId.ToString(), out var list) || list.Count == 0)
     {
@@ -589,7 +693,10 @@ app.MapGet("/search/{uploadId:guid}", (Guid uploadId, string q, IWebHostEnvironm
 
 app.MapGet("/debug/student-access/{uploadId}", async (Guid uploadId, HttpContext ctx) =>
 {
-    var me = (string?)ctx.Items["userId"] ?? "";
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var me = ctx.GetCurrentUserId() ?? "";
     using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
 
@@ -628,7 +735,7 @@ WHERE u.UploadId = $u;
 // GET /ask/{uploadId}?q=...
 app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessionId, HttpContext ctx, IWebHostEnvironment env) =>
 {
-    var me = (string?)ctx.Items["userId"] ?? "";
+    var me = ctx.GetCurrentUserId() ?? "";
     Console.WriteLine($"[ASK DEBUG] me={me}, uploadId={uploadId}");
 
     using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString))
@@ -711,7 +818,6 @@ LIMIT 1;
         mcmd.ExecuteNonQuery();
     }
 
-
     string? GetStringOrNull(Microsoft.Data.Sqlite.SqliteDataReader reader, int ordinal)
     {
         return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
@@ -733,7 +839,7 @@ LIMIT 1;
     try
     {
         // --- record USER message (if a session was provided) ---
-        SaveMessage("user", q, null, null);
+        SaveMessage("user", q ?? "", null, null);
 
         // --- Q/A CACHE FAST PATH ---
         // If we've seen this exact question for this upload before,
@@ -1249,7 +1355,14 @@ Context:
 
 
 // GET /ask/stream/{uploadId}?q=...  -> SSE: token-by-token answer + citations + done
-app.MapGet("/ask/stream/{uploadId}", async (string uploadId, string q, string? sessionId, HttpContext ctx, IWebHostEnvironment env) =>
+app.MapGet("/ask/stream/{uploadId}", async (
+    string uploadId,
+    string q,
+    string? sessionId,
+    string? tutorSessionId,
+    string? tutorStepId,
+    HttpContext ctx,
+    IWebHostEnvironment env) =>
 {
     if (!Guid.TryParse(uploadId, out var parsedUploadId))
     {
@@ -1259,38 +1372,26 @@ app.MapGet("/ask/stream/{uploadId}", async (string uploadId, string q, string? s
     }
 
 
-    var me = (string?)ctx.Items["userId"] ?? "";
-    using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString))
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me))
     {
-        await conn.OpenAsync();
-        using var chk = conn.CreateCommand();
-        chk.CommandText = @"
-SELECT 1
-FROM Uploads u
-WHERE u.UploadId = $u
-  AND (
-        u.UserId = $me
-     OR EXISTS (
-            SELECT 1
-            FROM ClassCases cc
-            JOIN ClassStudents cs ON cs.ClassId = cc.ClassId
-            WHERE cc.UploadId = u.UploadId
-              AND cs.StudentId = $me
-        )
-  )
-LIMIT 1;
-";
-        chk.Parameters.AddWithValue("$u", uploadId); chk.Parameters.AddWithValue("$me", me);
-        var ok = await chk.ExecuteScalarAsync();
-        if (ok is null)
-        {
-            ctx.Response.StatusCode = StatusCodes.Status404NotFound; // don’t leak existence
-            await ctx.Response.WriteAsJsonAsync(new { error = "not found" });
-            return; // IMPORTANT in SSE handlers
-        }
+        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        await ctx.Response.WriteAsJsonAsync(new { error = "unauthorized" });
+        return;
+    }
+
+    if (!await CanAccessUploadAsync(parsedUploadId, me))
+    {
+        ctx.Response.StatusCode = StatusCodes.Status404NotFound; // don’t leak existence
+        await ctx.Response.WriteAsJsonAsync(new { error = "not found" });
+        return; // IMPORTANT in SSE handlers
     }
     // Keep the original question and classify it with the small model
     var questionOriginal = q ?? string.Empty;
+    var hasTutorChatContext = !string.IsNullOrWhiteSpace(tutorSessionId) || !string.IsNullOrWhiteSpace(tutorStepId);
+    var tutorChatContext = hasTutorChatContext
+        ? await TutorChatContext.BuildAsync(connString, tutorSessionId, tutorStepId)
+        : "";
 
     // High-level classification: Summary / Fact / Method / Findings / WhyExplain / Other
     var questionType = await QuestionClassifier.ClassifyQuestionAsync(questionOriginal);
@@ -1304,7 +1405,7 @@ LIMIT 1;
     await ctx.Response.WriteAsync("\n");
     await ctx.Response.Body.FlushAsync();
 
-    if (!InMemoryStore.VectorIndex.TryGetValue(uploadId.ToString(), out var list) || list.Count == 0)
+    if (!InMemoryStore.VectorIndex.TryGetValue(parsedUploadId.ToString(), out var list) || list.Count == 0)
     {
         if (!IndexPersistence.TryLoad(parsedUploadId, env, out list))
         {
@@ -1345,6 +1446,44 @@ LIMIT 1;
         mcmd.ExecuteNonQuery();
     }
 
+    void SaveTutorHelpEvent()
+    {
+        if (!hasTutorChatContext || string.IsNullOrWhiteSpace(me))
+            return;
+
+        using var hconn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+        hconn.Open();
+        using var hcmd = hconn.CreateCommand();
+        hcmd.CommandText = @"
+INSERT INTO TutorHelpEvents (
+  UserId,
+  UploadId,
+  ChatSessionId,
+  TutorSessionId,
+  StepId,
+  Question,
+  CreatedAt
+)
+VALUES (
+  $userId,
+  $uploadId,
+  $chatSessionId,
+  $tutorSessionId,
+  $stepId,
+  $question,
+  $createdAt
+);
+";
+        hcmd.Parameters.AddWithValue("$userId", me);
+        hcmd.Parameters.AddWithValue("$uploadId", parsedUploadId.ToString());
+        hcmd.Parameters.AddWithValue("$chatSessionId", (object?)sessionId ?? DBNull.Value);
+        hcmd.Parameters.AddWithValue("$tutorSessionId", (object?)tutorSessionId ?? DBNull.Value);
+        hcmd.Parameters.AddWithValue("$stepId", (object?)tutorStepId ?? DBNull.Value);
+        hcmd.Parameters.AddWithValue("$question", CleanTrackedQuestion(q));
+        hcmd.Parameters.AddWithValue("$createdAt", DateTime.UtcNow.ToString("O"));
+        hcmd.ExecuteNonQuery();
+    }
+
 
     string? GetStringOrNull(Microsoft.Data.Sqlite.SqliteDataReader reader, int ordinal)
     {
@@ -1364,13 +1503,61 @@ LIMIT 1;
         }
     }
 
+    string LoadRecentConversationContext()
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return "";
+        }
+
+        using var recentConn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+        recentConn.Open();
+        using var recentCmd = recentConn.CreateCommand();
+        recentCmd.CommandText = @"
+SELECT Role, Content
+FROM (
+    SELECT Id, Role, Content
+    FROM Messages
+    WHERE SessionId = $sid
+    ORDER BY Id DESC
+    LIMIT 8
+)
+ORDER BY Id ASC;
+";
+        recentCmd.Parameters.AddWithValue("$sid", sessionId);
+
+        using var recentReader = recentCmd.ExecuteReader();
+        var lines = new List<string>();
+        while (recentReader.Read())
+        {
+            var role = recentReader.GetString(0);
+            var content = Regex.Replace(recentReader.GetString(1), @"\s+", " ").Trim();
+            if (content.Length > 450)
+            {
+                content = content[..450].TrimEnd() + "...";
+            }
+
+            if (!string.IsNullOrWhiteSpace(content))
+            {
+                lines.Add($"{role}: {content}");
+            }
+        }
+
+        return lines.Count == 0
+            ? ""
+            : "Recent conversation for follow-up context:\n" + string.Join("\n", lines) + "\n";
+    }
+
 
     try
     {
-        // --- record USER message at the start of the main happy path ---
-        SaveMessage("user", q, null, null);
+        var recentConversationContext = LoadRecentConversationContext();
 
-        if (!string.IsNullOrWhiteSpace(q))
+        // --- record USER message at the start of the main happy path ---
+        SaveMessage("user", q ?? "", null, null);
+        SaveTutorHelpEvent();
+
+        if (!hasTutorChatContext && !string.IsNullOrWhiteSpace(q))
         {
             using var cacheConn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
             await cacheConn.OpenAsync();
@@ -1382,7 +1569,7 @@ SELECT m.Content,
        m.PagesUsed
 FROM Messages m
 JOIN Sessions s ON s.Id = m.SessionId
-WHERE s.UploadId = $u
+WHERE UPPER(s.UploadId) = UPPER($u)
   AND s.UserId   = $user
   AND m.Role     = 'assistant'
   AND EXISTS (
@@ -1395,7 +1582,7 @@ WHERE s.UploadId = $u
 ORDER BY m.Id DESC
 LIMIT 1;
 ";
-            cacheCmd.Parameters.AddWithValue("$u", uploadId.ToString());
+            cacheCmd.Parameters.AddWithValue("$u", parsedUploadId.ToString());
             cacheCmd.Parameters.AddWithValue("$user", me);
             cacheCmd.Parameters.AddWithValue("$q", q.Trim());
 
@@ -1634,6 +1821,7 @@ Context:
 
         // Try section switchboard first (Abstract includes Conclusion = A+)
         string? context = null;
+        var contextPages = new List<int>();
         if (intent != SectionIntent.None && intent != SectionIntent.Title && intent != SectionIntent.Authors)
         {
             List<TopChunk> secHits;
@@ -1651,6 +1839,7 @@ Context:
             if (secHits.Count > 0)
             {
                 var stitchedSec = ContextStitching.ExpandWithNeighbors(list, secHits, sideNeighbors: 2, maxTotalNeighbors: 8);
+                contextPages = stitchedSec.Select(t => t.Page).Distinct().OrderBy(p => p).ToList();
                 context = string.Join("\n\n", stitchedSec.Select(t => $"— Page {t.Page} —\n{t.Preview}"));
             }
         }
@@ -1713,6 +1902,7 @@ Context:
                 var stitchedFb = ContextStitching.ExpandWithNeighbors(list, fb,
                     sideNeighbors: techGroup ? 2 : 1,
                     maxTotalNeighbors: techGroup ? 10 : 6);
+                contextPages = stitchedFb.Select(t => t.Page).Distinct().OrderBy(p => p).ToList();
                 context = string.Join("\n\n", stitchedFb.Select(t => $"— Page {t.Page} —\n{t.Preview}"));
             }
             else
@@ -1721,6 +1911,7 @@ Context:
                 var stitchedTop = ContextStitching.ExpandWithNeighbors(list, top,
                     sideNeighbors: techGroup ? 2 : 1,
                     maxTotalNeighbors: techGroup ? 10 : 6);
+                contextPages = stitchedTop.Select(t => t.Page).Distinct().OrderBy(p => p).ToList();
                 context = string.Join("\n\n", stitchedTop.Select(t => $"— Page {t.Page} —\n{t.Preview}"));
             }
         }
@@ -1749,8 +1940,13 @@ Every bullet line MUST end with a [p:X] chip.
 If the user asks to summarize in N bullets, you must return exactly N bullet
 points numbered 1..N; do not produce fewer than N bullets even if content
 seems limited—split broader points as needed.
+If Tutor context is present, do not write a ready-made response to the
+student's checkpoint question. Explain the confusing concept, then end with
+2-3 ingredients the student can use in their own words.
 {(string.IsNullOrWhiteSpace(summaryHint) ? "" : summaryHint + "\n")}
 {(string.IsNullOrWhiteSpace(catHint) ? "" : catHint + "\n")}
+{(string.IsNullOrWhiteSpace(tutorChatContext) ? "" : tutorChatContext + "\n")}
+{(string.IsNullOrWhiteSpace(recentConversationContext) ? "" : recentConversationContext + "\n")}
 
 Question: {qNorm}
 
@@ -1778,10 +1974,19 @@ Context:
                           .Select(m => int.Parse(m.Groups[1].Value))
                           .Distinct()
                           .ToArray();
+        var allowedPages = contextPages.Count > 0
+            ? new HashSet<int>(contextPages)
+            : new HashSet<int>(top.Select(t => t.Page));
+        var filteredPages2 = pages2.Where(p => allowedPages.Contains(p)).ToArray();
+        if (filteredPages2.Length == 0 &&
+            !Regex.IsMatch(answer2, @"I can't find that in the document", RegexOptions.IgnoreCase))
+        {
+            filteredPages2 = allowedPages.OrderBy(p => p).Take(3).ToArray();
+        }
 
-        await ctx.Response.WriteAsync($"event: citations\ndata: {System.Text.Json.JsonSerializer.Serialize(pages2)}\n\n");
+        await ctx.Response.WriteAsync($"event: citations\ndata: {System.Text.Json.JsonSerializer.Serialize(filteredPages2)}\n\n");
 
-        SaveMessage("assistant", answer2, pages2, pages2);
+        SaveMessage("assistant", answer2, filteredPages2, filteredPages2);
 
         await ctx.Response.WriteAsync("event: done\ndata: {}\n\n");
         await ctx.Response.Body.FlushAsync();
@@ -1800,8 +2005,12 @@ Context:
 
 
 
-app.MapGet("/index/status/{uploadId:guid}", (Guid uploadId, IWebHostEnvironment env) =>
+app.MapGet("/index/status/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
 {
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
+    if (!await CanAccessUploadAsync(uploadId, me)) return Results.NotFound(new { error = "not found" });
+
     var id = uploadId.ToString();
     var inMemory = InMemoryStore.VectorIndex.TryGetValue(id, out var list) && list?.Count > 0;
 
@@ -1834,7 +2043,7 @@ app.MapGet("/index/status/{uploadId:guid}", (Guid uploadId, IWebHostEnvironment 
 
 app.MapGet("/uploads/mine", async (HttpContext ctx) =>
 {
-    var me = (string?)ctx.Items["userId"] ?? ctx.User.FindFirst("sub")?.Value ?? "";
+    var me = ctx.GetCurrentUserId() ?? "";
 
     using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
@@ -1869,7 +2078,7 @@ app.MapGet("/uploads/mine", async (HttpContext ctx) =>
 // GET /sessions/mine -> list sessions for current user (with stats + lastMessagePreview)
 app.MapGet("/sessions/mine", async (HttpContext ctx) =>
 {
-    var me = (string?)ctx.Items["userId"] ?? "";
+    var me = ctx.GetCurrentUserId() ?? "";
 
 // Resolve IWebHostEnvironment so we can find the uploads folder
 var env = ctx.RequestServices.GetRequiredService<IWebHostEnvironment>();
@@ -1941,7 +2150,7 @@ using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     ";
     cmd.Parameters.AddWithValue("$me", me);
 
-    var sessions = new List<object>();
+    var sessions = new List<SessionMineDto>();
     using var r = await cmd.ExecuteReaderAsync();
     while (await r.ReadAsync())
     {
@@ -1985,19 +2194,34 @@ using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
         var notesCount = r.IsDBNull(7) ? 0 : r.GetInt32(7);
         var lastMessagePreview = r.IsDBNull(8) ? null : r.GetString(8);
 
-        sessions.Add(new
+        sessions.Add(new SessionMineDto
         {
-            sessionId,
-            uploadId,
-            caseName,
-            createdAt,
-            lastActivityAt,
-            durationSec,
-            messageCount,
-            notesCount,
-            lastMessagePreview
+            SessionId = sessionId,
+            UploadId = uploadId,
+            CaseName = caseName,
+            CreatedAt = createdAt,
+            LastActivityAt = lastActivityAt,
+            DurationSec = durationSec,
+            MessageCount = messageCount,
+            NotesCount = notesCount,
+            LastMessagePreview = lastMessagePreview
         });
 
+    }
+
+    foreach (var group in sessions
+        .Where(s => !string.IsNullOrWhiteSpace(s.UploadId))
+        .GroupBy(s => (s.CaseName ?? "Untitled case").Trim(), StringComparer.OrdinalIgnoreCase)
+        .Where(g => g.Count() > 1))
+    {
+        var ordered = group
+            .OrderBy(s => DateTimeOffset.TryParse(s.CreatedAt, out var parsed) ? parsed : DateTimeOffset.MinValue)
+            .ToList();
+
+        for (var i = 1; i < ordered.Count; i++)
+        {
+            ordered[i].CaseName = $"{ordered[i].CaseName} ({i + 1})";
+        }
     }
 
     return Results.Json(sessions);
@@ -2007,7 +2231,9 @@ using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
 // POST /sessions  -> create a chat thread (optionally tied to an upload)
 app.MapPost("/sessions", async (HttpContext ctx) =>
 {
-    var me = (string?)ctx.Items["userId"] ?? "";
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me))
+        return Results.Unauthorized();
 
     using var doc = await System.Text.Json.JsonDocument.ParseAsync(ctx.Request.Body);
     var root = doc.RootElement;
@@ -2020,6 +2246,11 @@ app.MapPost("/sessions", async (HttpContext ctx) =>
             : raw.Trim().ToUpperInvariant();
     }
 
+    if (!string.IsNullOrWhiteSpace(uploadId) &&
+        (!Guid.TryParse(uploadId, out var parsedUploadId) || !await CanAccessUploadAsync(parsedUploadId, me)))
+    {
+        return Results.NotFound(new { error = "not found" });
+    }
 
     var sessionId = Guid.NewGuid().ToString("N");
     using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
@@ -2039,7 +2270,7 @@ app.MapPost("/sessions", async (HttpContext ctx) =>
 // GET /sessions/{id} -> full message history for a single session
 app.MapGet("/sessions/{id}", async (string id, HttpContext ctx) =>
 {
-    var me = (string?)ctx.Items["userId"] ?? "";
+    var me = ctx.GetCurrentUserId() ?? "";
 
     using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
@@ -2126,7 +2357,7 @@ app.MapGet("/sessions/{id}", async (string id, HttpContext ctx) =>
 // GET /sessions/{id}/notes -> list notes for a session (current user only)
 app.MapGet("/sessions/{id}/notes", async (string id, HttpContext ctx) =>
 {
-    var me = (string?)ctx.Items["userId"] ?? "";
+    var me = ctx.GetCurrentUserId() ?? "";
 
     using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
     await conn.OpenAsync();
@@ -2181,7 +2412,7 @@ app.MapGet("/sessions/{id}/notes", async (string id, HttpContext ctx) =>
 // POST /sessions/{id}/notes -> add a note to a session
 app.MapPost("/sessions/{id}/notes", async (string id, SessionNoteCreateDto input, HttpContext ctx) =>
 {
-    var me = (string?)ctx.Items["userId"] ?? "";
+    var me = ctx.GetCurrentUserId() ?? "";
     if (string.IsNullOrWhiteSpace(input.Text))
     {
         return Results.BadRequest(new { error = "text_required" });
@@ -2247,10 +2478,102 @@ app.MapPost("/sessions/{id}/notes", async (string id, SessionNoteCreateDto input
     });
 });
 
+// PATCH /sessions/{id}/notes/{noteId} -> update a note
+app.MapPatch("/sessions/{id}/notes/{noteId:long}", async (string id, long noteId, SessionNoteCreateDto input, HttpContext ctx) =>
+{
+    var me = ctx.GetCurrentUserId() ?? "";
+    if (string.IsNullOrWhiteSpace(input.Text))
+    {
+        return Results.BadRequest(new { error = "text_required" });
+    }
+
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    using (var chk = conn.CreateCommand())
+    {
+        chk.CommandText = @"
+            SELECT 1
+            FROM Sessions
+            WHERE Id = $id AND UserId = $me
+            LIMIT 1";
+        chk.Parameters.AddWithValue("$id", id);
+        chk.Parameters.AddWithValue("$me", me);
+
+        if (await chk.ExecuteScalarAsync() is null)
+        {
+            return Results.NotFound(new { error = "not found" });
+        }
+    }
+
+    using var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+        UPDATE Notes
+        SET Text = $text
+        WHERE Id = $noteId AND SessionId = $sessionId AND UserId = $userId";
+    cmd.Parameters.AddWithValue("$text", input.Text);
+    cmd.Parameters.AddWithValue("$noteId", noteId);
+    cmd.Parameters.AddWithValue("$sessionId", id);
+    cmd.Parameters.AddWithValue("$userId", me);
+
+    var rows = await cmd.ExecuteNonQueryAsync();
+    if (rows == 0)
+    {
+        return Results.NotFound(new { error = "note_not_found" });
+    }
+
+    return Results.Json(new
+    {
+        id = noteId,
+        text = input.Text
+    });
+});
+
+// DELETE /sessions/{id}/notes/{noteId} -> delete a note
+app.MapDelete("/sessions/{id}/notes/{noteId:long}", async (string id, long noteId, HttpContext ctx) =>
+{
+    var me = ctx.GetCurrentUserId() ?? "";
+
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    using (var chk = conn.CreateCommand())
+    {
+        chk.CommandText = @"
+            SELECT 1
+            FROM Sessions
+            WHERE Id = $id AND UserId = $me
+            LIMIT 1";
+        chk.Parameters.AddWithValue("$id", id);
+        chk.Parameters.AddWithValue("$me", me);
+
+        if (await chk.ExecuteScalarAsync() is null)
+        {
+            return Results.NotFound(new { error = "not found" });
+        }
+    }
+
+    using var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+        DELETE FROM Notes
+        WHERE Id = $noteId AND SessionId = $sessionId AND UserId = $userId";
+    cmd.Parameters.AddWithValue("$noteId", noteId);
+    cmd.Parameters.AddWithValue("$sessionId", id);
+    cmd.Parameters.AddWithValue("$userId", me);
+
+    var rows = await cmd.ExecuteNonQueryAsync();
+    if (rows == 0)
+    {
+        return Results.NotFound(new { error = "note_not_found" });
+    }
+
+    return Results.Ok(new { id = noteId, deleted = true });
+});
+
 // PATCH /uploads/{uploadId}/name -> rename a case for the current user
 app.MapPatch("/uploads/{uploadId:guid}/name", async (Guid uploadId, RenameUploadDto input, HttpContext ctx) =>
 {
-    var me = (string?)ctx.Items["userId"] ?? "";
+    var me = ctx.GetCurrentUserId() ?? "";
 
     if (string.IsNullOrWhiteSpace(input.Name))
     {
@@ -2283,12 +2606,50 @@ app.MapPatch("/uploads/{uploadId:guid}/name", async (Guid uploadId, RenameUpload
     });
 });
 
+app.MapGet("/uploads/{uploadId:guid}/download", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
+{
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
+    if (!await CanAccessUploadAsync(uploadId, me)) return Results.NotFound();
+
+    var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
+    var path = Path.Combine(uploadsRoot, $"{uploadId}.pdf");
+    if (!File.Exists(path)) return Results.NotFound();
+
+    string fileName = $"{uploadId}.pdf";
+    using (var conn = new SqliteConnection(connString))
+    {
+        await conn.OpenAsync();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+SELECT COALESCE(NULLIF(Name, ''), NULLIF(OriginalFileName, ''), $fallback)
+FROM Uploads
+WHERE UPPER(UploadId) = UPPER($uploadId)
+LIMIT 1;
+";
+        cmd.Parameters.AddWithValue("$uploadId", uploadId.ToString());
+        cmd.Parameters.AddWithValue("$fallback", fileName);
+
+        var resolved = await cmd.ExecuteScalarAsync() as string;
+        if (!string.IsNullOrWhiteSpace(resolved))
+        {
+            fileName = Path.GetFileName(resolved);
+            if (!fileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+            {
+                fileName += ".pdf";
+            }
+        }
+    }
+
+    return Results.File(path, "application/pdf", fileDownloadName: fileName, enableRangeProcessing: true);
+});
+
 
 
 // DELETE /uploads/{uploadId} -> delete a case and its sessions/messages/notes/files for current user
 app.MapDelete("/uploads/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
 {
-    var me = (string?)ctx.Items["userId"] ?? "";
+    var me = ctx.GetCurrentUserId() ?? "";
     var id = uploadId.ToString(); // string version used for files / notes
 
     using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
@@ -2394,7 +2755,7 @@ app.MapDelete("/uploads/{uploadId:guid}", async (Guid uploadId, HttpContext ctx,
 // DELETE /sessions/{sessionId} -> delete a session + its messages + notes (current user only)
 app.MapDelete("/sessions/{sessionId}", async (string sessionId, HttpContext ctx) =>
 {
-    var me = (string?)ctx.Items["userId"] ?? "";
+    var me = ctx.GetCurrentUserId() ?? "";
     if (string.IsNullOrEmpty(me))
     {
         return Results.Unauthorized();
@@ -2447,9 +2808,8 @@ app.MapDelete("/sessions/{sessionId}", async (string sessionId, HttpContext ctx)
 // --- Admin: list all sessions for supervision (superuser only) ---
 app.MapGet("/admin/sessions", async (HttpContext ctx) =>
 {
-    // Must be authenticated
-    var me = ctx.Items["userId"] as string;
-    var isSuper = ctx.Items["isSuperUser"] as bool? ?? false;
+    var me = ctx.GetCurrentUserId();
+    var isSuper = ctx.IsCurrentUserSuperUser();
 
     if (string.IsNullOrWhiteSpace(me))
     {
@@ -2466,7 +2826,7 @@ app.MapGet("/admin/sessions", async (HttpContext ctx) =>
 
     var cmd = conn.CreateCommand();
     cmd.CommandText = @"
-SELECT
+SELECT DISTINCT
     s.Id                AS SessionId,
     s.UserId            AS UserId,
     IFNULL(u.Email, '') AS UserEmail,
@@ -2486,10 +2846,17 @@ SELECT
         WHERE m.SessionId = s.Id
     ) AS MessageCount
 FROM Sessions s
+JOIN ClassStudents cs ON cs.StudentId = s.UserId
+JOIN ClassCases cc ON cc.ClassId = cs.ClassId
+    AND s.UploadId IS NOT NULL
+    AND UPPER(cc.UploadId) = UPPER(s.UploadId)
+JOIN Classes c ON c.Id = cs.ClassId
+    AND c.InstructorId = $instructorId
 LEFT JOIN Users   u  ON u.Id       = s.UserId
 LEFT JOIN Uploads up ON up.UploadId = s.UploadId
 ORDER BY s.CreatedAt DESC;
 ";
+    cmd.Parameters.AddWithValue("$instructorId", me);
 
     var list = new List<object>();
     using (var reader = await cmd.ExecuteReaderAsync())
@@ -2519,9 +2886,8 @@ ORDER BY s.CreatedAt DESC;
 // --- Admin: get details + messages for a specific session (superuser only) ---
 app.MapGet("/admin/sessions/{sessionId}", async (string sessionId, HttpContext ctx) =>
 {
-    // Must be authenticated
-    var me = ctx.Items["userId"] as string;
-    var isSuper = ctx.Items["isSuperUser"] as bool? ?? false;
+    var me = ctx.GetCurrentUserId();
+    var isSuper = ctx.IsCurrentUserSuperUser();
 
     if (string.IsNullOrWhiteSpace(me))
     {
@@ -2574,6 +2940,29 @@ LIMIT 1;
         caseName = r.IsDBNull(5) ? null : r.GetString(5);
         originalFileName = r.IsDBNull(6) ? null : r.GetString(6);
         createdAt = r.GetString(7);
+    }
+
+    using (var accessCmd = conn.CreateCommand())
+    {
+        accessCmd.CommandText = @"
+SELECT 1
+FROM ClassStudents cs
+JOIN ClassCases cc ON cc.ClassId = cs.ClassId
+JOIN Classes c ON c.Id = cs.ClassId
+WHERE cs.StudentId = $studentId
+  AND c.InstructorId = $instructorId
+  AND $uploadId IS NOT NULL
+  AND UPPER(cc.UploadId) = UPPER($uploadId)
+LIMIT 1;
+";
+        accessCmd.Parameters.AddWithValue("$studentId", userId ?? "");
+        accessCmd.Parameters.AddWithValue("$instructorId", me);
+        accessCmd.Parameters.AddWithValue("$uploadId", (object?)uploadId ?? DBNull.Value);
+
+        if (await accessCmd.ExecuteScalarAsync() is null)
+        {
+            return Results.Forbid();
+        }
     }
 
     // 2) Load messages in this session
@@ -2632,7 +3021,7 @@ app.MapPost("/classes", async (HttpContext ctx) =>
     var deny = RequireInstructor(ctx);
     if (deny != null) return deny;
 
-    var me = ctx.Items["userId"] as string;
+    var me = ctx.GetCurrentUserId();
     if (me == null) return Results.Unauthorized();
 
     var body = await ctx.Request.ReadFromJsonAsync<ClassCreateDto>();
@@ -2646,17 +3035,19 @@ app.MapPost("/classes", async (HttpContext ctx) =>
 
     using var conn = new SqliteConnection(connString);
     await conn.OpenAsync();
+    var joinCode = await GenerateUniqueJoinCodeAsync(conn);
 
     var cmd = conn.CreateCommand();
     cmd.CommandText = @"
-        INSERT INTO Classes (Id, InstructorId, Name, Description, CreatedAt)
-        VALUES ($id, $instructor, $name, $description, $createdAt);
+        INSERT INTO Classes (Id, InstructorId, Name, Description, JoinCode, CreatedAt)
+        VALUES ($id, $instructor, $name, $description, $joinCode, $createdAt);
     ";
 
     cmd.Parameters.AddWithValue("$id", id);
     cmd.Parameters.AddWithValue("$instructor", me);
     cmd.Parameters.AddWithValue("$name", body.Name);
     cmd.Parameters.AddWithValue("$description", body.Description ?? (object)DBNull.Value);
+    cmd.Parameters.AddWithValue("$joinCode", joinCode);
     cmd.Parameters.AddWithValue("$createdAt", createdAt);
 
     await cmd.ExecuteNonQueryAsync();
@@ -2666,8 +3057,379 @@ app.MapPost("/classes", async (HttpContext ctx) =>
         id,
         name = body.Name,
         description = body.Description,
+        joinCode,
         instructorId = me,
         createdAt
+    });
+});
+
+app.MapGet("/classes/mine", async (HttpContext ctx) =>
+{
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me))
+        return Results.Unauthorized();
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    using var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+SELECT
+    c.Id,
+    c.Name,
+    c.Description,
+    c.JoinCode,
+    c.CreatedAt,
+    (SELECT COUNT(1) FROM ClassStudents cs WHERE cs.ClassId = c.Id) AS StudentCount,
+    (SELECT COUNT(1) FROM ClassCases cc WHERE cc.ClassId = c.Id) AS CaseCount
+FROM Classes c
+WHERE c.InstructorId = $instructorId
+ORDER BY datetime(c.CreatedAt) DESC;
+";
+    cmd.Parameters.AddWithValue("$instructorId", me);
+
+    var classes = new List<object>();
+    using var reader = await cmd.ExecuteReaderAsync();
+    while (await reader.ReadAsync())
+    {
+        classes.Add(new
+        {
+            id = reader.GetString(0),
+            name = reader.GetString(1),
+            description = reader.IsDBNull(2) ? null : reader.GetString(2),
+            joinCode = reader.IsDBNull(3) ? null : reader.GetString(3),
+            createdAt = reader.GetString(4),
+            studentCount = reader.GetInt32(5),
+            caseCount = reader.GetInt32(6)
+        });
+    }
+
+    return Results.Ok(classes);
+});
+
+app.MapPost("/classes/join", async (HttpContext ctx) =>
+{
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me))
+        return Results.Unauthorized();
+
+    var body = await ctx.Request.ReadFromJsonAsync<ClassJoinDto>();
+    var joinCode = NormalizeJoinCode(body?.JoinCode);
+    if (string.IsNullOrWhiteSpace(joinCode))
+    {
+        return Results.BadRequest(new { error = "Missing joinCode" });
+    }
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    using (var userCmd = conn.CreateCommand())
+    {
+        userCmd.CommandText = "SELECT IFNULL(IsSuperUser, 0) FROM Users WHERE Id = $userId LIMIT 1";
+        userCmd.Parameters.AddWithValue("$userId", me);
+        var raw = await userCmd.ExecuteScalarAsync();
+        if (raw is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (Convert.ToInt32(raw) != 0)
+        {
+            return Results.BadRequest(new { error = "Instructor accounts cannot join classes as students" });
+        }
+    }
+
+    string classId;
+    string className;
+    using (var classCmd = conn.CreateCommand())
+    {
+        classCmd.CommandText = "SELECT Id, Name FROM Classes WHERE JoinCode = $joinCode LIMIT 1";
+        classCmd.Parameters.AddWithValue("$joinCode", joinCode);
+
+        using var reader = await classCmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+        {
+            return Results.NotFound(new { error = "Invalid class join code" });
+        }
+
+        classId = reader.GetString(0);
+        className = reader.GetString(1);
+    }
+
+    using (var insert = conn.CreateCommand())
+    {
+        insert.CommandText = @"
+INSERT OR IGNORE INTO ClassStudents (ClassId, StudentId, AddedAt)
+VALUES ($classId, $studentId, $addedAt);
+";
+        insert.Parameters.AddWithValue("$classId", classId);
+        insert.Parameters.AddWithValue("$studentId", me);
+        insert.Parameters.AddWithValue("$addedAt", DateTime.UtcNow.ToString("o"));
+        await insert.ExecuteNonQueryAsync();
+    }
+
+    return Results.Ok(new
+    {
+        classId,
+        className,
+        joinCode,
+        joined = true
+    });
+});
+
+app.MapGet("/classes/enrolled", async (HttpContext ctx) =>
+{
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me))
+        return Results.Unauthorized();
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    using var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+SELECT
+    c.Id,
+    c.Name,
+    c.Description,
+    c.JoinCode,
+    c.CreatedAt,
+    cs.AddedAt,
+    IFNULL(u.FullName, '') AS InstructorName,
+    IFNULL(u.Email, '') AS InstructorEmail,
+    (SELECT COUNT(1) FROM ClassCases cc WHERE cc.ClassId = c.Id) AS CaseCount
+FROM ClassStudents cs
+JOIN Classes c ON c.Id = cs.ClassId
+LEFT JOIN Users u ON u.Id = c.InstructorId
+WHERE cs.StudentId = $studentId
+ORDER BY datetime(cs.AddedAt) DESC;
+";
+    cmd.Parameters.AddWithValue("$studentId", me);
+
+    var classes = new List<EnrolledClassDto>();
+    using var reader = await cmd.ExecuteReaderAsync();
+    while (await reader.ReadAsync())
+    {
+        classes.Add(new EnrolledClassDto
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.IsDBNull(2) ? null : reader.GetString(2),
+            JoinCode = reader.IsDBNull(3) ? null : reader.GetString(3),
+            CreatedAt = reader.GetString(4),
+            JoinedAt = reader.GetString(5),
+            InstructorName = reader.GetString(6),
+            InstructorEmail = reader.GetString(7),
+            CaseCount = reader.GetInt32(8)
+        });
+    }
+    await reader.DisposeAsync();
+
+    foreach (var cls in classes)
+    {
+        using var caseCmd = conn.CreateCommand();
+        caseCmd.CommandText = @"
+SELECT
+    up.UploadId,
+    COALESCE(NULLIF(up.Name, ''), NULLIF(up.OriginalFileName, ''), up.UploadId) AS FileName,
+    cc.Objective,
+    cc.Focus,
+    cc.DueAt,
+    cc.AssignedAt
+FROM ClassCases cc
+JOIN Uploads up ON UPPER(up.UploadId) = UPPER(cc.UploadId)
+WHERE cc.ClassId = $classId
+ORDER BY datetime(cc.AssignedAt) DESC;
+";
+        caseCmd.Parameters.AddWithValue("$classId", cls.Id);
+
+        using var caseReader = await caseCmd.ExecuteReaderAsync();
+        while (await caseReader.ReadAsync())
+        {
+            cls.Cases.Add(new EnrolledClassCaseDto
+            {
+                UploadId = caseReader.GetString(0),
+                FileName = caseReader.GetString(1),
+                Objective = caseReader.IsDBNull(2) ? null : caseReader.GetString(2),
+                Focus = caseReader.IsDBNull(3) ? null : caseReader.GetString(3),
+                DueAt = caseReader.IsDBNull(4) ? null : caseReader.GetString(4),
+                AssignedAt = caseReader.GetString(5)
+            });
+        }
+
+        cls.CaseCount = cls.Cases.Count;
+    }
+
+    return Results.Ok(classes);
+});
+
+app.MapDelete("/classes/{classId}", async (string classId, HttpContext ctx) =>
+{
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me))
+        return Results.Unauthorized();
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    using var tx = conn.BeginTransaction();
+
+    using (var check = conn.CreateCommand())
+    {
+        check.Transaction = tx;
+        check.CommandText = "SELECT 1 FROM Classes WHERE Id = $classId AND InstructorId = $instructorId LIMIT 1";
+        check.Parameters.AddWithValue("$classId", classId);
+        check.Parameters.AddWithValue("$instructorId", me);
+
+        if (await check.ExecuteScalarAsync() is null)
+        {
+            tx.Rollback();
+            return Results.NotFound(new { error = "Class not found or not owned by you" });
+        }
+    }
+
+    using (var delCases = conn.CreateCommand())
+    {
+        delCases.Transaction = tx;
+        delCases.CommandText = "DELETE FROM ClassCases WHERE ClassId = $classId";
+        delCases.Parameters.AddWithValue("$classId", classId);
+        await delCases.ExecuteNonQueryAsync();
+    }
+
+    using (var delStudents = conn.CreateCommand())
+    {
+        delStudents.Transaction = tx;
+        delStudents.CommandText = "DELETE FROM ClassStudents WHERE ClassId = $classId";
+        delStudents.Parameters.AddWithValue("$classId", classId);
+        await delStudents.ExecuteNonQueryAsync();
+    }
+
+    using (var delClass = conn.CreateCommand())
+    {
+        delClass.Transaction = tx;
+        delClass.CommandText = "DELETE FROM Classes WHERE Id = $classId AND InstructorId = $instructorId";
+        delClass.Parameters.AddWithValue("$classId", classId);
+        delClass.Parameters.AddWithValue("$instructorId", me);
+        await delClass.ExecuteNonQueryAsync();
+    }
+
+    tx.Commit();
+    return Results.Ok(new { classId, deleted = true });
+});
+
+app.MapGet("/classes/{classId}/join-code", async (string classId, HttpContext ctx) =>
+{
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me))
+        return Results.Unauthorized();
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    string? className = null;
+    string? joinCode = null;
+    using (var cmd = conn.CreateCommand())
+    {
+        cmd.CommandText = @"
+            SELECT Name, JoinCode
+            FROM Classes
+            WHERE Id = $classId AND InstructorId = $instructorId;
+        ";
+        cmd.Parameters.AddWithValue("$classId", classId);
+        cmd.Parameters.AddWithValue("$instructorId", me);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+        {
+            return Results.NotFound(new { error = "Class not found or not owned by you" });
+        }
+
+        className = reader.GetString(0);
+        joinCode = reader.IsDBNull(1) ? null : reader.GetString(1);
+    }
+
+    if (string.IsNullOrWhiteSpace(joinCode))
+    {
+        joinCode = await GenerateUniqueJoinCodeAsync(conn);
+        using var update = conn.CreateCommand();
+        update.CommandText = @"
+            UPDATE Classes
+            SET JoinCode = $joinCode
+            WHERE Id = $classId AND InstructorId = $instructorId;
+        ";
+        update.Parameters.AddWithValue("$joinCode", joinCode);
+        update.Parameters.AddWithValue("$classId", classId);
+        update.Parameters.AddWithValue("$instructorId", me);
+        await update.ExecuteNonQueryAsync();
+    }
+
+    return Results.Ok(new
+    {
+        classId,
+        className,
+        joinCode
+    });
+});
+
+app.MapPost("/classes/{classId}/join-code/regenerate", async (string classId, HttpContext ctx) =>
+{
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me))
+        return Results.Unauthorized();
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    string? className = null;
+    using (var check = conn.CreateCommand())
+    {
+        check.CommandText = @"
+            SELECT Name
+            FROM Classes
+            WHERE Id = $classId AND InstructorId = $instructorId;
+        ";
+        check.Parameters.AddWithValue("$classId", classId);
+        check.Parameters.AddWithValue("$instructorId", me);
+
+        className = await check.ExecuteScalarAsync() as string;
+        if (className is null)
+        {
+            return Results.NotFound(new { error = "Class not found or not owned by you" });
+        }
+    }
+
+    var joinCode = await GenerateUniqueJoinCodeAsync(conn);
+    using (var update = conn.CreateCommand())
+    {
+        update.CommandText = @"
+            UPDATE Classes
+            SET JoinCode = $joinCode
+            WHERE Id = $classId AND InstructorId = $instructorId;
+        ";
+        update.Parameters.AddWithValue("$joinCode", joinCode);
+        update.Parameters.AddWithValue("$classId", classId);
+        update.Parameters.AddWithValue("$instructorId", me);
+        await update.ExecuteNonQueryAsync();
+    }
+
+    return Results.Ok(new
+    {
+        classId,
+        className,
+        joinCode,
+        regenerated = true
     });
 });
 
@@ -2677,7 +3439,7 @@ app.MapPost("/classes/{classId}/students", async (string classId, HttpContext ct
     var deny = RequireInstructor(ctx);
     if (deny != null) return deny;
 
-    var me = ctx.Items["userId"] as string;
+    var me = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(me))
     {
         return Results.Unauthorized();
@@ -2715,19 +3477,24 @@ app.MapPost("/classes/{classId}/students", async (string classId, HttpContext ct
     using (var findStudent = conn.CreateCommand())
     {
         findStudent.CommandText = @"
-            SELECT Id 
+            SELECT Id, IFNULL(IsSuperUser, 0)
             FROM Users 
             WHERE Email = $email;
         ";
-        findStudent.Parameters.AddWithValue("$email", body.StudentEmail);
+        findStudent.Parameters.AddWithValue("$email", body.StudentEmail.Trim().ToLowerInvariant());
 
-        var result = await findStudent.ExecuteScalarAsync();
-        if (result == null || result == DBNull.Value)
+        using var studentReader = await findStudent.ExecuteReaderAsync();
+        if (!await studentReader.ReadAsync())
         {
             return Results.NotFound(new { error = "No user found with that email" });
         }
 
-        studentId = (string)result;
+        studentId = studentReader.GetString(0);
+        var targetIsInstructor = studentReader.GetInt32(1) != 0;
+        if (targetIsInstructor)
+        {
+            return Results.BadRequest(new { error = "Instructor accounts cannot be added as students" });
+        }
     }
 
     // 3) Check if already in class
@@ -2776,13 +3543,61 @@ app.MapPost("/classes/{classId}/students", async (string classId, HttpContext ct
     });
 });
 
+app.MapDelete("/classes/{classId}/students/{studentId}", async (string classId, string studentId, HttpContext ctx) =>
+{
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me))
+    {
+        return Results.Unauthorized();
+    }
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    using (var checkClass = conn.CreateCommand())
+    {
+        checkClass.CommandText = @"
+            SELECT COUNT(*)
+            FROM Classes
+            WHERE Id = $classId AND InstructorId = $instructorId;
+        ";
+        checkClass.Parameters.AddWithValue("$classId", classId);
+        checkClass.Parameters.AddWithValue("$instructorId", me);
+
+        var count = (long)(await checkClass.ExecuteScalarAsync() ?? 0L);
+        if (count == 0)
+        {
+            return Results.NotFound(new { error = "Class not found or not owned by you" });
+        }
+    }
+
+    using var delete = conn.CreateCommand();
+    delete.CommandText = @"
+        DELETE FROM ClassStudents
+        WHERE ClassId = $classId AND StudentId = $studentId;
+    ";
+    delete.Parameters.AddWithValue("$classId", classId);
+    delete.Parameters.AddWithValue("$studentId", studentId);
+
+    var removed = await delete.ExecuteNonQueryAsync();
+    return Results.Ok(new
+    {
+        classId,
+        studentId,
+        removed = removed > 0
+    });
+});
+
 
 app.MapPost("/classes/{classId}/cases", async (string classId, HttpContext ctx) =>
 {
     var deny = RequireInstructor(ctx);
     if (deny != null) return deny;
 
-    var me = ctx.Items["userId"] as string;
+    var me = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(me))
     {
         return Results.Unauthorized();
@@ -2793,6 +3608,10 @@ app.MapPost("/classes/{classId}/cases", async (string classId, HttpContext ctx) 
     {
         return Results.BadRequest(new { error = "Missing uploadId" });
     }
+
+    var objective = NormalizeAssignmentObjective(body.Objective);
+    var focus = NormalizeAssignmentFocus(body.Focus);
+    var dueAt = NormalizeAssignmentDueAt(body.DueAt);
 
     using var conn = new SqliteConnection(connString);
     await conn.OpenAsync();
@@ -2816,24 +3635,28 @@ app.MapPost("/classes/{classId}/cases", async (string classId, HttpContext ctx) 
     }
 
     // 2) Check that the upload exists and belongs to this instructor
-    var uploadId = body.UploadId.Trim().ToUpperInvariant();
+    var requestedUploadId = body.UploadId.Trim();
+    string uploadId;
 
     using (var checkUpload = conn.CreateCommand())
     {
         checkUpload.CommandText = @"
-            SELECT COUNT(*)
+            SELECT UploadId
             FROM Uploads
-            WHERE UploadId = $uploadId AND UserId = $ownerId;
+            WHERE UPPER(UploadId) = UPPER($uploadId) AND UserId = $ownerId
+            LIMIT 1;
 
         ";
-        checkUpload.Parameters.AddWithValue("$uploadId", uploadId!);
+        checkUpload.Parameters.AddWithValue("$uploadId", requestedUploadId);
         checkUpload.Parameters.AddWithValue("$ownerId", me);
 
-        var count = (long)(await checkUpload.ExecuteScalarAsync() ?? 0L);
-        if (count == 0)
+        var result = await checkUpload.ExecuteScalarAsync();
+        if (result is null || result == DBNull.Value)
         {
             return Results.NotFound(new { error = "Upload not found or not owned by you" });
         }
+
+        uploadId = (string)result;
     }
 
     // 3) Check if this case is already assigned to the class
@@ -2850,11 +3673,30 @@ app.MapPost("/classes/{classId}/cases", async (string classId, HttpContext ctx) 
         var exists = (long)(await checkExisting.ExecuteScalarAsync() ?? 0L);
         if (exists > 0)
         {
+            using var update = conn.CreateCommand();
+            update.CommandText = @"
+                UPDATE ClassCases
+                SET Objective = $objective,
+                    Focus = $focus,
+                    DueAt = $dueAt
+                WHERE ClassId = $classId AND UploadId = $uploadId;
+            ";
+            update.Parameters.AddWithValue("$objective", (object?)objective ?? DBNull.Value);
+            update.Parameters.AddWithValue("$focus", (object?)focus ?? DBNull.Value);
+            update.Parameters.AddWithValue("$dueAt", (object?)dueAt ?? DBNull.Value);
+            update.Parameters.AddWithValue("$classId", classId);
+            update.Parameters.AddWithValue("$uploadId", uploadId!);
+            await update.ExecuteNonQueryAsync();
+
             return Results.Ok(new
             {
                 classId,
                 uploadId,
-                alreadyAssigned = true
+                objective,
+                focus,
+                dueAt,
+                alreadyAssigned = true,
+                updated = true
             });
         }
     }
@@ -2863,11 +3705,14 @@ app.MapPost("/classes/{classId}/cases", async (string classId, HttpContext ctx) 
     using (var insert = conn.CreateCommand())
     {
         insert.CommandText = @"
-            INSERT INTO ClassCases (ClassId, UploadId, AssignedAt)
-            VALUES ($classId, $uploadId, $assignedAt);
+            INSERT INTO ClassCases (ClassId, UploadId, Objective, Focus, DueAt, AssignedAt)
+            VALUES ($classId, $uploadId, $objective, $focus, $dueAt, $assignedAt);
         ";
         insert.Parameters.AddWithValue("$classId", classId);
         insert.Parameters.AddWithValue("$uploadId", uploadId!);
+        insert.Parameters.AddWithValue("$objective", (object?)objective ?? DBNull.Value);
+        insert.Parameters.AddWithValue("$focus", (object?)focus ?? DBNull.Value);
+        insert.Parameters.AddWithValue("$dueAt", (object?)dueAt ?? DBNull.Value);
         insert.Parameters.AddWithValue("$assignedAt", DateTime.UtcNow.ToString("o"));
 
         await insert.ExecuteNonQueryAsync();
@@ -2877,7 +3722,58 @@ app.MapPost("/classes/{classId}/cases", async (string classId, HttpContext ctx) 
     {
         classId,
         uploadId,
+        objective,
+        focus,
+        dueAt,
         assigned = true
+    });
+});
+
+app.MapDelete("/classes/{classId}/cases/{uploadId}", async (string classId, string uploadId, HttpContext ctx) =>
+{
+    var deny = RequireInstructor(ctx);
+    if (deny != null) return deny;
+
+    var me = ctx.GetCurrentUserId();
+    if (string.IsNullOrWhiteSpace(me))
+    {
+        return Results.Unauthorized();
+    }
+
+    using var conn = new SqliteConnection(connString);
+    await conn.OpenAsync();
+
+    using (var checkClass = conn.CreateCommand())
+    {
+        checkClass.CommandText = @"
+            SELECT COUNT(*)
+            FROM Classes
+            WHERE Id = $classId AND InstructorId = $instructorId;
+        ";
+        checkClass.Parameters.AddWithValue("$classId", classId);
+        checkClass.Parameters.AddWithValue("$instructorId", me);
+
+        var count = (long)(await checkClass.ExecuteScalarAsync() ?? 0L);
+        if (count == 0)
+        {
+            return Results.NotFound(new { error = "Class not found or not owned by you" });
+        }
+    }
+
+    using var delete = conn.CreateCommand();
+    delete.CommandText = @"
+        DELETE FROM ClassCases
+        WHERE ClassId = $classId AND UPPER(UploadId) = UPPER($uploadId);
+    ";
+    delete.Parameters.AddWithValue("$classId", classId);
+    delete.Parameters.AddWithValue("$uploadId", uploadId);
+
+    var removed = await delete.ExecuteNonQueryAsync();
+    return Results.Ok(new
+    {
+        classId,
+        uploadId,
+        removed = removed > 0
     });
 });
 
@@ -2887,7 +3783,7 @@ app.MapGet("/classes/{classId}/details", async (string classId, HttpContext ctx)
     var deny = RequireInstructor(ctx);
     if (deny != null) return deny;
 
-    var me = ctx.Items["userId"] as string;
+    var me = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(me))
         return Results.Unauthorized();
 
@@ -2896,22 +3792,40 @@ app.MapGet("/classes/{classId}/details", async (string classId, HttpContext ctx)
 
     // 1) Load class info and verify ownership
     string? className = null;
+    string? joinCode = null;
     using (var cmd = conn.CreateCommand())
     {
         cmd.CommandText = @"
-            SELECT Name
+            SELECT Name, JoinCode
             FROM Classes
             WHERE Id = $classId AND InstructorId = $instructorId;
         ";
         cmd.Parameters.AddWithValue("$classId", classId);
         cmd.Parameters.AddWithValue("$instructorId", me);
 
-        var result = await cmd.ExecuteScalarAsync();
-        className = result as string;
-        if (className is null)
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
         {
             return Results.NotFound(new { error = "Class not found or not owned by you" });
         }
+
+        className = reader.GetString(0);
+        joinCode = reader.IsDBNull(1) ? null : reader.GetString(1);
+    }
+
+    if (string.IsNullOrWhiteSpace(joinCode))
+    {
+        joinCode = await GenerateUniqueJoinCodeAsync(conn);
+        using var update = conn.CreateCommand();
+        update.CommandText = @"
+            UPDATE Classes
+            SET JoinCode = $joinCode
+            WHERE Id = $classId AND InstructorId = $instructorId;
+        ";
+        update.Parameters.AddWithValue("$joinCode", joinCode);
+        update.Parameters.AddWithValue("$classId", classId);
+        update.Parameters.AddWithValue("$instructorId", me);
+        await update.ExecuteNonQueryAsync();
     }
 
     // 2) Get students in the class
@@ -2933,7 +3847,7 @@ app.MapGet("/classes/{classId}/details", async (string classId, HttpContext ctx)
             {
                 id = r.GetString(0),
                 email = r.GetString(1),
-                fullName = r.GetString(2)
+                fullName = r.IsDBNull(2) ? null : r.GetString(2)
             });
         }
     }
@@ -2943,7 +3857,12 @@ app.MapGet("/classes/{classId}/details", async (string classId, HttpContext ctx)
     using (var caseCmd = conn.CreateCommand())
     {
         caseCmd.CommandText = @"
-            SELECT Uploads.UploadId, Uploads.OriginalFileName
+            SELECT Uploads.UploadId,
+                   Uploads.OriginalFileName,
+                   ClassCases.Objective,
+                   ClassCases.Focus,
+                   ClassCases.DueAt,
+                   ClassCases.AssignedAt
             FROM ClassCases
             JOIN Uploads ON Uploads.UploadId = ClassCases.UploadId
             WHERE ClassCases.ClassId = $classId;
@@ -2956,7 +3875,11 @@ app.MapGet("/classes/{classId}/details", async (string classId, HttpContext ctx)
             cases.Add(new
             {
                 uploadId = r.GetString(0),
-                fileName = r.GetString(1)
+                fileName = r.GetString(1),
+                objective = r.IsDBNull(2) ? null : r.GetString(2),
+                focus = r.IsDBNull(3) ? null : r.GetString(3),
+                dueAt = r.IsDBNull(4) ? null : r.GetString(4),
+                assignedAt = r.GetString(5)
             });
         }
     }
@@ -2965,6 +3888,7 @@ app.MapGet("/classes/{classId}/details", async (string classId, HttpContext ctx)
     {
         classId,
         name = className,
+        joinCode,
         students,
         cases
     });
@@ -2977,7 +3901,7 @@ app.MapGet("/classes/{classId}/history", async (string classId, HttpContext ctx)
     var deny = RequireInstructor(ctx);
     if (deny != null) return deny;
 
-    var me = ctx.Items["userId"] as string;
+    var me = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(me))
         return Results.Unauthorized();
 
@@ -3091,7 +4015,7 @@ app.MapGet("/sessions/{sessionId}/messages", async (string sessionId, HttpContex
     var deny = RequireInstructor(ctx);
     if (deny != null) return deny;
 
-    var instructorId = ctx.User.FindFirst("sub")?.Value;
+    var instructorId = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(instructorId))
         return Results.Unauthorized();
 
@@ -3218,9 +4142,39 @@ app.MapPost("/sessions/start", async (HttpContext ctx) =>
     if (string.IsNullOrWhiteSpace(uploadId))
         return Results.BadRequest(new { error = "uploadId required" });
 
-    var userId = ctx.Items["userId"] as string;
+    var userId = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(userId))
         return Results.Unauthorized();
+
+    if (!Guid.TryParse(uploadId, out var parsedUploadId) || !await CanAccessUploadAsync(parsedUploadId, userId))
+    {
+        return Results.NotFound(new { error = "not found" });
+    }
+
+    if (!string.IsNullOrWhiteSpace(classId))
+    {
+        using var accessConn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+        await accessConn.OpenAsync();
+
+        using var accessCmd = accessConn.CreateCommand();
+        accessCmd.CommandText = @"
+SELECT 1
+FROM ClassStudents cs
+JOIN ClassCases cc ON cc.ClassId = cs.ClassId
+WHERE cs.ClassId = $classId
+  AND cs.StudentId = $studentId
+  AND UPPER(cc.UploadId) = UPPER($uploadId)
+LIMIT 1;
+";
+        accessCmd.Parameters.AddWithValue("$classId", classId);
+        accessCmd.Parameters.AddWithValue("$studentId", userId);
+        accessCmd.Parameters.AddWithValue("$uploadId", uploadId);
+
+        if (await accessCmd.ExecuteScalarAsync() is null)
+        {
+            return Results.NotFound(new { error = "class assignment not found" });
+        }
+    }
 
     var newSessionId = Guid.NewGuid().ToString("N");
 
@@ -3251,7 +4205,7 @@ app.MapGet("/classes/{classId}/students", async (string classId, HttpContext ctx
     var deny = RequireInstructor(ctx);
     if (deny != null) return deny;
 
-    var me = ctx.Items["userId"] as string;
+    var me = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(me))
         return Results.Unauthorized();
 
@@ -3321,7 +4275,7 @@ app.MapGet("/classes/{classId}/cases", async (string classId, HttpContext ctx) =
     var deny = RequireInstructor(ctx);
     if (deny != null) return deny;
 
-    var me = ctx.Items["userId"] as string;
+    var me = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(me))
         return Results.Unauthorized();
 
@@ -3392,7 +4346,7 @@ app.MapGet("/classes/{classId}/sessions/{sessionId}", async (string classId, str
     var deny = RequireInstructor(ctx);
     if (deny != null) return deny;
 
-    var instructorId = ctx.Items["userId"] as string;
+    var instructorId = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(instructorId))
         return Results.Unauthorized();
 
@@ -3537,7 +4491,7 @@ ORDER BY CreatedAt ASC;
 
 app.MapGet("/debug/session-access/{sessionId}", async (string sessionId, HttpContext ctx) =>
 {
-    var instructorId = ctx.User.FindFirst("sub")?.Value;
+    var instructorId = ctx.GetCurrentUserId();
 
     using var conn = new SqliteConnection(connString);
     await conn.OpenAsync();
@@ -3585,6 +4539,78 @@ static int WordToInt(string w) => (w ?? "").ToLowerInvariant() switch
     _ => 5
 };
 
+static string NormalizeJoinCode(string? code)
+{
+    if (string.IsNullOrWhiteSpace(code)) return "";
+    return Regex.Replace(code.Trim().ToUpperInvariant(), "[^A-Z0-9]", "");
+}
+
+static string CleanTrackedQuestion(string? question)
+{
+    if (string.IsNullOrWhiteSpace(question)) return "";
+
+    var text = question.Trim();
+    text = Regex.Replace(text, "%\\s+", " ");
+    text = Regex.Replace(text, "\\s+", " ");
+    return text.Trim();
+}
+
+static string? NormalizeAssignmentObjective(string? objective)
+{
+    if (string.IsNullOrWhiteSpace(objective)) return null;
+
+    var text = Regex.Replace(objective.Trim(), "\\s+", " ");
+    return text.Length <= 600 ? text : text[..600].TrimEnd();
+}
+
+static string? NormalizeAssignmentFocus(string? focus)
+{
+    if (string.IsNullOrWhiteSpace(focus)) return null;
+
+    var normalized = Regex.Replace(focus.Trim().ToLowerInvariant(), "[^a-z0-9_-]", "_");
+    normalized = Regex.Replace(normalized, "_+", "_").Trim('_');
+    return string.IsNullOrWhiteSpace(normalized) ? null : normalized[..Math.Min(normalized.Length, 80)];
+}
+
+static string? NormalizeAssignmentDueAt(string? dueAt)
+{
+    if (string.IsNullOrWhiteSpace(dueAt)) return null;
+    return DateTimeOffset.TryParse(dueAt.Trim(), out var parsed)
+        ? parsed.UtcDateTime.ToString("O")
+        : dueAt.Trim();
+}
+
+static string GenerateJoinCode()
+{
+    const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    Span<char> chars = stackalloc char[8];
+    chars[0] = 'C';
+    chars[1] = 'P';
+
+    for (var i = 2; i < chars.Length; i++)
+    {
+        chars[i] = alphabet[Random.Shared.Next(alphabet.Length)];
+    }
+
+    return new string(chars);
+}
+
+static async Task<string> GenerateUniqueJoinCodeAsync(SqliteConnection conn)
+{
+    for (var attempt = 0; attempt < 20; attempt++)
+    {
+        var code = GenerateJoinCode();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM Classes WHERE JoinCode = $joinCode";
+        cmd.Parameters.AddWithValue("$joinCode", code);
+
+        var count = (long)(await cmd.ExecuteScalarAsync() ?? 0L);
+        if (count == 0) return code;
+    }
+
+    throw new InvalidOperationException("Could not generate a unique class join code.");
+}
+
 
 
 
@@ -3616,9 +4642,47 @@ class RenameUploadDto
 
 
 public record ClassCreateDto(string Name, string? Description);
+public record ClassJoinDto(string JoinCode);
 public record AddStudentToClassDto(string StudentEmail);
 
-public record AssignCaseToClassDto(string UploadId);
+public record AssignCaseToClassDto(string UploadId, string? Objective = null, string? Focus = null, string? DueAt = null);
+
+public sealed class EnrolledClassDto
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string? Description { get; set; }
+    public string? JoinCode { get; set; }
+    public string CreatedAt { get; set; } = "";
+    public string JoinedAt { get; set; } = "";
+    public string InstructorName { get; set; } = "";
+    public string InstructorEmail { get; set; } = "";
+    public int CaseCount { get; set; }
+    public List<EnrolledClassCaseDto> Cases { get; set; } = new();
+}
+
+public sealed class EnrolledClassCaseDto
+{
+    public string UploadId { get; set; } = "";
+    public string FileName { get; set; } = "";
+    public string? Objective { get; set; }
+    public string? Focus { get; set; }
+    public string? DueAt { get; set; }
+    public string AssignedAt { get; set; } = "";
+}
+
+public sealed class SessionMineDto
+{
+    public string SessionId { get; set; } = "";
+    public string? UploadId { get; set; }
+    public string CaseName { get; set; } = "Untitled case";
+    public string? CreatedAt { get; set; }
+    public string? LastActivityAt { get; set; }
+    public int DurationSec { get; set; }
+    public int MessageCount { get; set; }
+    public int NotesCount { get; set; }
+    public string? LastMessagePreview { get; set; }
+}
 
 
 

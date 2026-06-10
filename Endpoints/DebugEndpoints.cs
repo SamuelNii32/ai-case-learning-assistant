@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Routing;
 using Microsoft.Data.Sqlite;
+using Api.Extensions;
 
 namespace Api.Endpoints;
 
@@ -12,8 +13,11 @@ public static class DebugEndpoints
         app.MapGet("/ping", () => Results.Ok("pong"));
 
         // GET /api/llm/ping — round-trip to model
-        app.MapGet("/api/llm/ping", async (OpenAI.Chat.ChatClient chat) =>
+        app.MapGet("/api/llm/ping", async (HttpContext ctx, OpenAI.Chat.ChatClient chat) =>
         {
+            var deny = RequireDebugAccess(ctx);
+            if (deny is not null) return deny;
+
             // Some installs return ClientResult<ChatCompletion>; take .Value to get ChatCompletion
             var result = await chat.CompleteChatAsync("Reply exactly: hello from CasePilot Q&A");
             var completion = result.Value;               // <-- the key fix
@@ -26,8 +30,11 @@ public static class DebugEndpoints
 
 
         // GET /api/embeddings/ping — sanity check: returns vector length
-        app.MapGet("/api/embeddings/ping", () =>
+        app.MapGet("/api/embeddings/ping", (HttpContext ctx) =>
         {
+            var deny = RequireDebugAccess(ctx);
+            if (deny is not null) return deny;
+
             var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
                 ?? throw new InvalidOperationException("OPENAI_API_KEY not set.");
 
@@ -44,15 +51,13 @@ public static class DebugEndpoints
 
         app.MapGet("/me", async (HttpContext ctx) =>
         {
-            var userId = ctx.Items["userId"] as string;
+            var userId = ctx.GetCurrentUserId();
             if (string.IsNullOrWhiteSpace(userId))
             {
                 return Results.Unauthorized();
             }
 
-            bool tokenIsSuper =
-                ctx.Items.TryGetValue("isSuperUser", out var isSuperObj) &&
-                isSuperObj is bool b && b;
+            bool tokenIsSuper = ctx.IsCurrentUserSuperUser();
 
             using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
             await conn.OpenAsync();
@@ -91,11 +96,14 @@ public static class DebugEndpoints
                 fullName,
                 role
             });
-        });
+        }).RequireAuthorization();
 
 
         app.MapGet("/debug/claims", (HttpContext ctx) =>
         {
+            var deny = RequireDebugAccess(ctx);
+            if (deny is not null) return deny;
+
             var claims = ctx.User.Claims.Select(c => new { c.Type, c.Value }).ToList();
             return Results.Ok(new
             {
@@ -105,8 +113,11 @@ public static class DebugEndpoints
             });
         });
 
-        app.MapGet("/debug/routes", (IEnumerable<EndpointDataSource> sources) =>
+        app.MapGet("/debug/routes", (HttpContext ctx, IEnumerable<EndpointDataSource> sources) =>
         {
+            var deny = RequireDebugAccess(ctx);
+            if (deny is not null) return deny;
+
             var routes = sources
                 .SelectMany(s => s.Endpoints)
                 .OfType<RouteEndpoint>()
@@ -115,11 +126,14 @@ public static class DebugEndpoints
                 .OrderBy(x => x);
 
             return Results.Ok(routes);
-        }).AllowAnonymous();
+        });
 
 
-        app.MapGet("/debug/db-sanity", () =>
+        app.MapGet("/debug/db-sanity", (HttpContext ctx) =>
         {
+            var deny = RequireDebugAccess(ctx);
+            if (deny is not null) return deny;
+
             var result = new List<object>();
 
             // A) Connection using connString (startup DB)
@@ -201,6 +215,9 @@ public static class DebugEndpoints
 
         app.MapGet("/debug/uploads", async (HttpContext ctx) =>
         {
+            var deny = RequireDebugAccess(ctx);
+            if (deny is not null) return deny;
+
             using var conn = new SqliteConnection(connString);
             await conn.OpenAsync();
 
@@ -233,8 +250,11 @@ public static class DebugEndpoints
         // ======================
         // TEMP DEBUG ENDPOINT
         // ======================
-        app.MapGet("/debug/sessions", async () =>
+        app.MapGet("/debug/sessions", async (HttpContext ctx) =>
         {
+            var deny = RequireDebugAccess(ctx);
+            if (deny is not null) return deny;
+
             using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
             await conn.OpenAsync();
 
@@ -261,5 +281,23 @@ public static class DebugEndpoints
         });
 
         return app;
+    }
+
+    private static IResult? RequireDebugAccess(HttpContext ctx)
+    {
+        var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
+        if (!string.Equals(env, "Production", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (ctx.User?.Identity?.IsAuthenticated != true)
+        {
+            return Results.Unauthorized();
+        }
+
+        return ctx.IsCurrentUserSuperUser()
+            ? null
+            : Results.Forbid();
     }
 }

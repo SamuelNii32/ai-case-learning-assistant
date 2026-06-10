@@ -1,6 +1,6 @@
 {
-  "name": "AI Case Learning Assistant",
-  "short_name": "AI Case",
+  "name": "CasePilot",
+  "short_name": "CasePilot",
   "icons": [
     {
       "src": "/favicon.svg",

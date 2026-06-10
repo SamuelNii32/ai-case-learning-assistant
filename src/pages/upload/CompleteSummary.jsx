@@ -7,6 +7,7 @@ export default function CompleteSummary({
   pageCount,
   imageCount,
   uploadDate,
+  analysisPrepStatus = 'idle',
   onStartAnalysis,
   onUploadAnother,
   isInstructor = false,
@@ -32,8 +33,14 @@ export default function CompleteSummary({
             <FileText className="w-5 h-5 text-[#C96A08] mt-0.5" />
             <div className="flex-1">
               <p className="font-medium text-[#2C2218]">{fileName}</p>
-              <p className="text-sm text-[#5C4C3C]">
+            <p className="text-sm text-[#5C4C3C]">
                 {isInstructor ? 'Ready to assign to a class' : 'Ready for analysis'}
+              </p>
+              <p className="mt-1 text-xs text-[#7A5C3E]">
+                {analysisPrepStatus === 'ready' && 'Q&A and Reading Coach are prepared.'}
+                {analysisPrepStatus === 'preparing' && 'Preparing Q&A and Reading Coach...'}
+                {analysisPrepStatus === 'error' &&
+                  'Q&A preparation needs a retry in the workspace.'}
               </p>
             </div>
           </div>

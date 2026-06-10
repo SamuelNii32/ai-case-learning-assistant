@@ -7,10 +7,6 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<FrameworkReference Include="Microsoft.AspNetCore.App" />
-	</ItemGroup>
-
-	<ItemGroup>
 		<Compile Remove="uploads\**;artifacts\**" />
 		<Content Remove="uploads\**;artifacts\**" />
 		<None Remove="uploads\**;artifacts\**" />

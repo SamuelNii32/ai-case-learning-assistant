@@ -16,6 +16,8 @@ build/
 bin/
 obj/
 artifacts/
+publish/
+deploy.zip
 
 # Editor / OS files
 .vscode/*
@@ -40,3 +42,7 @@ uploads/
 
 # Local publish profile user settings
 *.pubxml.user
+*.PublishSettings
+Properties/PublishProfiles/
+Properties/ServiceDependencies/
+.config/

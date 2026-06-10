@@ -42,7 +42,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
           <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#C96A08] shadow-inner">
             <FileText className="w-5 h-5 text-[#f8f5ef]" />
           </div>
-          <span className="text-[#2C2218]">AI Case Assistant</span>
+          <span className="text-[#2C2218]">CasePilot</span>
         </Link>
         <button
           onClick={onClose}

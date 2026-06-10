@@ -36,9 +36,8 @@ describe('CasesGrid', () => {
 
     render(<CasesGrid items={[{ id: '1', title: 'Test Case', createdAt: '2023-01-01' }]} />)
 
-    // Click the card title to open
-    const title = screen.getByText('Test Case')
-    fireEvent.click(title)
+    // Click the case card body to open the most recent workspace.
+    fireEvent.click(screen.getAllByRole('button')[0])
 
     await waitFor(() => {
       expect(mockListSessions).toHaveBeenCalled()

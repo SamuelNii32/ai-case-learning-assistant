@@ -3,6 +3,20 @@ export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      colors: {
+        brand: {
+          DEFAULT: '#C96A08',
+          hover: '#9C5306',
+          soft: '#FFF2E4',
+        },
+        warm: {
+          background: '#FAF6F0',
+          surface: '#F8F5EF',
+          border: '#E4D6C7',
+          text: '#2C2218',
+          muted: '#5C4C3C',
+        },
+      },
       fontFamily: {
         sans: [
           'Montserrat',
@@ -16,10 +30,9 @@ export default {
           'Noto Sans',
           'sans-serif',
         ],
-        serif: ["Fraunces", "Source Serif 4", 'Georgia', 'serif'],
+        serif: ['Fraunces', 'Source Serif 4', 'Georgia', 'serif'],
       },
       transitionProperty: {
-        // allow using 'transition-width' via Tailwind if desired
         width: 'width',
       },
       screens: {

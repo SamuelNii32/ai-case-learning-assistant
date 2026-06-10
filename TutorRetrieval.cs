@@ -23,7 +23,7 @@ public static class TutorRetrieval
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
-                new("c3-4", "Another part of the paper may be more useful right now.\nThis returns to the main focus menu.\n→ choose a different direction", TutorAction.ChangeFocus, "focus_menu")
+                new("c3-4", FocusMenuLabel(), TutorAction.ChangeFocus, "focus_menu")
                 },
                 Cites: new List<int> { 1 },
                 StepSummary: "Background overview unavailable"
@@ -71,7 +71,7 @@ public static class TutorRetrieval
         new("c3-3", choiceSet.c3, TutorAction.ExploreChildTopic, "research_gap"),
         new(
             "c3-4",
-            "Another part of the paper may be more useful right now.\nThis returns to the main focus menu.\n→ choose a different direction",
+            FocusMenuLabel(),
             TutorAction.ChangeFocus,
             "focus_menu"
         )
@@ -101,7 +101,7 @@ public static class TutorRetrieval
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
-                new("background-back", "Return to background.\nGo back to the main background branches.\n→ return to background", TutorAction.ChangeFocus, "background")
+                new("background-back", ReturnToFocusLabel("background"), TutorAction.ChangeFocus, "background")
                 },
                 Cites: new List<int> { 1 },
                 StepSummary: "Background retrieval unavailable"
@@ -173,23 +173,23 @@ public static class TutorRetrieval
         {
             new("drill:0", choiceSet.c1, TutorAction.DrillDeeper, "problem_detail"),
             new("drill:1", choiceSet.c2, TutorAction.DrillDeeper, "why_problem_matters"),
-            new("c3-1-c", "Return to background.\nGo back to the main background branches.\n→ return to background", TutorAction.ChangeFocus, "background")
+            new("c3-1-c", ReturnToFocusLabel("background"), TutorAction.ChangeFocus, "background")
         },
             "prior_work" => new List<TutorChoice>
         {
             new("drill:0", choiceSet.c1, TutorAction.DrillDeeper, "prior_work_detail"),
             new("drill:1", choiceSet.c2, TutorAction.DrillDeeper, "prior_work_connection"),
-            new("c3-2-c", "Return to background.\nGo back to the main background branches.\n→ return to background", TutorAction.ChangeFocus, "background")
+            new("c3-2-c", ReturnToFocusLabel("background"), TutorAction.ChangeFocus, "background")
         },
             "research_gap" => new List<TutorChoice>
         {
             new("drill:0", choiceSet.c1, TutorAction.DrillDeeper, "gap_detail"),
             new("drill:1", choiceSet.c2, TutorAction.DrillDeeper, "contribution_positioning"),
-            new("c3-3-c", "Return to background.\nGo back to the main background branches.\n→ return to background", TutorAction.ChangeFocus, "background")
+            new("c3-3-c", ReturnToFocusLabel("background"), TutorAction.ChangeFocus, "background")
         },
             _ => new List<TutorChoice>
         {
-            new("background-back", "Return to background.\nGo back to the main background branches.\n→ return to background", TutorAction.ChangeFocus, "background")
+            new("background-back", ReturnToFocusLabel("background"), TutorAction.ChangeFocus, "background")
         }
         };
 
@@ -224,7 +224,7 @@ public static class TutorRetrieval
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
-                new("c2-4", "Another part of the paper may be more useful right now.\nThis returns to the main focus menu.\n→ choose a different direction", TutorAction.ChangeFocus, "focus_menu")
+                new("c2-4", FocusMenuLabel(), TutorAction.ChangeFocus, "focus_menu")
                 },
                 Cites: new List<int> { 1 },
                 StepSummary: "Methodology overview unavailable"
@@ -272,7 +272,7 @@ public static class TutorRetrieval
         new("c2-3", choiceSet.c3, TutorAction.ExploreChildTopic, "analysis_methods"),
         new(
             "c2-4",
-            "Another part of the paper may be more useful right now.\nThis returns to the main focus menu.\n→ choose a different direction",
+            FocusMenuLabel(),
             TutorAction.ChangeFocus,
             "focus_menu"
         )
@@ -300,7 +300,7 @@ public static class TutorRetrieval
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
-                new("method-back", "Return to methodology.\nGo back to the main methodology branches.\n→ return to methodology", TutorAction.ChangeFocus, "methodology")
+                new("method-back", ReturnToFocusLabel("methodology"), TutorAction.ChangeFocus, "methodology")
                 },
                 Cites: new List<int> { 1 },
                 StepSummary: "Methodology retrieval unavailable"
@@ -374,23 +374,23 @@ public static class TutorRetrieval
         {
             new("drill:0", choiceSet.c1, TutorAction.DrillDeeper, "dataset_breadth"),
             new("drill:1", choiceSet.c2, TutorAction.DrillDeeper, "source_credibility"),
-            new("c2-1-c", "Return to methodology.\nGo back to the main methodology branches.\n→ return to methodology", TutorAction.ChangeFocus, "methodology")
+            new("c2-1-c", ReturnToFocusLabel("methodology"), TutorAction.ChangeFocus, "methodology")
         },
             "measures" => new List<TutorChoice>
         {
             new("drill:0", choiceSet.c1, TutorAction.DrillDeeper, "variable_definition"),
             new("drill:1", choiceSet.c2, TutorAction.DrillDeeper, "measurement_choices"),
-            new("c2-2-c", "Return to methodology.\nGo back to the main methodology branches.\n→ return to methodology", TutorAction.ChangeFocus, "methodology")
+            new("c2-2-c", ReturnToFocusLabel("methodology"), TutorAction.ChangeFocus, "methodology")
         },
             "analysis_methods" => new List<TutorChoice>
         {
             new("drill:0", choiceSet.c1, TutorAction.DrillDeeper, "main_metrics"),
             new("drill:1", choiceSet.c2, TutorAction.DrillDeeper, "comparison_strategy"),
-            new("c2-3-c", "Return to methodology.\nGo back to the main methodology branches.\n→ return to methodology", TutorAction.ChangeFocus, "methodology")
+            new("c2-3-c", ReturnToFocusLabel("methodology"), TutorAction.ChangeFocus, "methodology")
         },
             _ => new List<TutorChoice>
         {
-            new("method-back", "Return to methodology.\nGo back to the main methodology branches.\n→ return to methodology", TutorAction.ChangeFocus, "methodology")
+            new("method-back", ReturnToFocusLabel("methodology"), TutorAction.ChangeFocus, "methodology")
         }
         };
 
@@ -521,12 +521,12 @@ public static class TutorRetrieval
 
         var choices = new List<TutorChoice>
     {
-        new("c1-1", choiceSet.c1, TutorAction.ExploreChildTopic, "measurement"),
-        new("c1-2", choiceSet.c2, TutorAction.ExploreChildTopic, "result_relationships"),
-        new("c1-3", choiceSet.c3, TutorAction.ExploreChildTopic, "exceptions"),
+        new("c1-1", "Examine the supporting evidence\nWalk through the results that support the main claim.", TutorAction.ExploreChildTopic, "supporting_evidence"),
+        new("c1-2", "Connect why it matters\nSee why the finding changes the paper's larger argument.", TutorAction.ExploreChildTopic, "why_it_matters"),
+        new("c1-3", "Test limits or trade-offs\nLook at what the finding does not fully settle.", TutorAction.ExploreChildTopic, "limits_or_tradeoffs"),
         new(
             "c1-4",
-            "Another part of the paper may be more useful right now.\nThis returns to the main focus menu.\n→ choose a different direction",
+            FocusMenuLabel(),
             TutorAction.ChangeFocus,
             "focus_menu"
         )
@@ -554,7 +554,7 @@ public static class TutorRetrieval
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
-                new("findings-back", "Return to findings.\nGo back to the main findings branches.", TutorAction.ChangeFocus, "findings")
+                new("findings-back", ReturnToFocusLabel("findings"), TutorAction.ChangeFocus, "findings")
                 },
                 Cites: new List<int> { 1 },
                 StepSummary: "Findings retrieval unavailable"
@@ -563,9 +563,9 @@ public static class TutorRetrieval
 
         string query = childTarget switch
         {
-            "measurement" => "findings results evidence reported patterns measures indicators outcomes analysis",
-            "result_relationships" => "relationship association connection between main variables outcomes claims findings",
-            "exceptions" => "exception contrast boundary case mixed results qualification unexpected finding limitation",
+            "supporting_evidence" => "main finding evidence results table benchmark reported outcome support claim",
+            "why_it_matters" => "significance contribution importance implication why matters argument advances field",
+            "limits_or_tradeoffs" => "limitation tradeoff caveat exception boundary condition cost constraint qualification",
             _ => "findings results conclusion discussion"
         };
 
@@ -591,9 +591,9 @@ public static class TutorRetrieval
 
         string narrative = childTarget switch
         {
-            "measurement" => await BuildFindingsMeasurementNarrative(chat, chosen, cites),
-            "result_relationships" => await BuildFindingsRelationshipsNarrative(chat, chosen, cites),
-            "exceptions" => await BuildFindingsExceptionsNarrative(chat, chosen, cites),
+            "supporting_evidence" => await BuildFindingsMeasurementNarrative(chat, chosen, cites),
+            "why_it_matters" => await BuildFindingsRelationshipsNarrative(chat, chosen, cites),
+            "limits_or_tradeoffs" => await BuildFindingsExceptionsNarrative(chat, chosen, cites),
             _ => $"I can’t find that in the document. [p:{cites[0]}]"
         };
 
@@ -606,43 +606,43 @@ public static class TutorRetrieval
 
         var pending = childTarget switch
         {
-            "measurement" => BuildInitialDrillChoices(session, "findings", childTarget, "interpret_metrics", "connect_evidence_to_claim"),
-            "result_relationships" => BuildInitialDrillChoices(session, "findings", childTarget, "relationship_detail", "argument_significance"),
-            "exceptions" => BuildInitialDrillChoices(session, "findings", childTarget, "exception_detail", "exception_vs_trend"),
+            "supporting_evidence" => BuildInitialDrillChoices(session, "findings", childTarget, "read_the_result", "connect_evidence_to_claim"),
+            "why_it_matters" => BuildInitialDrillChoices(session, "findings", childTarget, "argument_significance", "field_or_practice_impact"),
+            "limits_or_tradeoffs" => BuildInitialDrillChoices(session, "findings", childTarget, "main_tradeoff", "boundary_condition"),
             _ => new List<TutorDrillNode>()
         };
 
         var choices = childTarget switch
         {
-            "measurement" => new List<TutorChoice>
+            "supporting_evidence" => new List<TutorChoice>
         {
-            new("drill:0", choiceSet.c1, TutorAction.DrillDeeper, "interpret_metrics"),
+            new("drill:0", "Read the main result\nSee exactly what evidence supports the claim.", TutorAction.DrillDeeper, "read_the_result"),
             new("drill:1", choiceSet.c2, TutorAction.DrillDeeper, "connect_evidence_to_claim"),
-            new("c1-1-c", "Return to findings.\nGo back to the main findings branches.\n→ return to findings", TutorAction.ChangeFocus, "findings")
+            new("c1-1-c", ReturnToFocusLabel("findings"), TutorAction.ChangeFocus, "findings")
         },
-            "result_relationships" => new List<TutorChoice>
+            "why_it_matters" => new List<TutorChoice>
         {
-            new("drill:0", choiceSet.c1, TutorAction.DrillDeeper, "relationship_detail"),
-            new("drill:1", choiceSet.c2, TutorAction.DrillDeeper, "argument_significance"),
-            new("c1-2-c", "Return to findings.\nGo back to the main findings branches.\n→ return to findings", TutorAction.ChangeFocus, "findings")
+            new("drill:0", "Connect to the argument\nSee how this finding changes the paper's larger claim.", TutorAction.DrillDeeper, "argument_significance"),
+            new("drill:1", "Look beyond the paper\nConsider why this finding matters for the field or practice.", TutorAction.DrillDeeper, "field_or_practice_impact"),
+            new("c1-2-c", ReturnToFocusLabel("findings"), TutorAction.ChangeFocus, "findings")
         },
-            "exceptions" => new List<TutorChoice>
+            "limits_or_tradeoffs" => new List<TutorChoice>
         {
-            new("drill:0", choiceSet.c1, TutorAction.DrillDeeper, "exception_detail"),
-            new("drill:1", choiceSet.c2, TutorAction.DrillDeeper, "exception_vs_trend"),
-            new("c1-3-c", "Return to findings.\nGo back to the main findings branches.\n→ return to findings", TutorAction.ChangeFocus, "findings")
+            new("drill:0", "Test the main trade-off\nSee what the result gains and what it may give up.", TutorAction.DrillDeeper, "main_tradeoff"),
+            new("drill:1", "Check the boundary\nLook at where the finding may not fully apply.", TutorAction.DrillDeeper, "boundary_condition"),
+            new("c1-3-c", ReturnToFocusLabel("findings"), TutorAction.ChangeFocus, "findings")
         },
             _ => new List<TutorChoice>
         {
-            new("findings-back", "Return to findings.\nGo back to the main findings branches.\n→ return to findings", TutorAction.ChangeFocus, "findings")
+            new("findings-back", ReturnToFocusLabel("findings"), TutorAction.ChangeFocus, "findings")
         }
         };
 
         string summary = childTarget switch
         {
-            "measurement" => "Findings: measurement",
-            "result_relationships" => "Findings: relationships",
-            "exceptions" => "Findings: exceptions",
+            "supporting_evidence" => "Findings: supporting evidence",
+            "why_it_matters" => "Findings: why it matters",
+            "limits_or_tradeoffs" => "Findings: limits and trade-offs",
             _ => "Findings"
         };
 
@@ -668,7 +668,7 @@ public static class TutorRetrieval
         return await TutorAiWriter.GenerateNarrativeAsync(
             chat,
             "findings",
-            "measurement",
+            "supporting evidence",
             chosen.Select(x => x.Preview).ToList(),
             cites
         );
@@ -685,7 +685,7 @@ public static class TutorRetrieval
         return await TutorAiWriter.GenerateNarrativeAsync(
             chat,
             "findings",
-            "result relationships",
+            "why the finding matters",
             chosen.Select(x => x.Preview).ToList(),
             cites
         );
@@ -702,7 +702,7 @@ public static class TutorRetrieval
         return await TutorAiWriter.GenerateNarrativeAsync(
             chat,
             "findings",
-            "exceptions",
+            "limits or trade-offs",
             chosen.Select(x => x.Preview).ToList(),
             cites
         );
@@ -721,7 +721,7 @@ public static class TutorRetrieval
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
-                new("c4-4", "Another part of the paper may be more useful right now.\nThis returns to the main focus menu.\n→ choose a different direction", TutorAction.ChangeFocus, "focus_menu")
+                new("c4-4", FocusMenuLabel(), TutorAction.ChangeFocus, "focus_menu")
                 },
                 Cites: new List<int> { 1 },
                 StepSummary: "Concepts overview unavailable"
@@ -769,7 +769,7 @@ public static class TutorRetrieval
         new("c4-3", choiceSet.c3, TutorAction.ExploreChildTopic, "concept_connections"),
         new(
             "c4-4",
-            "Another part of the paper may be more useful right now.\nThis returns to the main focus menu.\n→ choose a different direction",
+            FocusMenuLabel(),
             TutorAction.ChangeFocus,
             "focus_menu"
         )
@@ -798,7 +798,7 @@ public static class TutorRetrieval
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
-                new("c4-4", "Change focus.\nReturn and choose another part of the paper.", TutorAction.ChangeFocus, "focus_menu")
+                new("c4-4", FocusMenuLabel(), TutorAction.ChangeFocus, "focus_menu")
                 },
                 Cites: new List<int> { 1 },
                 StepSummary: "Concepts retrieval unavailable"
@@ -862,23 +862,23 @@ public static class TutorRetrieval
         {
             new("c4-2", choiceSet.c1, TutorAction.ExploreChildTopic, "key_indicator"),
             new("c4-3", choiceSet.c2, TutorAction.ExploreChildTopic, "concept_connections"),
-            new("c4-4", "Change focus.\nReturn and choose another part of the paper.", TutorAction.ChangeFocus, "focus_menu")
+            new("c4-4", FocusMenuLabel(), TutorAction.ChangeFocus, "focus_menu")
         },
             "key_indicator" => new List<TutorChoice>
         {
             new("c4-1", choiceSet.c1, TutorAction.ExploreChildTopic, "core_concept"),
             new("c4-3", choiceSet.c2, TutorAction.ExploreChildTopic, "concept_connections"),
-            new("c4-4", "Change focus.\nReturn and choose another part of the paper.", TutorAction.ChangeFocus, "focus_menu")
+            new("c4-4", FocusMenuLabel(), TutorAction.ChangeFocus, "focus_menu")
         },
             "concept_connections" => new List<TutorChoice>
         {
             new("c4-1", choiceSet.c1, TutorAction.ExploreChildTopic, "core_concept"),
             new("c4-2", choiceSet.c2, TutorAction.ExploreChildTopic, "key_indicator"),
-            new("c4-4", "Change focus.\nReturn and choose another part of the paper.", TutorAction.ChangeFocus, "focus_menu")
+            new("c4-4", FocusMenuLabel(), TutorAction.ChangeFocus, "focus_menu")
         },
             _ => new List<TutorChoice>
         {
-            new("c4-4", "Change focus.\nReturn and choose another part of the paper.", TutorAction.ChangeFocus, "focus_menu")
+            new("c4-4", FocusMenuLabel(), TutorAction.ChangeFocus, "focus_menu")
         }
         };
 
@@ -912,7 +912,7 @@ public static class TutorRetrieval
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
-                new("c5-4", "Another part of the paper may be more useful right now.\nThis returns to the main focus menu.\n→ choose a different direction", TutorAction.ChangeFocus, "focus_menu")
+                new("c5-4", FocusMenuLabel(), TutorAction.ChangeFocus, "focus_menu")
                 },
                 Cites: new List<int> { 1 },
                 StepSummary: "Implications overview unavailable"
@@ -960,7 +960,7 @@ public static class TutorRetrieval
         new("c5-3", choiceSet.c3, TutorAction.ExploreChildTopic, "limits_of_interpretation"),
         new(
             "c5-4",
-            "Another part of the paper may be more useful right now.\nThis returns to the main focus menu.\n→ choose a different direction",
+            FocusMenuLabel(),
             TutorAction.ChangeFocus,
             "focus_menu"
         )
@@ -988,7 +988,7 @@ public static class TutorRetrieval
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
-                new("imp-back", "Return to implications.\nGo back to the main implications branches.\n→ return to implications", TutorAction.ChangeFocus, "implications")
+                new("imp-back", ReturnToFocusLabel("implications"), TutorAction.ChangeFocus, "implications")
                 },
                 Cites: new List<int> { 1 },
                 StepSummary: "Implications retrieval unavailable"
@@ -1065,23 +1065,23 @@ public static class TutorRetrieval
         {
             new("drill:0", choiceSet.c1, TutorAction.DrillDeeper, "field_contribution"),
             new("drill:1", choiceSet.c2, TutorAction.DrillDeeper, "significance_from_findings"),
-            new("c5-1-c", "Return to implications.\nGo back to the main implications branches.\n→ return to implications", TutorAction.ChangeFocus, "implications")
+            new("c5-1-c", ReturnToFocusLabel("implications"), TutorAction.ChangeFocus, "implications")
         },
             "practical_implications" => new List<TutorChoice>
         {
             new("drill:0", choiceSet.c1, TutorAction.DrillDeeper, "real_world_relevance"),
             new("drill:1", choiceSet.c2, TutorAction.DrillDeeper, "policy_decision_impact"),
-            new("c5-2-c", "Return to implications.\nGo back to the main implications branches.\n→ return to implications", TutorAction.ChangeFocus, "implications")
+            new("c5-2-c", ReturnToFocusLabel("implications"), TutorAction.ChangeFocus, "implications")
         },
             "limits_of_interpretation" => new List<TutorChoice>
         {
             new("drill:0", choiceSet.c1, TutorAction.DrillDeeper, "main_constraints"),
             new("drill:1", choiceSet.c2, TutorAction.DrillDeeper, "limits_from_method"),
-            new("c5-3-c", "Return to implications.\nGo back to the main implications branches.\n→ return to implications", TutorAction.ChangeFocus, "implications")
+            new("c5-3-c", ReturnToFocusLabel("implications"), TutorAction.ChangeFocus, "implications")
         },
             _ => new List<TutorChoice>
         {
-            new("imp-back", "Return to implications.\nGo back to the main implications branches.\n→ return to implications", TutorAction.ChangeFocus, "implications")
+            new("imp-back", ReturnToFocusLabel("implications"), TutorAction.ChangeFocus, "implications")
         }
         };
 
@@ -1121,8 +1121,8 @@ public static class TutorRetrieval
                     "Try indexing the document first or return to another branch. [p:1]",
                 Choices: new List<TutorChoice>
                 {
-                    new(returnChoiceId, "Return to this branch.\nGo back to the previous tutor options.", TutorAction.ChangeFocus, requestedNode.ChildTarget),
-                    new($"{FocusPrefix(requestedNode.Focus)}-4", "Change focus.\nReturn and choose another part of the paper.", TutorAction.ChangeFocus, "focus_menu")
+                    new(returnChoiceId, ReturnToFocusLabel(requestedNode.Focus), TutorAction.ChangeFocus, requestedNode.ChildTarget),
+                    new($"{FocusPrefix(requestedNode.Focus)}-4", FocusMenuLabel(), TutorAction.ChangeFocus, "focus_menu")
                 },
                 Cites: new List<int> { 1 },
                 StepSummary: "Drill retrieval unavailable"
@@ -1192,6 +1192,19 @@ public static class TutorRetrieval
         path.Add(completedNode);
 
         var pending = BuildNextDrillChoices(completedNode, path, chunkPreviews);
+        if (pending.Count == 0)
+        {
+            return BuildRecursiveDrillRecap(
+                session with
+                {
+                    DrillPath = path,
+                    PendingDrillChoices = new List<TutorDrillNode>(),
+                    LastStepSummary = completedNode.Summary
+                },
+                completedNode,
+                path);
+        }
+
         TutorSessionStore.Sessions[session.SessionId] = session with
         {
             DrillPath = path,
@@ -1202,10 +1215,10 @@ public static class TutorRetrieval
         var choices = new List<TutorChoice>();
         for (var i = 0; i < pending.Count; i++)
         {
-            choices.Add(new($"drill:{i}", $"A closer thread appears.\n{DrillChoiceLabel(pending[i].DrillTarget)}...", TutorAction.DrillDeeper, pending[i].DrillTarget));
+            choices.Add(new($"drill:{i}", BuildDrillChoiceLabel(pending[i]), TutorAction.DrillDeeper, pending[i].DrillTarget));
         }
-        choices.Add(new(returnChoiceId, "This branch has another angle.\nBack to the previous options...", TutorAction.ChangeFocus, requestedNode.ChildTarget));
-        choices.Add(new($"{FocusPrefix(requestedNode.Focus)}-4", "Another part of the paper may shift the view.\nBack to the wider map...", TutorAction.ChangeFocus, "focus_menu"));
+        choices.Add(new(returnChoiceId, ReturnToFocusLabel(requestedNode.Focus), TutorAction.ChangeFocus, requestedNode.ChildTarget));
+        choices.Add(new($"{FocusPrefix(requestedNode.Focus)}-4", FocusMenuLabel(), TutorAction.ChangeFocus, "focus_menu"));
 
         return new TutorResponse(
             SessionId: session.SessionId,
@@ -1225,17 +1238,16 @@ public static class TutorRetrieval
 
         var nextDepth = path.Count;
         var used = path.Select(x => x.DrillTarget).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var baseTarget = StripDrillAngleSuffix(current.DrillTarget);
-        var candidates = new[]
+        var candidates = BuildNextDrillCandidates(current)
+            .Where(x => !used.Contains(x))
+            .ToArray();
+
+        if (candidates.Length == 0)
         {
-            $"{baseTarget}_evidence",
-            $"{baseTarget}_limits",
-            $"{baseTarget}_significance",
-            $"{current.ChildTarget}_connection"
-        };
+            return new List<TutorDrillNode>();
+        }
 
         var supported = candidates
-            .Where(x => !used.Contains(x))
             .Select(x => new
             {
                 Target = x,
@@ -1263,6 +1275,51 @@ public static class TutorRetrieval
                 "",
                 nextDepth))
             .ToList();
+    }
+
+    private static IEnumerable<string> BuildNextDrillCandidates(TutorDrillNode current)
+    {
+        if (current.Focus == "findings")
+        {
+            if (current.ChildTarget == "supporting_evidence")
+            {
+                return current.DrillTarget switch
+                {
+                    "read_the_result" => new[] { "evidence_to_mechanism", "evidence_strength", "evidence_tradeoff" },
+                    "connect_evidence_to_claim" => new[] { "claim_support_strength", "evidence_tradeoff", "evidence_boundary" },
+                    _ => new[] { "evidence_to_mechanism", "evidence_strength", "evidence_boundary" }
+                };
+            }
+
+            if (current.ChildTarget == "why_it_matters")
+            {
+                return current.DrillTarget switch
+                {
+                    "argument_significance" => new[] { "contribution_to_field", "why_previous_models_matter", "practical_significance" },
+                    "field_or_practice_impact" => new[] { "practical_significance", "scope_of_impact", "adoption_conditions" },
+                    _ => new[] { "contribution_to_field", "practical_significance", "scope_of_impact" }
+                };
+            }
+
+            if (current.ChildTarget == "limits_or_tradeoffs")
+            {
+                return current.DrillTarget switch
+                {
+                    "main_tradeoff" => new[] { "tradeoff_evidence", "unsettled_question", "scope_boundary" },
+                    "boundary_condition" => new[] { "scope_boundary", "missing_evidence", "unsettled_question" },
+                    _ => new[] { "tradeoff_evidence", "scope_boundary", "missing_evidence" }
+                };
+            }
+        }
+
+        var baseTarget = StripDrillAngleSuffix(current.DrillTarget);
+        return new[]
+        {
+            $"{baseTarget}_evidence",
+            $"{baseTarget}_limits",
+            $"{baseTarget}_significance",
+            $"{current.ChildTarget}_connection"
+        };
     }
 
     private static int ScoreDrillChoiceSupport(string drillTarget, List<string> chunkPreviews)
@@ -1335,6 +1392,108 @@ public static class TutorRetrieval
         return CleanChoiceLabel(DrillLabel(drillTarget));
     }
 
+    private static string BuildDrillChoiceLabel(TutorDrillNode node)
+    {
+        var title = node.DrillTarget switch
+        {
+            var x when x.EndsWith("_evidence", StringComparison.OrdinalIgnoreCase) => "Examine the supporting evidence",
+            var x when x.EndsWith("_limits", StringComparison.OrdinalIgnoreCase) => "Test the limitation",
+            var x when x.EndsWith("_significance", StringComparison.OrdinalIgnoreCase) => "Connect why it matters",
+            var x when x.EndsWith("_connection", StringComparison.OrdinalIgnoreCase) => "Follow the connection",
+            "interpret_metrics" => "Compare the measures",
+            "read_the_result" => "Read the main result",
+            "connect_evidence_to_claim" => "Link evidence to claim",
+            "relationship_detail" => "Trace the relationship",
+            "argument_significance" => "Connect the result to the argument",
+            "field_or_practice_impact" => "Look beyond the paper",
+            "exception_detail" => "Look at the exception",
+            "exception_vs_trend" => "Compare exception and trend",
+            "main_tradeoff" => "Test the main trade-off",
+            "boundary_condition" => "Check the boundary",
+            "dataset_breadth" => "Inspect the evidence base",
+            "source_credibility" => "Question the source strength",
+            "variable_definition" => "Clarify the key measure",
+            "measurement_choices" => "Inspect the measurement choice",
+            "main_metrics" => "Compare the main metrics",
+            "comparison_strategy" => "Trace the comparison strategy",
+            "problem_detail" => "Define the research problem",
+            "why_problem_matters" => "Explain why the problem matters",
+            "prior_work_detail" => "Review the prior work",
+            "prior_work_connection" => "Connect prior work to this paper",
+            "gap_detail" => "Identify the research gap",
+            "contribution_positioning" => "Position the contribution",
+            "field_contribution" => "Connect to the field",
+            "significance_from_findings" => "Link findings to significance",
+            "real_world_relevance" => "Consider real-world relevance",
+            "policy_decision_impact" => "Consider practical consequences",
+            "main_constraints" => "Test the main constraint",
+            "limits_from_method" => "Connect limits to method",
+            "concept_definition" => "Clarify the concept",
+            "concept_measurement" => "See how it is measured",
+            "concept_relationships" => "Connect the key concepts",
+            "evidence_to_mechanism" => "Connect evidence to mechanism",
+            "evidence_strength" => "Weigh the evidence strength",
+            "evidence_tradeoff" => "Check the efficiency trade-off",
+            "claim_support_strength" => "Test the claim support",
+            "evidence_boundary" => "Find the evidence boundary",
+            "contribution_to_field" => "Connect to the field",
+            "why_previous_models_matter" => "Compare with earlier models",
+            "practical_significance" => "Consider practical significance",
+            "scope_of_impact" => "Check the scope of impact",
+            "adoption_conditions" => "Consider adoption conditions",
+            "tradeoff_evidence" => "Examine the trade-off evidence",
+            "unsettled_question" => "Name the unsettled question",
+            "scope_boundary" => "Check the scope boundary",
+            "missing_evidence" => "Look for missing evidence",
+            _ => ToTitleCase(DrillChoiceLabel(node.DrillTarget))
+        };
+
+        var promise = node.DrillTarget switch
+        {
+            var x when x.EndsWith("_evidence", StringComparison.OrdinalIgnoreCase) => $"Trace the document evidence behind {ChildLabel(node.ChildTarget)}.",
+            var x when x.EndsWith("_limits", StringComparison.OrdinalIgnoreCase) => $"Identify what {ChildLabel(node.ChildTarget)} still does not prove.",
+            var x when x.EndsWith("_significance", StringComparison.OrdinalIgnoreCase) => $"Connect {ChildLabel(node.ChildTarget)} to the paper's larger argument.",
+            var x when x.EndsWith("_connection", StringComparison.OrdinalIgnoreCase) => $"Follow how {ChildLabel(node.ChildTarget)} links to the larger claim.",
+            "interpret_metrics" => "See which measurements decide the strength of the findings.",
+            "read_the_result" => "See exactly what evidence supports the claim.",
+            "connect_evidence_to_claim" => "Walk from the reported evidence back to the central claim.",
+            "relationship_detail" => "See how the results or concepts depend on one another.",
+            "argument_significance" => "Understand why this result changes the paper's overall argument.",
+            "field_or_practice_impact" => "Consider why this finding matters for the field or practice.",
+            "exception_detail" => "Find the case that complicates the main pattern.",
+            "exception_vs_trend" => "See whether the exception weakens or sharpens the trend.",
+            "main_tradeoff" => "See what the result gains and what it may give up.",
+            "boundary_condition" => "Look at where the finding may not fully apply.",
+            "evidence_to_mechanism" => "See how the results support the paper's explanation.",
+            "evidence_strength" => "Judge how strongly the reported results support the claim.",
+            "evidence_tradeoff" => "See what the efficiency gains cost or leave unresolved.",
+            "claim_support_strength" => "Test whether the evidence fully supports the headline claim.",
+            "evidence_boundary" => "Find where the reported evidence stops being decisive.",
+            "contribution_to_field" => "See how the finding changes the broader research direction.",
+            "why_previous_models_matter" => "Understand why the baselines make the result persuasive.",
+            "practical_significance" => "Connect the finding to modeling or deployment choices.",
+            "scope_of_impact" => "See how far the finding can reasonably travel.",
+            "adoption_conditions" => "Identify what would need to hold for the result to transfer.",
+            "tradeoff_evidence" => "Look at the evidence for gains, costs, and compromises.",
+            "unsettled_question" => "Name what remains unclear after the reported result.",
+            "scope_boundary" => "Find where the paper's evidence may stop applying.",
+            "missing_evidence" => "Look for evidence the paper would need to be stronger.",
+            _ => $"Go one step deeper into {ChildLabel(node.ChildTarget)}."
+        };
+
+        return $"{title}\n{promise}";
+    }
+
+    private static string ReturnToFocusLabel(string focus)
+    {
+        return $"Back to {FocusLabel(focus)}\nReturn to the main {FocusLabel(focus)} options.";
+    }
+
+    private static string FocusMenuLabel()
+    {
+        return "Change focus\nReturn to the main guide menu.";
+    }
+
     private static string StripDrillAngleSuffix(string drillTarget)
     {
         foreach (var suffix in new[] { "_evidence", "_limits", "_significance", "_connection" })
@@ -1351,6 +1510,22 @@ public static class TutorRetrieval
     private static string CleanChoiceLabel(string label)
     {
         return Regex.Replace(label, @"\b(\w+)\s+\1\b", "$1", RegexOptions.IgnoreCase);
+    }
+
+    private static string ToTitleCase(string label)
+    {
+        var words = Regex.Matches(label.Replace('_', ' ').ToLowerInvariant(), @"[a-z0-9]+")
+            .Select(m => m.Value)
+            .Where(w => !string.IsNullOrWhiteSpace(w))
+            .Take(7)
+            .ToList();
+
+        if (words.Count == 0)
+        {
+            return "Explore the next idea";
+        }
+
+        return string.Join(" ", words.Select(w => char.ToUpperInvariant(w[0]) + w[1..]));
     }
 
     private static TutorResponse BuildRecursiveDrillRecap(TutorSession session, TutorDrillNode current, List<TutorDrillNode> path)
@@ -1372,18 +1547,48 @@ public static class TutorRetrieval
             LastStepSummary = $"Recap: {ChildLabel(current.ChildTarget)}"
         };
 
+        var covered = BuildDrillRecapSummary(current, path);
+
         return new TutorResponse(
             SessionId: session.SessionId,
             Narrative:
-                $"This branch has reached a natural recap point for {ChildLabel(current.ChildTarget)}. [p:{cites[0]}]\n\n" +
-                $"The recent drill steps are no longer surfacing a clearly new supported angle, so this is a good place to consolidate before changing direction. [p:{cites[^1]}]",
+                $"Quick recap: this {ChildLabel(current.ChildTarget)} path covered {covered}. [p:{cites[0]}]\n\n" +
+                $"The later steps kept returning to the same core evidence rather than opening a clearly new branch, so this is a good point to consolidate before choosing another direction. [p:{cites[^1]}]",
             Choices: new List<TutorChoice>
             {
-                new($"{FocusPrefix(current.Focus)}-4", "Change focus.\nReturn and choose another part of the paper.", TutorAction.ChangeFocus, "focus_menu")
+                new($"{FocusPrefix(current.Focus)}-4", FocusMenuLabel(), TutorAction.ChangeFocus, "focus_menu")
             },
             Cites: cites.Count <= 3 ? cites : new List<int> { cites[0], cites[cites.Count / 2], cites[^1] },
-            StepSummary: $"Recap: {ChildLabel(current.ChildTarget)}"
+            StepSummary: $"Recap: {ChildLabel(current.ChildTarget)}",
+            Stage: "recap"
         );
+    }
+
+    private static string BuildDrillRecapSummary(TutorDrillNode current, List<TutorDrillNode> path)
+    {
+        var labels = path
+            .Select(x => StripDrillAngleSuffix(x.DrillTarget).Replace('_', ' '))
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .TakeLast(3)
+            .ToList();
+
+        if (labels.Count == 0)
+        {
+            labels.Add(ChildLabel(current.ChildTarget));
+        }
+
+        if (labels.Count == 1)
+        {
+            return labels[0];
+        }
+
+        if (labels.Count == 2)
+        {
+            return $"{labels[0]} and {labels[1]}";
+        }
+
+        return string.Join(", ", labels.Take(labels.Count - 1)) + $", and {labels[^1]}";
     }
 
     private static string FocusPrefix(string focus) => focus switch
@@ -1403,11 +1608,15 @@ public static class TutorRetrieval
     private static string DrillQueryTerms(string drillTarget) => drillTarget switch
     {
         "interpret_metrics" => "metric measure result value pattern interpretation reported evidence",
+        "read_the_result" => "main result finding evidence table reported outcome support claim",
         "connect_evidence_to_claim" => "evidence supports claim finding conclusion argument shows demonstrates",
         "relationship_detail" => "relationship association connection interaction between variables results",
         "argument_significance" => "significance implication importance supports argument conclusion contribution",
+        "field_or_practice_impact" => "field contribution practice impact application significance broader importance",
         "exception_detail" => "exception contrast unexpected result boundary case qualification",
         "exception_vs_trend" => "exception compared with trend pattern contrast main result",
+        "main_tradeoff" => "tradeoff cost benefit limitation efficiency accuracy constraint compromise",
+        "boundary_condition" => "boundary condition limitation scope generalizability caveat where applies",
         "dataset_breadth" => "sample dataset source coverage scope cases observations data",
         "source_credibility" => "source reliability validity provenance selection limitation evidence",
         "variable_definition" => "variable definition measure construct operationalization category",
@@ -1429,6 +1638,20 @@ public static class TutorRetrieval
         "concept_definition" => "defines definition meaning term construct category distinction describes understood as",
         "concept_measurement" => "measured by operationalized indicator variable metric proxy coding scale index",
         "concept_relationships" => "relationship between linked to associated with connects framework mechanism model",
+        "evidence_to_mechanism" => "mechanism explanation evidence supports claim result finding process method",
+        "evidence_strength" => "strong evidence support result significant comparison table pattern finding",
+        "evidence_tradeoff" => "tradeoff cost benefit limitation accuracy efficiency constraint compromise",
+        "claim_support_strength" => "supports claim evidence enough result proves demonstrates comparison",
+        "evidence_boundary" => "boundary limitation evidence scope sample context dataset generalize caveat",
+        "contribution_to_field" => "contribution field research direction advances state of art significance",
+        "why_previous_models_matter" => "previous model baseline comparison recurrent convolutional prior work state of art",
+        "practical_significance" => "practical deployment training cost efficiency speed resource application",
+        "scope_of_impact" => "scope impact generalize context domain application population setting",
+        "adoption_conditions" => "condition adoption transfer requirement data method context setting",
+        "tradeoff_evidence" => "tradeoff evidence cost benefit efficiency accuracy limitation result",
+        "unsettled_question" => "unresolved unclear future work limitation question remains evidence",
+        "scope_boundary" => "scope boundary limitation applies generalization dataset context population",
+        "missing_evidence" => "missing evidence limitation absent not shown future work additional experiment",
         var x when x.EndsWith("_evidence", StringComparison.OrdinalIgnoreCase) => "evidence example passage result support detail",
         var x when x.EndsWith("_limits", StringComparison.OrdinalIgnoreCase) => "limit constraint caveat uncertainty scope qualification",
         var x when x.EndsWith("_significance", StringComparison.OrdinalIgnoreCase) => "significance implication importance contribution why matters",

@@ -1,4 +1,4 @@
-// Example utility functions for your AI Case Learning Assistant
+// Example utility functions for CasePilot
 export const formatCaseTitle = title => {
   return title.trim().replace(/\s+/g, ' ')
 }

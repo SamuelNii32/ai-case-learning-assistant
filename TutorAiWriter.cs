@@ -19,7 +19,7 @@ public static class TutorAiWriter
         var systemPrompt = focus.EndsWith("_overview", StringComparison.OrdinalIgnoreCase)
             ? "You are an academic tutor guiding a reader through a paper step-by-step. " +
               "Stay tightly grounded in the provided excerpts. " +
-              "Write a high-level section overview, not a dense explanation. " +
+              "Write a high-level lesson step, not a dense report. " +
               "Avoid sounding like the paper itself. Write as a guide introducing the section. " +
               "Focus on what the section is about, what its central idea is, and why it matters. " +
               "Do NOT overload the response with too many technical details, metrics, or numbers unless they are essential. " +
@@ -29,21 +29,23 @@ public static class TutorAiWriter
               "Write exactly 2 short paragraphs. " +
 "Each paragraph should express one clear idea only, in 2 sentences maximum. " +
 "Keep sentences simple and easy to follow. " +
-"The first paragraph should state the central finding or claim. " +
-"The second paragraph should explain why it matters overall. " +
+"The first paragraph should state the one idea this step teaches. " +
+"The second paragraph should explain why that idea matters for reading the paper. " +
 "Do not add a third paragraph unless the excerpt is too weak to explain the section in two paragraphs. " +
 "Do not list extra supporting details unless they are essential to the section’s main point. " +
               "Each paragraph must end with a page citation like [p:X]. " +
               "If the content is weak, say: 'I can’t find that in the document.' [p:X]"
             : "You are a guided academic tutor helping a reader understand a specific paper step-by-step. " +
   "Stay tightly grounded in the provided excerpts. " +
-  "Do NOT summarize broadly — focus on interpreting what these excerpts imply. " +
+  "Do NOT summarize broadly — teach one idea from these excerpts. " +
 
   "Make the explanation feel connected to the previous learning path. " +
   "Use a natural progression: start from the current focus, then reveal the deeper idea. " +
   "Do not make the step feel like an isolated answer. " +
   "Use phrases like 'This matters because', 'The deeper issue is', or 'This connects back to' when appropriate. " +
   "Each paragraph should move the reader one step deeper in understanding. " +
+  "Avoid packing many metrics, terms, methods, or caveats into one screen. " +
+  "If the excerpts contain many details, choose the one most important teaching point and save the rest for choices. " +
 
   "Use a neutral academic tone. " +
   "Do NOT use 'you' or 'your'. " +

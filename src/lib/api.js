@@ -221,6 +221,71 @@ export async function getUploadSummary(uploadId) {
   return res.json()
 }
 
+export async function getUploadLayout(uploadId) {
+  const path = `/uploads/${encodeURIComponent(uploadId)}/layout`
+  let res = await requestWithRetry(makeUrl(path), { method: 'GET' })
+
+  if (res.status === 404) {
+    const analyzePath = `/uploads/${encodeURIComponent(uploadId)}/layout/analyze`
+    const analyzeRes = await requestWithRetry(makeUrl(analyzePath), { method: 'POST' })
+    if (analyzeRes.status === 401) {
+      const txt = await analyzeRes.text().catch(() => '')
+      await handleAuthFailure(analyzeRes, txt, analyzePath)
+      throw new Error('Layout analysis failed: unauthorized')
+    }
+    if (!analyzeRes.ok) {
+      const txt = await analyzeRes.text().catch(() => '')
+      throw new Error(`Layout analysis failed: ${analyzeRes.status} ${txt}`)
+    }
+    return analyzeRes.json()
+  }
+
+  if (res.status === 401) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt, path)
+    throw new Error('Layout fetch failed: unauthorized')
+  }
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`Layout fetch failed: ${res.status} ${txt}`)
+  }
+  return res.json()
+}
+
+export async function startReadingCoach(uploadId) {
+  const url = makeUrl(`/tutor/reading/start/${encodeURIComponent(uploadId)}`)
+  const res = await requestWithRetry(url, { method: 'POST' })
+  if (res.status === 401) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt, `/tutor/reading/start/${encodeURIComponent(uploadId)}`)
+    throw new Error('Reading Coach failed: unauthorized')
+  }
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`Reading Coach failed: ${res.status} ${txt}`)
+  }
+  return res.json()
+}
+
+export async function answerReadingCoach(sessionId, stepId, answer) {
+  const url = makeUrl('/tutor/reading/answer')
+  const res = await requestWithRetry(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, stepId, answer }),
+  })
+  if (res.status === 401) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt, '/tutor/reading/answer')
+    throw new Error('Reading Coach answer failed: unauthorized')
+  }
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`Reading Coach answer failed: ${res.status} ${txt}`)
+  }
+  return res.json()
+}
+
 export async function createSession(uploadId) {
   const url = makeUrl('/sessions')
   const res = await requestWithRetry(url, {
@@ -610,11 +675,16 @@ export async function deleteSession(sessionId) {
 
   if (res.status === 401 || res.status === 403) {
     authFailureHandler?.({ where: 'deleteSession', status: res.status })
-    throw new Error('unauthorized')
+    throw new Error('Please sign in again to delete this conversation.')
+  }
+
+  if (res.status === 404) {
+    throw new Error('This conversation was already deleted or is no longer available.')
   }
 
   if (!res.ok) {
-    throw new Error('Delete session failed')
+    const txt = await res.text().catch(() => '')
+    throw new Error(txt || 'Delete conversation failed. Please try again.')
   }
 
   return true
@@ -691,6 +761,28 @@ export async function getClassDetails(classId) {
   return res.json()
 }
 
+export async function deleteClass(classId) {
+  const url = makeUrl(`/classes/${encodeURIComponent(classId)}`)
+  const res = await requestWithRetry(url, { method: 'DELETE' })
+
+  if (res.status === 401 || res.status === 403) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt)
+    throw new Error('Delete class failed: unauthorized')
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`Delete class failed (${res.status}): ${txt}`)
+  }
+
+  try {
+    return await res.json()
+  } catch {
+    return true
+  }
+}
+
 export async function getClassStudents(classId) {
   const url = makeUrl(`/classes/${encodeURIComponent(classId)}/students`)
   if (isDemoModeEnabled() && isDemoSessionActive()) {
@@ -728,6 +820,44 @@ export async function getClassCases(classId) {
   if (!res.ok) {
     const txt = await res.text().catch(() => '')
     throw new Error(`Get class cases failed (${res.status}): ${txt}`)
+  }
+
+  return res.json()
+}
+
+export async function getClassTutorProgress(classId) {
+  const url = makeUrl(`/admin/classes/${encodeURIComponent(classId)}/tutor-progress`)
+  const res = await requestWithRetry(url, { method: 'GET' })
+
+  if (res.status === 401 || res.status === 403) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt, `/admin/classes/${encodeURIComponent(classId)}/tutor-progress`)
+    throw new Error('Get Reading Coach progress failed: unauthorized')
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`Get Reading Coach progress failed (${res.status}): ${txt}`)
+  }
+
+  return res.json()
+}
+
+export async function getStudentTutorProgress(classId, studentId, uploadId) {
+  const url = makeUrl(
+    `/admin/classes/${encodeURIComponent(classId)}/tutor-progress/${encodeURIComponent(studentId)}/${encodeURIComponent(uploadId)}`
+  )
+  const res = await requestWithRetry(url, { method: 'GET' })
+
+  if (res.status === 401 || res.status === 403) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt, url)
+    throw new Error('Get learner Reading Coach detail failed: unauthorized')
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`Get learner Reading Coach detail failed (${res.status}): ${txt}`)
   }
 
   return res.json()
@@ -918,50 +1048,6 @@ export async function deleteStudentFromClass(classId, studentId) {
   } catch {
     return true
   }
-}
-
-// -----------------------------------------------
-// Reading Coach / Tutor Progress (Instructor)
-// -----------------------------------------------
-
-export async function getClassTutorProgress(classId) {
-  const url = makeUrl(`/admin/classes/${encodeURIComponent(classId)}/tutor-progress`)
-  const res = await requestWithRetry(url, { method: 'GET' })
-
-  if (res.status === 401 || res.status === 403) {
-    const txt = await res.text().catch(() => '')
-    await handleAuthFailure(res, txt)
-    throw new Error('Get tutor progress failed: unauthorized')
-  }
-
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '')
-    throw new Error(`Get tutor progress failed (${res.status}): ${txt}`)
-  }
-
-  return res.json()
-}
-
-export async function getStudentTutorProgress(classId, studentId, uploadId) {
-  const url = makeUrl(
-    `/admin/classes/${encodeURIComponent(classId)}/tutor-progress/${encodeURIComponent(
-      studentId
-    )}/${encodeURIComponent(uploadId)}`
-  )
-  const res = await requestWithRetry(url, { method: 'GET' })
-
-  if (res.status === 401 || res.status === 403) {
-    const txt = await res.text().catch(() => '')
-    await handleAuthFailure(res, txt)
-    throw new Error('Get student tutor progress failed: unauthorized')
-  }
-
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '')
-    throw new Error(`Get student tutor progress failed (${res.status}): ${txt}`)
-  }
-
-  return res.json()
 }
 
 // -----------------------------------------------

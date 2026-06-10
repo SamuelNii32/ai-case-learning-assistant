@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useContext } from 'react'
+import React, { useEffect, useState, useContext, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { AuthContext } from '@/contexts/AuthContext'
 import {
@@ -11,14 +11,70 @@ import {
   getClassStudents,
   getClassCases,
   getClassTutorProgress,
+  deleteClass,
   getJoinCode,
   regenerateJoinCode,
 } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
-import { ArrowLeft, Users, BookOpen, Copy, RotateCw } from 'lucide-react'
+import {
+  ArrowLeft,
+  Users,
+  BookOpen,
+  AlertTriangle,
+  CheckCircle2,
+  Clock3,
+  Trash2,
+  Copy,
+  RotateCw,
+} from 'lucide-react'
 import toast from 'react-hot-toast'
+
+const STATUS_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'needs_help', label: 'Needs attention' },
+  { value: 'in_progress', label: 'In progress' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'not_started', label: 'Not started' },
+]
+
+function normalizeStatus(value) {
+  const raw = String(value || 'not_started').toLowerCase()
+  if (raw === 'needs_help') return 'Needs attention'
+  if (raw === 'in_progress') return 'In progress'
+  if (raw === 'not_started') return 'Not started'
+  if (raw === 'completed') return 'Completed'
+  return raw
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map(part => part[0]?.toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function statusClass(value) {
+  const raw = String(value || 'not_started').toLowerCase()
+  if (raw === 'needs_help') return 'bg-red-50 text-red-700 border-red-200'
+  if (raw === 'completed') return 'bg-green-50 text-green-700 border-green-200'
+  if (raw === 'in_progress') return 'bg-blue-50 text-blue-700 border-blue-200'
+  return 'bg-slate-50 text-slate-600 border-slate-200'
+}
+
+function formatDate(value) {
+  if (!value) return 'No activity yet'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
+function progressSortRank(row) {
+  const status = String(row.status || '').toLowerCase()
+  if (status === 'needs_help') return 0
+  if (status === 'in_progress') return 1
+  if (status === 'not_started') return 2
+  if (status === 'completed') return 3
+  return 4
+}
 
 export default function ClassDetail() {
   const { classId } = useParams()
@@ -36,14 +92,15 @@ export default function ClassDetail() {
   const [loadingUploads, setLoadingUploads] = useState(false)
   const [removingStudentId, setRemovingStudentId] = useState(null)
   const [unassigningUploadId, setUnassigningUploadId] = useState(null)
+  const [deletingClass, setDeletingClass] = useState(false)
   // Local snapshots for lists so counts always reflect server
   const [students, setStudents] = useState([])
   const [cases, setCases] = useState([])
-  // Reading Coach / Tutor Progress
   const [tutorProgress, setTutorProgress] = useState([])
-  const [loadingTutorProgress, setLoadingTutorProgress] = useState(false)
-  const [tutorProgressError, setTutorProgressError] = useState(null)
-  // Join Code
+  const [progressLoading, setProgressLoading] = useState(false)
+  const [progressError, setProgressError] = useState('')
+  const [progressFilter, setProgressFilter] = useState('all')
+  const [progressSearch, setProgressSearch] = useState('')
   const [joinCode, setJoinCode] = useState('')
   const [loadingJoinCode, setLoadingJoinCode] = useState(false)
   const [regeneratingJoinCode, setRegeneratingJoinCode] = useState(false)
@@ -58,62 +115,6 @@ export default function ClassDetail() {
     } finally {
       setLoadingUploads(false)
     }
-  }
-
-  async function loadTutorProgress() {
-    try {
-      setLoadingTutorProgress(true)
-      setTutorProgressError(null)
-      const data = await getClassTutorProgress(classId)
-      setTutorProgress(Array.isArray(data) ? data : [])
-    } catch (err) {
-      console.error('Failed to load tutor progress', err)
-      setTutorProgressError(err?.message || 'Failed to load Reading Coach progress')
-      setTutorProgress([])
-    } finally {
-      setLoadingTutorProgress(false)
-    }
-  }
-
-  async function loadJoinCode() {
-    try {
-      setLoadingJoinCode(true)
-      const response = await getJoinCode(classId)
-      // Backend may return { joinCode: "..." } or just "..."
-      const code = response?.joinCode || response?.code || response
-      setJoinCode(code || '')
-    } catch (err) {
-      console.error('Failed to load join code', err)
-      setJoinCode('')
-    } finally {
-      setLoadingJoinCode(false)
-    }
-  }
-
-  async function handleRegenerateJoinCode() {
-    if (!window.confirm('Regenerate the class join code? Students will need the new code to join.')) {
-      return
-    }
-    try {
-      setRegeneratingJoinCode(true)
-      const response = await regenerateJoinCode(classId)
-      const newCode = response?.joinCode || response?.code || response
-      setJoinCode(newCode || '')
-      toast.success('Join code regenerated')
-    } catch (err) {
-      toast.error(err?.message || 'Failed to regenerate join code')
-    } finally {
-      setRegeneratingJoinCode(false)
-    }
-  }
-
-  function handleCopyJoinCode() {
-    if (!joinCode) {
-      toast.error('No join code available')
-      return
-    }
-    navigator.clipboard.writeText(joinCode)
-    toast.success('Join code copied to clipboard')
   }
 
   async function loadDetails() {
@@ -136,6 +137,35 @@ export default function ClassDetail() {
     }
   }
 
+  async function loadTutorProgress() {
+    try {
+      setProgressLoading(true)
+      setProgressError('')
+      const rows = await getClassTutorProgress(classId)
+      setTutorProgress(Array.isArray(rows) ? rows : [])
+    } catch (err) {
+      console.error('Failed to load Reading Coach progress', err)
+      setProgressError(err?.message || 'Failed to load Reading Coach progress')
+      setTutorProgress([])
+    } finally {
+      setProgressLoading(false)
+    }
+  }
+
+  async function loadJoinCode() {
+    try {
+      setLoadingJoinCode(true)
+      const response = await getJoinCode(classId)
+      const code = response?.joinCode || response?.code || response
+      setJoinCode(code || '')
+    } catch (err) {
+      console.error('Failed to load join code', err)
+      setJoinCode('')
+    } finally {
+      setLoadingJoinCode(false)
+    }
+  }
+
   useEffect(() => {
     loadDetails()
     loadMyUploads()
@@ -143,25 +173,6 @@ export default function ClassDetail() {
     loadJoinCode()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classId])
-
-  function renderText(value, fallback = '') {
-    if (value == null) return fallback
-    if (typeof value === 'string') return value
-    if (typeof value === 'number') return String(value)
-    // handle common object shapes
-    if (typeof value === 'object') {
-      if (Array.isArray(value)) return value.map(item => renderText(item)).join(', ')
-      return value.title ?? value.name ?? value.label ?? value.text ?? JSON.stringify(value)
-    }
-    return String(value)
-  }
-
-  function getProgressKey(item, index) {
-    const studentId = renderText(item?.studentId || item?.userId || item?.student?.id || '')
-    const uploadId = renderText(item?.uploadId || item?.caseId || item?.case?.id || '')
-    const status = renderText(item?.status || item?.state || '')
-    return `${studentId || 'student'}:${uploadId || 'case'}:${status || 'status'}:${index}`
-  }
 
   // Prefill upload selection from query param when present
   useEffect(() => {
@@ -191,6 +202,7 @@ export default function ClassDetail() {
       }
       setStudentEmail('')
       await loadDetails()
+      await loadTutorProgress()
     } catch (err) {
       toast.error(err?.message || 'Failed to add student')
     } finally {
@@ -216,6 +228,7 @@ export default function ClassDetail() {
       }
       setUploadId('')
       await loadDetails()
+      await loadTutorProgress()
     } catch (err) {
       toast.error(err?.message || 'Failed to assign case')
     } finally {
@@ -231,6 +244,7 @@ export default function ClassDetail() {
       await deleteStudentFromClass(classId, studentId)
       toast.success('Student removed')
       await loadDetails()
+      await loadTutorProgress()
     } catch (err) {
       toast.error(err?.message || 'Failed to remove student')
     } finally {
@@ -246,6 +260,7 @@ export default function ClassDetail() {
       await unassignCaseFromClass(classId, uploadIdToUnassign)
       toast.success('Case unassigned')
       await loadDetails()
+      await loadTutorProgress()
     } catch (err) {
       toast.error(err?.message || 'Failed to unassign case')
     } finally {
@@ -253,7 +268,96 @@ export default function ClassDetail() {
     }
   }
 
+  async function handleDeleteClass() {
+    if (!details?.name || !classId) return
+    const confirmed = window.confirm(
+      `Delete "${details.name}"? This removes the class, enrollments, and assignments. Student accounts, uploaded cases, and existing sessions will not be deleted.`
+    )
+    if (!confirmed) return
+
+    setDeletingClass(true)
+    try {
+      await deleteClass(classId)
+      toast.success('Class deleted')
+      navigate('/admin/classes')
+    } catch (err) {
+      toast.error(err?.message || 'Failed to delete class')
+      setDeletingClass(false)
+    }
+  }
+
+  async function handleRegenerateJoinCode() {
+    if (!window.confirm('Regenerate the class join code? Students will need the new code to join.')) {
+      return
+    }
+
+    try {
+      setRegeneratingJoinCode(true)
+      const response = await regenerateJoinCode(classId)
+      const newCode = response?.joinCode || response?.code || response
+      setJoinCode(newCode || '')
+      toast.success('Join code regenerated')
+    } catch (err) {
+      toast.error(err?.message || 'Failed to regenerate join code')
+    } finally {
+      setRegeneratingJoinCode(false)
+    }
+  }
+
+  async function handleCopyJoinCode() {
+    if (!joinCode) {
+      toast.error('No join code available')
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(joinCode)
+      toast.success('Join code copied')
+    } catch {
+      toast.error('Could not copy join code')
+    }
+  }
+
   // History view has been moved to a dedicated page accessible from the sidebar
+
+  const progressSummary = useMemo(() => {
+    const total = tutorProgress.length
+    const started = tutorProgress.filter(row => Number(row.answerAttempts || 0) > 0 || row.latestTutorSessionId).length
+    const needsAttention = tutorProgress.filter(row => row.needsAttention || row.status === 'needs_help').length
+    const completed = tutorProgress.filter(row => row.status === 'completed').length
+    const notStarted = tutorProgress.filter(row => row.status === 'not_started' || (!row.latestTutorSessionId && Number(row.answerAttempts || 0) === 0)).length
+    const onTrack = Math.max(0, started - needsAttention)
+    return { total, started, onTrack, needsAttention, completed, notStarted }
+  }, [tutorProgress])
+
+  const filteredProgress = useMemo(() => {
+    const query = progressSearch.trim().toLowerCase()
+    return [...tutorProgress]
+      .filter(row => {
+        const status = String(row.status || 'not_started').toLowerCase()
+        const matchesStatus = progressFilter === 'all' || status === progressFilter
+        if (!matchesStatus) return false
+        if (!query) return true
+        const haystack = [
+          row.studentName,
+          row.studentEmail,
+          row.fileName,
+          row.currentStep?.title,
+          row.lastHelpQuestion,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+        return haystack.includes(query)
+      })
+      .sort((a, b) => {
+        const rank = progressSortRank(a) - progressSortRank(b)
+        if (rank !== 0) return rank
+        const aTime = a.lastActivity ? new Date(a.lastActivity).getTime() : 0
+        const bTime = b.lastActivity ? new Date(b.lastActivity).getTime() : 0
+        return bTime - aTime
+      })
+  }, [progressFilter, progressSearch, tutorProgress])
 
   if (!auth?.loggedIn || auth?.user?.role !== 'instructor') {
     return (
@@ -279,22 +383,36 @@ export default function ClassDetail() {
           </Button>
           <div>
             <h1 className="text-2xl md:text-3xl font-bold">
-              {renderText(details?.name, 'Class')}
+              {details?.name || 'Class'}
             </h1>
             {details?.description && (
-              <p className="text-sm text-slate-600 mt-1">{renderText(details.description)}</p>
+              <p className="text-sm text-slate-600 mt-1">{details.description}</p>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-4 text-sm text-slate-600">
-          <div className="flex items-center gap-2">
-            <Users className="h-4 w-4" />
-            <span>{(students?.length ?? details?.students?.length ?? 0)} students</span>
+        <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              <span>{(students?.length ?? details?.students?.length ?? 0)} students</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <BookOpen className="h-4 w-4" />
+              <span>{(cases?.length ?? details?.cases?.length ?? 0)} cases</span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <BookOpen className="h-4 w-4" />
-            <span>{(cases?.length ?? details?.cases?.length ?? 0)} cases</span>
-          </div>
+          {details ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDeleteClass}
+              disabled={deletingClass}
+              className="inline-flex items-center gap-2 border-red-200 text-red-700 hover:bg-red-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              {deletingClass ? 'Deleting...' : 'Delete class'}
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -303,58 +421,58 @@ export default function ClassDetail() {
       ) : !details ? (
         <Card className="p-6">Class not found.</Card>
       ) : (
-        <div className="space-y-6">
-          {/* Class Join Code Section */}
-          <Card className="p-6 space-y-4 border-2 border-[#C96A08]/20 bg-gradient-to-br from-[#fdf4eb] to-[#f9f1e8]">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-[#2c2218]">Class Join Code</h2>
-                <p className="text-sm text-[#7a5c3c] mt-1">Share this code with students to let them join the class</p>
-              </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card className="p-6 space-y-4 border-2 border-[#C96A08]/20 bg-gradient-to-br from-[#fdf4eb] to-[#f9f1e8] lg:col-span-2">
+            <div>
+              <h2 className="text-lg font-semibold text-[#2c2218]">Class join code</h2>
+              <p className="text-sm text-[#7a5c3c] mt-1">
+                Share this code with students so they can join the class.
+              </p>
             </div>
 
             {loadingJoinCode ? (
-              <div className="p-4 bg-white border border-[#e4d6c7] rounded-md text-center">
-                <p className="text-sm text-[#7a5c3c]">Loading code…</p>
+              <div className="rounded-md border border-[#e4d6c7] bg-white p-4 text-center text-sm text-[#7a5c3c]">
+                Loading code...
               </div>
             ) : joinCode ? (
               <div className="space-y-3">
-                <div className="flex items-center gap-3 p-4 bg-white border-2 border-[#C96A08] rounded-md">
+                <div className="flex flex-col gap-3 rounded-md border-2 border-[#C96A08] bg-white p-4 sm:flex-row sm:items-center">
                   <div className="flex-1">
-                    <p className="text-xs text-[#7a5c3c] font-medium uppercase tracking-widest">Join Code</p>
-                    <p className="text-3xl font-bold text-[#2c2218] font-mono tracking-wider">{joinCode}</p>
+                    <p className="text-xs font-medium uppercase tracking-widest text-[#7a5c3c]">
+                      Join code
+                    </p>
+                    <p className="font-mono text-3xl font-bold tracking-wider text-[#2c2218]">
+                      {joinCode}
+                    </p>
                   </div>
                   <Button
                     variant="warm"
                     size="sm"
                     onClick={handleCopyJoinCode}
-                    className="whitespace-nowrap flex items-center gap-2"
+                    className="inline-flex items-center gap-2 whitespace-nowrap"
                   >
                     <Copy className="h-4 w-4" />
                     Copy
                   </Button>
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRegenerateJoinCode}
-                    disabled={regeneratingJoinCode}
-                    className="flex items-center gap-2"
-                  >
-                    <RotateCw className={`h-4 w-4 ${regeneratingJoinCode ? 'animate-spin' : ''}`} />
-                    {regeneratingJoinCode ? 'Regenerating…' : 'Regenerate Code'}
-                  </Button>
-                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRegenerateJoinCode}
+                  disabled={regeneratingJoinCode}
+                  className="inline-flex items-center gap-2"
+                >
+                  <RotateCw className={`h-4 w-4 ${regeneratingJoinCode ? 'animate-spin' : ''}`} />
+                  {regeneratingJoinCode ? 'Regenerating...' : 'Regenerate code'}
+                </Button>
               </div>
             ) : (
-              <div className="p-4 bg-white border border-[#e4d6c7] rounded-md text-center">
-                <p className="text-sm text-[#7a5c3c]">No join code available</p>
+              <div className="rounded-md border border-[#e4d6c7] bg-white p-4 text-center text-sm text-[#7a5c3c]">
+                No join code available.
               </div>
             )}
           </Card>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6 space-y-4">
             <div>
               <h2 className="text-lg font-semibold">Students</h2>
@@ -450,98 +568,157 @@ export default function ClassDetail() {
             </div>
           </Card>
 
-          </div>
-
-          {/* Reading Coach Progress Section */}
-          <Card className="p-6 space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold">Reading Coach Progress</h2>
-              <p className="text-sm text-slate-600">Learner progress on assigned cases.</p>
+          <Card className="p-6 space-y-5 lg:col-span-2">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Reading Coach Progress</h2>
+                <p className="text-sm text-slate-600">
+                  Class-level view of learner progress on assigned cases.
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={loadTutorProgress} disabled={progressLoading}>
+                {progressLoading ? 'Refreshing...' : 'Refresh'}
+              </Button>
             </div>
 
-            {loadingTutorProgress ? (
-              <div className="p-4 bg-[#fdf4eb] border border-[#f3e0ce] rounded-md text-center">
-                <p className="text-sm text-[#7a5c3e]">Loading progress…</p>
+            {progressError ? (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {progressError}
               </div>
-            ) : tutorProgressError ? (
-              <div className="p-4 bg-[#fde5e5] border border-[#f2c6c6] rounded-md">
-                <p className="text-sm text-[#8c1c1c] font-medium">Error</p>
-                <p className="text-xs text-[#8c1c1c] mt-1">{tutorProgressError}</p>
+            ) : null}
+
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+              <div className="rounded-md border border-slate-200 bg-white p-3">
+                <div className="text-2xl font-semibold">{progressSummary.total}</div>
+                <div className="text-xs text-slate-600">assigned</div>
               </div>
-            ) : tutorProgress.length === 0 ? (
-              <div className="p-4 bg-[#fdf4eb] border border-[#f3e0ce] rounded-md text-center">
-                <p className="text-sm text-[#7a5c3e]">No Reading Coach activity yet.</p>
+              <div className="rounded-md border border-slate-200 bg-white p-3">
+                <div className="text-2xl font-semibold">{progressSummary.started}</div>
+                <div className="text-xs text-slate-600">started</div>
+              </div>
+              <div className="rounded-md border border-green-200 bg-green-50 p-3">
+                <div className="text-2xl font-semibold text-green-700">{progressSummary.onTrack}</div>
+                <div className="text-xs text-green-700">on track</div>
+              </div>
+              <div className="rounded-md border border-red-200 bg-red-50 p-3">
+                <div className="text-2xl font-semibold text-red-700">{progressSummary.needsAttention}</div>
+                <div className="text-xs text-red-700">need attention</div>
+              </div>
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
+                <div className="text-2xl font-semibold text-blue-700">{progressSummary.completed}</div>
+                <div className="text-xs text-blue-700">completed</div>
+              </div>
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                <div className="text-2xl font-semibold text-slate-700">{progressSummary.notStarted}</div>
+                <div className="text-xs text-slate-600">not started</div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <Input
+                value={progressSearch}
+                onChange={e => setProgressSearch(e.target.value)}
+                placeholder="Search student, case, or step"
+                className="md:max-w-sm"
+              />
+              <div className="flex flex-wrap gap-2">
+                {STATUS_OPTIONS.map(option => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setProgressFilter(option.value)}
+                    className={`rounded-md border px-3 py-1.5 text-sm transition ${
+                      progressFilter === option.value
+                        ? 'border-[#C96A08] bg-[#fff2e4] text-[#2C2218]'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {progressLoading ? (
+              <div className="rounded-md border border-slate-200 p-4 text-sm text-slate-600">
+                Loading Reading Coach progress...
+              </div>
+            ) : filteredProgress.length ? (
+              <div className="overflow-x-auto rounded-md border border-slate-200">
+                <table className="min-w-full divide-y divide-slate-200 text-sm">
+                  <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Student</th>
+                      <th className="px-4 py-3 font-medium">Case</th>
+                      <th className="px-4 py-3 font-medium">Status</th>
+                      <th className="px-4 py-3 font-medium">Progress</th>
+                      <th className="px-4 py-3 font-medium">Last activity</th>
+                      <th className="px-4 py-3 font-medium" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {filteredProgress.map(row => {
+                      const studentName = row.studentName || row.studentEmail || 'Learner'
+                      const caseName = row.fileName || 'Assigned case'
+                      const progressText = `${row.completedSteps || 0}/${row.totalSteps || 0} steps`
+                      return (
+                        <tr key={`${row.studentId}-${row.uploadId}`} className={row.needsAttention ? 'bg-red-50/40' : ''}>
+                          <td className="px-4 py-3">
+                            <div className="font-medium text-[#2C2218]">{studentName}</div>
+                            {row.studentEmail && row.studentEmail !== studentName ? (
+                              <div className="text-xs text-slate-500">{row.studentEmail}</div>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="max-w-xs truncate text-slate-700" title={caseName}>
+                              {caseName}
+                            </div>
+                            {row.currentStep?.title ? (
+                              <div className="text-xs text-slate-500">Current: {row.currentStep.title}</div>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${statusClass(row.status)}`}>
+                              {row.needsAttention ? <AlertTriangle className="h-3.5 w-3.5" /> : row.status === 'completed' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Clock3 className="h-3.5 w-3.5" />}
+                              {normalizeStatus(row.status)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            <div>{progressText}</div>
+                            <div className="text-xs text-slate-500">
+                              {row.answerAttempts || 0} answers · {row.weakAttempts || 0} weak · {row.helpRequests || 0} help
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-slate-600">{formatDate(row.lastActivity)}</td>
+                          <td className="px-4 py-3 text-right">
+                            <Button
+                              variant={row.needsAttention ? 'warm' : 'outline'}
+                              size="sm"
+                              onClick={() =>
+                                navigate(
+                                  `/admin/classes/${encodeURIComponent(classId)}/tutor-progress/${encodeURIComponent(row.studentId)}/${encodeURIComponent(row.uploadId)}`
+                                )
+                              }
+                            >
+                              View details
+                            </Button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
               </div>
             ) : (
-              <div className="space-y-3">
-                {tutorProgress.map((item, idx) => {
-                  // Normalize field names defensively
-                  const studentId = item.studentId || item.userId
-                  const studentName = renderText(item.studentName || item.fullName || item.email || item.student?.name || 'Unknown')
-                  const studentEmail = renderText(item.email || item.student?.email || '')
-                  const caseName = renderText(item.caseName || item.fileName || item.originalFileName || item.uploadId || item.case?.name || 'Unknown Case')
-                  const status = renderText(item.status || item.state || item.progressStatus || 'Unknown')
-                  const currentNode = renderText(item.currentNode || item.currentStep || item.latestStep || item.node || '—')
-                  const completedSteps = renderText(item.completedStepCount ?? item.stepsCompleted ?? item.completedSteps ?? item.answerCount ?? 0)
-                  const lastActivity = item.updatedAt || item.lastActivityAt || item.createdAt
-                  const uploadId = renderText(item.uploadId || item.caseId || item.case?.id || '')
-
-                  return (
-                    <div
-                      key={getProgressKey(item, idx)}
-                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-[#fdf4eb] border border-[#f3e0ce] rounded-md hover:shadow-md transition-shadow"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-[#2c2218]">{studentName}</div>
-                        {studentEmail && (
-                          <div className="text-xs text-[#7a5c3c]">{studentEmail}</div>
-                        )}
-                        <div className="text-xs text-[#7a5c3c] mt-1">
-                          <span className="font-medium">Case:</span> {caseName}
-                        </div>
-                        <div className="text-xs text-[#7a5c3c] mt-1 space-x-3">
-                          <span>
-                            <span className="font-medium">Status:</span> {status}
-                          </span>
-                          <span>
-                            <span className="font-medium">Steps:</span> {completedSteps}
-                          </span>
-                          {currentNode !== '—' && (
-                            <span>
-                              <span className="font-medium">Node:</span> {currentNode}
-                            </span>
-                          )}
-                        </div>
-                        {lastActivity && (
-                          <div className="text-xs text-[#7a5c3c] mt-1">
-                            <span className="font-medium">Last:</span>{' '}
-                            {new Date(lastActivity).toLocaleString()}
-                          </div>
-                        )}
-                      </div>
-
-                      {studentId && uploadId && (
-                        <Button
-                          variant="warm"
-                          size="sm"
-                          onClick={() =>
-                            navigate(
-                              `/admin/classes/${encodeURIComponent(classId)}/tutor-progress/${encodeURIComponent(
-                                studentId
-                              )}/${encodeURIComponent(uploadId)}`
-                            )
-                          }
-                          className="w-full sm:w-auto whitespace-nowrap"
-                        >
-                          View Details
-                        </Button>
-                      )}
-                    </div>
-                  )
-                })}
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                {tutorProgress.length
+                  ? 'No learners match the current filters.'
+                  : 'No Reading Coach activity yet. Assigned students will appear here once cases are available.'}
               </div>
             )}
           </Card>
+
+          {/* History card removed; use sidebar History link (/admin/sessions) */}
         </div>
       )}
     </div>

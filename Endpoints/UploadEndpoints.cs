@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Routing;
 using System.Text.Json;
+using Api.Extensions;
 
 namespace Api.Endpoints;
 
@@ -14,6 +15,12 @@ public static class UploadEndpoints
         // POST /uploads  (save PDF + minimal summary) — uses ABSOLUTE uploads path
         app.MapPost("/uploads", async (HttpRequest request, HttpContext ctx, IWebHostEnvironment env) =>
         {
+            var ownerId = ctx.GetCurrentUserId();
+            if (string.IsNullOrWhiteSpace(ownerId))
+            {
+                return Results.Unauthorized();
+            }
+
             if (!request.HasFormContentType)
                 return Results.BadRequest("Use multipart/form-data.");
 
@@ -68,6 +75,19 @@ public static class UploadEndpoints
             {
                 Console.WriteLine($"[PDF IMAGE COUNT WARNING] Could not count images for {filePath}: {ex.Message}");
             }
+            var figures = 0;
+            var tables = 0;
+            try
+            {
+                var layout = await DocumentLayoutAnalyzer.AnalyzeAndSaveAsync(uploadId, env);
+                figures = layout.Captions.Count(c => c.Kind.Equals("figure", StringComparison.OrdinalIgnoreCase));
+                tables = layout.Captions.Count(c => c.Kind.Equals("table", StringComparison.OrdinalIgnoreCase)) + layout.Tables.Count;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[LAYOUT WARNING] Could not analyze layout for {uploadId}: {ex.GetType().Name} - {ex.Message}");
+            }
+
             var summary = new
             {
                 uploadId,
@@ -75,7 +95,7 @@ public static class UploadEndpoints
                 fileSizeBytes,
                 fileSizeMB,
                 pages,
-                counts = new { images },
+                counts = new { images, figures, tables },
                 uploadedAt = uploadedAt.ToString("o"),
                 generatedAt = DateTime.UtcNow.ToString("o")
             };
@@ -88,12 +108,6 @@ public static class UploadEndpoints
 
 
             // persist ownership (per-user scoping)
-            var ownerId = (string?)ctx.Items["userId"] ?? ctx.User.FindFirst("sub")?.Value;
-            if (string.IsNullOrWhiteSpace(ownerId))
-            {
-                return Results.Unauthorized();
-            }
-
             using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString))
             {
                 await conn.OpenAsync();
@@ -119,10 +133,40 @@ public static class UploadEndpoints
         .Produces(StatusCodes.Status415UnsupportedMediaType);
 
         // GET /uploads/{id}/summary — reads from ABSOLUTE path
-        app.MapGet("/uploads/{uploadId:guid}/summary", async (Guid uploadId, IWebHostEnvironment env) =>
+        app.MapGet("/uploads/{uploadId:guid}/summary", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
         {
+            var me = ctx.GetCurrentUserId();
+            if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
+            if (!await CanAccessUploadAsync(connString, uploadId, me)) return Results.NotFound();
+
             var path = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.summary.json");
             if (!File.Exists(path)) return Results.NotFound();
+            var json = await File.ReadAllTextAsync(path);
+            return Results.Text(json, "application/json");
+        });
+
+        app.MapPost("/uploads/{uploadId:guid}/layout/analyze", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
+        {
+            var me = ctx.GetCurrentUserId();
+            if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
+            if (!await CanAccessUploadAsync(connString, uploadId, me)) return Results.NotFound(new { error = "PDF not found" });
+
+            var pdfPath = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.pdf");
+            if (!File.Exists(pdfPath)) return Results.NotFound(new { error = "PDF not found" });
+
+            var manifest = await DocumentLayoutAnalyzer.AnalyzeAndSaveAsync(uploadId, env);
+            return Results.Json(manifest);
+        });
+
+        app.MapGet("/uploads/{uploadId:guid}/layout", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
+        {
+            var me = ctx.GetCurrentUserId();
+            if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
+            if (!await CanAccessUploadAsync(connString, uploadId, me)) return Results.NotFound(new { error = "layout not found" });
+
+            var path = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.layout.json");
+            if (!File.Exists(path)) return Results.NotFound(new { error = "layout not found" });
+
             var json = await File.ReadAllTextAsync(path);
             return Results.Text(json, "application/json");
         });
@@ -131,7 +175,7 @@ public static class UploadEndpoints
         app.MapGet("/cases", async (HttpContext ctx, IWebHostEnvironment env) =>
         {
             // 1) Get current userId from JWT middleware
-            var userId = ctx.Items["userId"] as string;
+            var userId = ctx.GetCurrentUserId();
             if (string.IsNullOrWhiteSpace(userId))
             {
                 // Should not normally happen because of auth middleware,
@@ -212,10 +256,14 @@ public static class UploadEndpoints
         });
 
         // GET/HEAD /uploads/{id}.pdf — serves from ABSOLUTE path (use Results.File)
-        app.MapMethods("/uploads/{uploadId:guid}.pdf", new[] { "GET", "HEAD" }, (Guid uploadId, IWebHostEnvironment env) =>
+        app.MapMethods("/uploads/{uploadId:guid}.pdf", new[] { "GET", "HEAD" }, async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
         {
             try
             {
+                var me = ctx.GetCurrentUserId();
+                if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
+                if (!await CanAccessUploadAsync(connString, uploadId, me)) return Results.NotFound();
+
                 var path = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.pdf");
                 if (!File.Exists(path)) return Results.NotFound();
                 return Results.File(path, "application/pdf", enableRangeProcessing: true);
@@ -229,5 +277,33 @@ public static class UploadEndpoints
 
 
         return app;
+    }
+
+    private static async Task<bool> CanAccessUploadAsync(string connString, Guid uploadId, string userId)
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+        await conn.OpenAsync();
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+SELECT 1
+FROM Uploads u
+WHERE UPPER(u.UploadId) = UPPER($uploadId)
+  AND (
+        u.UserId = $userId
+     OR EXISTS (
+            SELECT 1
+            FROM ClassCases cc
+            JOIN ClassStudents cs ON cs.ClassId = cc.ClassId
+            WHERE UPPER(cc.UploadId) = UPPER(u.UploadId)
+              AND cs.StudentId = $userId
+        )
+  )
+LIMIT 1;
+";
+        cmd.Parameters.AddWithValue("$uploadId", uploadId.ToString());
+        cmd.Parameters.AddWithValue("$userId", userId);
+
+        return await cmd.ExecuteScalarAsync() is not null;
     }
 }

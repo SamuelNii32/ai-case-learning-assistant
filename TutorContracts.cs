@@ -30,12 +30,30 @@ public record TutorStepRequest(
     string ChoiceId
 );
 
+public record TutorAnswerRequest(
+    string SessionId,
+    string StepId,
+    string Answer
+);
+
+public record TutorFeedback(
+    double Score,
+    string Verdict,
+    string Hint
+);
+
 public record TutorResponse(
     string SessionId,
     string Narrative,
     List<TutorChoice> Choices,
     List<int> Cites,
-    string StepSummary
+    string StepSummary,
+    string Stage = "step",
+    string? StepId = null,
+    string? Question = null,
+    int? StepNumber = null,
+    int? TotalSteps = null,
+    TutorFeedback? Feedback = null
 );
 
 public record TutorSession(

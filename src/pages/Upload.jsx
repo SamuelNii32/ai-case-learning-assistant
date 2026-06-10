@@ -21,6 +21,7 @@ export default function UploadPage() {
   const [imageCount, setImageCount] = useState(0)
   const [uploadDate, setUploadDate] = useState('')
   const [uploadId, setUploadId] = useState('')
+  const [analysisPrepStatus, setAnalysisPrepStatus] = useState('idle')
 
   function formatMB(bytes) {
     return (bytes / (1024 * 1024)).toFixed(2) + ' MB'
@@ -57,6 +58,7 @@ export default function UploadPage() {
     }
 
     setFileName(file.name)
+    setAnalysisPrepStatus('idle')
     setUploadState('uploading')
     setUploadProgress(25)
 
@@ -82,17 +84,21 @@ export default function UploadPage() {
 
       setUploadState('processing')
       setUploadProgress(60)
+      setAnalysisPrepStatus('preparing')
 
-      // Kick off indexing (non-blocking): fire-and-forget so the UI isn't blocked by
-      // potentially long-running indexing on the server. We still try to fetch the
-      // summary a few times (short polling) to populate pages/figures when it's ready.
-      try {
-        buildIndex(data.uploadId).catch(idxErr => {
-          console.error('Index build kicked off failed', idxErr)
+      // Start indexing immediately and let it run while summary polling happens.
+      // Waiting here makes the workspace feel faster because Q&A/Reading Coach
+      // can use the index as soon as the student opens the document.
+      const indexPromise = buildIndex(data.uploadId)
+        .then(summary => {
+          setAnalysisPrepStatus('ready')
+          return summary
         })
-      } catch (err) {
-        console.error('Failed to call buildIndex', err)
-      }
+        .catch(idxErr => {
+          console.error('Index build failed after upload', idxErr)
+          setAnalysisPrepStatus('error')
+          return null
+        })
 
       // Fetch summary with short retry/poll loop so the UI can proceed quickly but
       // still pick up summary info as soon as the backend produces it.
@@ -132,6 +138,14 @@ export default function UploadPage() {
       setFileSize(formatMB(bytes))
       setUploadDate(new Date(s.uploadedAt ?? Date.now()).toLocaleString())
 
+      setUploadProgress(85)
+      const indexSummary = await indexPromise
+      if (indexSummary) {
+        setAnalysisPrepStatus('ready')
+      } else {
+        toast.error('Document uploaded, but Q&A preparation failed. You can retry in the workspace.')
+      }
+
       setUploadProgress(100)
       // Notify other parts of the app (Dashboard) that a new case uploaded so they can refresh
       try {
@@ -159,6 +173,7 @@ export default function UploadPage() {
 
       setUploadState('idle')
       setUploadProgress(0)
+      setAnalysisPrepStatus('idle')
     }
   }
 
@@ -180,7 +195,7 @@ export default function UploadPage() {
             <div className="w-8 h-8 bg-[#C96A08] rounded-lg flex items-center justify-center">
               <Sparkles className="w-5 h-5 text-[#f8f5ef]" />
             </div>
-            <span className="font-semibold text-lg text-[#2C2218]">CaseAI</span>
+            <span className="font-semibold text-lg text-[#2C2218]">CasePilot</span>
           </div>
 
           <div className="w-20" />
@@ -212,6 +227,7 @@ export default function UploadPage() {
               figureCount={figureCount}
               imageCount={imageCount}
               uploadDate={uploadDate}
+              analysisPrepStatus={analysisPrepStatus}
               onStartAnalysis={() => navigate(`/workspace/${uploadId}`)}
               onUploadAnother={() => setUploadState('idle')}
               isInstructor={auth?.user?.role === 'instructor'}
