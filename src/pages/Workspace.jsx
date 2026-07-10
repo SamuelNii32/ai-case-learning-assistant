@@ -14,6 +14,7 @@ import { API_BASE } from '@/config'
 import {
   buildIndex,
   getAuthToken,
+  getPagedItems,
   getUploadSummary,
   createSession,
   getSession,
@@ -921,8 +922,8 @@ export default function Workspace() {
 
         if (cancelled) return
 
-        const mapped = Array.isArray(sessions)
-          ? sessions.map(s => {
+        const sessionItems = getPagedItems(sessions)
+        const mapped = sessionItems.map(s => {
               const last = s.lastActivityAt || s.createdAt
               const dateLabel = last
                 ? new Date(last).toLocaleDateString('en-US', {
@@ -940,7 +941,6 @@ export default function Workspace() {
                 messageCount: s.messageCount ?? 0,
               }
             })
-          : []
 
         setConversationHistory(mapped)
       } catch (err) {
@@ -975,9 +975,11 @@ export default function Workspace() {
         const history = await getSession(fromUrl)
         if (cancelled) return
 
-        if (Array.isArray(history) && history.length > 0) {
+        const historyItems = getPagedItems(history)
+
+        if (historyItems.length > 0) {
           setMessages(
-            history.map(m => ({
+            historyItems.map(m => ({
               role: m.role === 'user' ? 'user' : 'assistant',
               content: m.content || '',
               sources: Array.isArray(m.pagesUsed)

@@ -12,15 +12,8 @@ let tokenGetter = null
 // application about 401/403 events and take appropriate action (logout, UI)
 let authFailureHandler = null
 
-// Optional refresh token function registered by AuthContext. If set,
-// api helpers will call it to attempt a token refresh when a request
-// returns 401. The function should return a Promise that resolves when
-// the token has been refreshed (and the stored token updated).
-let refreshTokenFn = null
-
-export function setRefreshTokenFn(fn) {
+export function setRefreshTokenFn() {
   // Refresh flow disabled: ignore registration to prevent any refresh attempts
-  refreshTokenFn = null
 }
 
 export function setAuthTokenGetter(fn) {
@@ -71,6 +64,35 @@ function authHeaders() {
   return {}
 }
 
+export function getPagedItems(data) {
+  if (Array.isArray(data)) return data
+  if (!data || typeof data !== 'object') return []
+
+  const candidates = [
+    data.items,
+    data.results,
+    data.data,
+    data.sessions,
+    data.notes,
+    data.values,
+  ]
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate
+  }
+
+  if (data.data && typeof data.data === 'object') {
+    return getPagedItems(data.data)
+  }
+
+  return []
+}
+
+export function getResponsePayload(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return data
+  return data.data ?? data.summary ?? data.result ?? data
+}
+
 // (Deprecated) refresh handler registration removed. The codebase uses
 // `setRefreshTokenFn` / `refreshTokenFn` for queued refresh semantics.
 
@@ -81,6 +103,7 @@ function authHeaders() {
 // checks expiry so callers (especially streaming flows) can decide how to
 // proceed when the token is expired.
 export function ensureFreshToken(thresholdSeconds = 10) {
+  void thresholdSeconds
   // Temporarily disable token refresh to avoid hitting missing /auth/refresh
   return true; // Always return true to indicate the token is fresh
 }
@@ -441,7 +464,8 @@ export async function listSessionsMine() {
     throw new Error('Sessions fetch failed: unauthorized')
   }
   if (!res.ok) throw new Error('Sessions fetch failed')
-  return res.json()
+  const data = await res.json()
+  return getPagedItems(data)
 }
 
 export async function listSessionNotes(sessionId) {
@@ -459,7 +483,8 @@ export async function listSessionNotes(sessionId) {
     const txt = await res.text().catch(() => '')
     throw new Error(`Notes fetch failed: ${res.status} ${txt}`)
   }
-  return res.json()
+  const data = await res.json()
+  return getPagedItems(data)
 }
 
 export async function getSession(sessionId) {
@@ -843,6 +868,25 @@ export async function getClassTutorProgress(classId) {
   return res.json()
 }
 
+export async function getClassReadingCoachSummary(classId) {
+  const path = `/admin/classes/${encodeURIComponent(classId)}/tutor-progress/summary`
+  const url = makeUrl(path)
+  const res = await requestWithRetry(url, { method: 'GET' })
+
+  if (res.status === 401 || res.status === 403) {
+    const txt = await res.text().catch(() => '')
+    await handleAuthFailure(res, txt, path)
+    throw new Error('Get Reading Coach summary failed: unauthorized')
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`Get Reading Coach summary failed (${res.status}): ${txt}`)
+  }
+
+  return getResponsePayload(await res.json())
+}
+
 export async function getStudentTutorProgress(classId, studentId, uploadId) {
   const url = makeUrl(
     `/admin/classes/${encodeURIComponent(classId)}/tutor-progress/${encodeURIComponent(studentId)}/${encodeURIComponent(uploadId)}`
@@ -885,12 +929,21 @@ export async function addStudentToClass(classId, studentEmail) {
   return res.json()
 }
 
-export async function assignCaseToClass(classId, uploadId) {
+export async function assignCaseToClass(classId, assignment) {
   const url = makeUrl(`/classes/${encodeURIComponent(classId)}/cases`)
+  const payload =
+    typeof assignment === 'string'
+      ? { uploadId: assignment, readingCoachQuestions: '' }
+      : {
+          ...assignment,
+          uploadId: assignment?.uploadId,
+          readingCoachQuestions: assignment?.readingCoachQuestions ?? '',
+        }
+
   const res = await requestWithRetry(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ uploadId }),
+    body: JSON.stringify(payload),
   })
 
   if (res.status === 401 || res.status === 403) {
@@ -1050,7 +1103,6 @@ export async function deleteStudentFromClass(classId, studentId) {
   }
 }
 
-// -----------------------------------------------
 // Class Join Codes
 // -----------------------------------------------
 

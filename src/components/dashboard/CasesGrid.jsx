@@ -3,7 +3,7 @@ import React, { useState } from 'react'
 import { FileText, MoreVertical, Download, Edit2, Share, Trash2 } from 'lucide-react'
 import { API_BASE } from '../../config'
 import toast from 'react-hot-toast'
-import { renameCase, deleteCase as apiDeleteCase, listSessionsMine, createSession } from '@/lib/api'
+import { renameCase, deleteCase as apiDeleteCase, listSessionsMine, createSession, getPagedItems } from '@/lib/api'
 
 // When clicking a case we prefer to open the user's most recent session for that uploadId.
 // Only when the user explicitly chooses "New workspace" do we create a new session.
@@ -171,8 +171,9 @@ export default function CasesGrid({ items = [], loading = false }) {
     try {
       // Try to find most recent session for this uploadId for the current user
       const sessions = await listSessionsMine()
-      if (Array.isArray(sessions) && sessions.length > 0) {
-        const matches = sessions.filter(s => String(s.uploadId) === String(c.id))
+      const sessionItems = getPagedItems(sessions)
+      if (sessionItems.length > 0) {
+        const matches = sessionItems.filter(s => String(s.uploadId) === String(c.id))
         if (matches.length > 0) {
           // choose the most recent by lastActivityAt or createdAt
           matches.sort((a, b) => {

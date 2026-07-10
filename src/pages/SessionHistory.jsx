@@ -11,7 +11,7 @@ import {
   Trash2,
   FileText,
 } from 'lucide-react'
-import { listSessionsMine, listSessionNotes, renameCase } from '@/lib/api'
+import { getPagedItems, listSessionsMine, listSessionNotes, renameCase } from '@/lib/api'
 import { deleteSession } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { API_BASE } from '@/config'
@@ -190,7 +190,7 @@ export default function SessionHistory() {
         setError(null)
         const apiSessions = await listSessionsMine()
         if (cancelled) return
-        const mapped = apiSessions.map(mapApiSessionToView)
+        const mapped = getPagedItems(apiSessions).map(mapApiSessionToView)
         setSessions(mapped)
       } catch (err) {
         console.error('Failed to load sessions', err)
@@ -220,7 +220,7 @@ export default function SessionHistory() {
     try {
       setLoadingNotesFor(sessionId)
       const apiNotes = await listSessionNotes(sessionId)
-      const mappedNotes = apiNotes.map(n => ({
+      const mappedNotes = getPagedItems(apiNotes).map(n => ({
         id: n.id,
         createdAt: n.createdAt,
         content: n.text,

@@ -12,11 +12,13 @@ import {
   getClassCases,
   getClassTutorProgress,
   deleteClass,
+  getClassReadingCoachSummary,
   getJoinCode,
   regenerateJoinCode,
 } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Card } from '@/components/ui/card'
 import {
   ArrowLeft,
@@ -28,6 +30,7 @@ import {
   Trash2,
   Copy,
   RotateCw,
+  BarChart3,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -86,6 +89,7 @@ export default function ClassDetail() {
   const [details, setDetails] = useState(null)
   const [studentEmail, setStudentEmail] = useState('')
   const [uploadId, setUploadId] = useState('')
+  const [readingCoachQuestions, setReadingCoachQuestions] = useState('')
   const [addingStudent, setAddingStudent] = useState(false)
   const [assigningCase, setAssigningCase] = useState(false)
   const [myUploads, setMyUploads] = useState([])
@@ -101,6 +105,9 @@ export default function ClassDetail() {
   const [progressError, setProgressError] = useState('')
   const [progressFilter, setProgressFilter] = useState('all')
   const [progressSearch, setProgressSearch] = useState('')
+  const [readingCoachSummary, setReadingCoachSummary] = useState(null)
+  const [loadingReadingCoachSummary, setLoadingReadingCoachSummary] = useState(false)
+  const [readingCoachSummaryError, setReadingCoachSummaryError] = useState(null)
   const [joinCode, setJoinCode] = useState('')
   const [loadingJoinCode, setLoadingJoinCode] = useState(false)
   const [regeneratingJoinCode, setRegeneratingJoinCode] = useState(false)
@@ -128,7 +135,12 @@ export default function ClassDetail() {
         getClassCases(classId).catch(() => []),
       ])
       setStudents(Array.isArray(s) ? s : [])
-      setCases(Array.isArray(c) ? c : [])
+      const nextCases = Array.isArray(c) ? c : []
+      setCases(nextCases)
+      const selectedCase = nextCases.find(item => String(item.uploadId) === String(uploadId))
+      if (selectedCase?.readingCoachQuestions != null) {
+        setReadingCoachQuestions(String(selectedCase.readingCoachQuestions || ''))
+      }
     } catch (err) {
       console.error('Failed to load class details', err)
       toast.error('Failed to load class details')
@@ -152,6 +164,21 @@ export default function ClassDetail() {
     }
   }
 
+  async function loadReadingCoachSummary() {
+    try {
+      setLoadingReadingCoachSummary(true)
+      setReadingCoachSummaryError(null)
+      const data = await getClassReadingCoachSummary(classId)
+      setReadingCoachSummary(data || null)
+    } catch (err) {
+      console.error('Failed to load Reading Coach summary', err)
+      setReadingCoachSummaryError(err?.message || 'Failed to load Reading Coach summary')
+      setReadingCoachSummary(null)
+    } finally {
+      setLoadingReadingCoachSummary(false)
+    }
+  }
+
   async function loadJoinCode() {
     try {
       setLoadingJoinCode(true)
@@ -170,9 +197,49 @@ export default function ClassDetail() {
     loadDetails()
     loadMyUploads()
     loadTutorProgress()
+    loadReadingCoachSummary()
     loadJoinCode()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classId])
+
+  function renderText(value, fallback = '') {
+    if (value == null) return fallback
+    if (typeof value === 'string') return value
+    if (typeof value === 'number') return String(value)
+    // handle common object shapes
+    if (typeof value === 'object') {
+      if (Array.isArray(value)) return value.map(item => renderText(item)).join(', ')
+      return value.title ?? value.name ?? value.label ?? value.text ?? JSON.stringify(value)
+    }
+    return String(value)
+  }
+
+  function metricValue(source, keys) {
+    for (const key of keys) {
+      const value = source?.[key]
+      if (value !== undefined && value !== null) return value
+    }
+    return 0
+  }
+
+  function formatMetric(value) {
+    const numeric = Number(value)
+    if (Number.isFinite(numeric)) return numeric.toLocaleString()
+    return renderText(value, '0')
+  }
+
+  function getCaseQuestions(caseUploadId) {
+    const match = (cases?.length ? cases : details?.cases || []).find(
+      item => String(item.uploadId) === String(caseUploadId)
+    )
+    return match?.readingCoachQuestions ?? match?.customReadingCoachQuestions ?? ''
+  }
+
+  function handleUploadSelection(nextUploadId) {
+    setUploadId(nextUploadId)
+    const existingQuestions = getCaseQuestions(nextUploadId)
+    setReadingCoachQuestions(existingQuestions ? String(existingQuestions) : '')
+  }
 
   // Prefill upload selection from query param when present
   useEffect(() => {
@@ -203,6 +270,7 @@ export default function ClassDetail() {
       setStudentEmail('')
       await loadDetails()
       await loadTutorProgress()
+      await loadReadingCoachSummary()
     } catch (err) {
       toast.error(err?.message || 'Failed to add student')
     } finally {
@@ -220,15 +288,18 @@ export default function ClassDetail() {
 
     setAssigningCase(true)
     try {
-      const res = await assignCaseToClass(classId, trimmed)
+      const res = await assignCaseToClass(classId, {
+        uploadId: trimmed,
+        readingCoachQuestions,
+      })
       if (res?.alreadyAssigned) {
         toast.success('Case already assigned')
       } else {
         toast.success('Case assigned')
       }
-      setUploadId('')
       await loadDetails()
       await loadTutorProgress()
+      await loadReadingCoachSummary()
     } catch (err) {
       toast.error(err?.message || 'Failed to assign case')
     } finally {
@@ -245,6 +316,7 @@ export default function ClassDetail() {
       toast.success('Student removed')
       await loadDetails()
       await loadTutorProgress()
+      await loadReadingCoachSummary()
     } catch (err) {
       toast.error(err?.message || 'Failed to remove student')
     } finally {
@@ -261,6 +333,7 @@ export default function ClassDetail() {
       toast.success('Case unassigned')
       await loadDetails()
       await loadTutorProgress()
+      await loadReadingCoachSummary()
     } catch (err) {
       toast.error(err?.message || 'Failed to unassign case')
     } finally {
@@ -526,7 +599,7 @@ export default function ClassDetail() {
                 <select
                   id="case-select"
                   value={uploadId}
-                  onChange={e => setUploadId(e.target.value)}
+                  onChange={e => handleUploadSelection(e.target.value)}
                   className="w-full px-3 py-2 border border-[#e4d6c7] rounded-md text-sm focus:outline-none focus:border-[#C96A08] focus:ring-2 focus:ring-[#C96A08]/30"
                   disabled={loadingUploads}
                 >
@@ -540,6 +613,19 @@ export default function ClassDetail() {
                   ))}
                 </select>
               </div>
+              <div className="space-y-2">
+                <label htmlFor="reading-coach-questions" className="text-sm font-medium">
+                  Custom Reading Coach questions
+                </label>
+                <Textarea
+                  id="reading-coach-questions"
+                  value={readingCoachQuestions}
+                  onChange={e => setReadingCoachQuestions(e.target.value)}
+                  rows={5}
+                  placeholder="Optional questions or prompts students should answer while working through this case."
+                  className="min-h-[120px] border-[#e4d6c7] focus:outline-none focus:border-[#C96A08] focus:ring-2 focus:ring-[#C96A08]/30"
+                />
+              </div>
               <Button type="submit" disabled={assigningCase || !uploadId} className="w-full sm:w-auto" variant="warm">
                 {assigningCase ? 'Assigning...' : 'Assign case'}
               </Button>
@@ -551,6 +637,11 @@ export default function ClassDetail() {
                     <div>
                       <p className="font-medium text-sm">{c.fileName || c.uploadId}</p>
                       <p className="text-xs text-slate-600">{c.uploadId}</p>
+                      {(c.readingCoachQuestions || c.customReadingCoachQuestions) && (
+                        <p className="text-xs text-[#7a5c3c] mt-1 line-clamp-2">
+                          {c.readingCoachQuestions || c.customReadingCoachQuestions}
+                        </p>
+                      )}
                     </div>
                     <Button
                       variant="outline"
@@ -571,14 +662,64 @@ export default function ClassDetail() {
           <Card className="p-6 space-y-5 lg:col-span-2">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <h2 className="text-lg font-semibold">Reading Coach Progress</h2>
+                <h2 className="text-lg font-semibold">Reading Coach Summary</h2>
                 <p className="text-sm text-slate-600">
-                  Class-level view of learner progress on assigned cases.
+                  Class-level view of Reading Coach usage and learner progress.
                 </p>
               </div>
-              <Button variant="outline" size="sm" onClick={loadTutorProgress} disabled={progressLoading}>
-                {progressLoading ? 'Refreshing...' : 'Refresh'}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  loadTutorProgress()
+                  loadReadingCoachSummary()
+                }}
+                disabled={progressLoading || loadingReadingCoachSummary}
+              >
+                {progressLoading || loadingReadingCoachSummary ? 'Refreshing...' : 'Refresh'}
               </Button>
+            </div>
+
+            {loadingReadingCoachSummary ? (
+              <div className="p-4 bg-[#fdf4eb] border border-[#f3e0ce] rounded-md text-center">
+                <p className="text-sm text-[#7a5c3e]">Loading summary...</p>
+              </div>
+            ) : readingCoachSummaryError ? (
+              <div className="p-4 bg-[#fde5e5] border border-[#f2c6c6] rounded-md">
+                <p className="text-sm text-[#8c1c1c] font-medium">Summary unavailable</p>
+                <p className="text-xs text-[#8c1c1c] mt-1">{readingCoachSummaryError}</p>
+              </div>
+            ) : !readingCoachSummary ? (
+              <div className="p-4 bg-[#fdf4eb] border border-[#f3e0ce] rounded-md text-center">
+                <p className="text-sm text-[#7a5c3e]">No Reading Coach summary available yet.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  ['Assigned students', ['assignedStudents', 'studentCount', 'studentsAssigned']],
+                  ['Assigned cases', ['assignedCases', 'caseCount', 'casesAssigned']],
+                  ['Started students', ['startedStudents', 'studentsStarted']],
+                  ['Active 24h', ['activeStudentsLast24Hours', 'activeStudentsLast24h', 'activeLast24Hours']],
+                  ['Help requests', ['helpRequests', 'helpRequestCount']],
+                  ['Chat messages', ['chatMessages', 'chatMessageCount', 'messages']],
+                  ['Tutor answers', ['tutorAnswers', 'tutorAnswerCount', 'answers']],
+                ].map(([label, keys]) => (
+                  <div key={label} className="rounded-md border border-[#f3e0ce] bg-[#fdf4eb] p-3">
+                    <div className="flex items-center gap-2 text-xs font-medium text-[#7a5c3c]">
+                      <BarChart3 className="h-3.5 w-3.5" />
+                      {label}
+                    </div>
+                    <div className="mt-2 text-2xl font-semibold text-[#2c2218]">
+                      {formatMetric(metricValue(readingCoachSummary, keys))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="border-t pt-4">
+              <h3 className="text-sm font-semibold text-[#2c2218]">Detailed progress</h3>
+              <p className="text-xs text-slate-600 mt-1">Learner progress on assigned cases.</p>
             </div>
 
             {progressError ? (

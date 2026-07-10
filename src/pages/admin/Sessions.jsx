@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useContext } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { API_BASE } from '@/config'
-import { getAuthToken } from '@/lib/api'
+import { getAuthToken, getPagedItems } from '@/lib/api'
 import { AuthContext } from '@/contexts/AuthContext'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -89,7 +89,7 @@ export default function AdminSessions() {
           throw new Error(`Failed to fetch sessions: ${res.status} ${txt}`)
         }
         const js = await res.json()
-        if (!cancelled) setSessions(js)
+        if (!cancelled) setSessions(getPagedItems(js))
       } catch (err) {
         if (!cancelled) setError(err?.message || String(err))
       } finally {
