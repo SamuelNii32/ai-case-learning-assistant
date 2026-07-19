@@ -27,6 +27,7 @@ export default function Classes() {
       return ''
     }
   }, [location.search])
+  const isUploadTabActive = location.pathname.startsWith('/admin/upload')
 
   useEffect(() => {
     loadClasses()
@@ -36,7 +37,12 @@ export default function Classes() {
     try {
       setLoading(true)
       const data = await getClasses()
-      setClasses(Array.isArray(data) ? data : [])
+      const items = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.items)
+          ? data.items
+          : []
+      setClasses(items)
     } catch (err) {
       console.error('Failed to load classes:', err)
       toast.error('Failed to load classes')
@@ -103,7 +109,15 @@ export default function Classes() {
               <button type="button" className="pb-3 text-[#C96A08] border-b-2 border-[#C96A08]">
                 My Classes
               </button>
-              <button type="button" className="pb-3 text-[#7a5c3e]">
+              <button
+                type="button"
+                onClick={() => navigate('/admin/upload')}
+                className={`pb-3 border-b-2 transition-colors ${
+                  isUploadTabActive
+                    ? 'text-[#C96A08] border-[#C96A08]'
+                    : 'text-[#7a5c3e] border-transparent hover:text-[#2c2218] hover:border-[#d9c4ad]'
+                }`}
+              >
                 Upload Cases
               </button>
             </div>

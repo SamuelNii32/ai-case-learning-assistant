@@ -44,7 +44,6 @@ export default function Dashboard() {
       setLoading(true)
       try {
         const data = await listCases()
-        console.log('fetched cases:', data)
 
         const normalized = data.map(c => {
           const rawTitle =
@@ -85,7 +84,7 @@ export default function Dashboard() {
       try {
         fetchCasesAndNormalize()
       } catch (err) {
-        console.warn('Failed to refresh cases on case:uploaded/case:changed', err)
+        console.warn('Failed to refresh cases', err)
       }
     }
 

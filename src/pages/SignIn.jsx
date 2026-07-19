@@ -48,7 +48,6 @@ export default function SignInPage() {
 
     const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
     const url = base ? `${base}/auth/login` : '/auth/login'
-
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -64,7 +63,6 @@ export default function SignInPage() {
         }
         return
       }
-
       const j = await res.json()
       const token =
         j.token ||

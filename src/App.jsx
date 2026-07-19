@@ -27,6 +27,9 @@ const AdminClassDetail = lazy(() => import('./pages/admin/ClassDetail'))
 const AdminTutorProgressDetail = lazy(() => import('./pages/admin/TutorProgressDetail'))
 const StudentClasses = lazy(() => import('./pages/StudentClasses'))
 import { Toaster } from 'react-hot-toast'
+const AdminInstructorPreview = import.meta.env.DEV
+  ? lazy(() => import('./pages/admin/InstructorDashboardPreview'))
+  : null
 import RequireAuth from './components/RequireAuth'
 
 // Demo flow removed per request — demo route and redirect no longer included
@@ -235,6 +238,7 @@ function App() {
                 </RequireAuth>
               }
             >
+              <Route index element={<AdminClasses />} />
               <Route path="classes" element={<AdminClasses />} />
               <Route path="classes/:classId" element={<AdminClassDetail />} />
               <Route
@@ -245,6 +249,9 @@ function App() {
               <Route path="sessions/:sessionId" element={<AdminSessionDetail />} />
               <Route path="upload" element={<Upload />} />
             </Route>
+            {import.meta.env.DEV && AdminInstructorPreview && (
+              <Route path="/preview/instructor-dashboard" element={<AdminInstructorPreview />} />
+            )}
             <Route
               path="/settings"
               element={

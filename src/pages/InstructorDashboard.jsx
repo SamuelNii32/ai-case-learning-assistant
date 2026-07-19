@@ -14,7 +14,7 @@ export default function InstructorDashboard() {
     }
   }, [auth?.loggedIn, navigate])
 
-  // Redirect instructors to classes as the default landing
+  // Redirect legacy instructor landing routes to the classes page.
   useEffect(() => {
     if (auth?.user?.role === 'instructor' && window.location.pathname === '/instructor-dashboard') {
       navigate('/admin/classes', { replace: true })

@@ -175,8 +175,6 @@ export default function Workspace() {
   const [searchParams] = useSearchParams()
   const caseType = searchParams.get('type') || 'personal'
 
-  // Chat-only mode: guided mode has been removed. The workspace always renders chat.
-
   const [showNotes, setShowNotes] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [showFigures, setShowFigures] = useState(false)
@@ -1395,10 +1393,7 @@ export default function Workspace() {
                             onReady={ctrl => {
                               pdfCtrlRef.current = ctrl
                               setPdfCtrl(ctrl) // <-- context value
-                              if (import.meta.env.DEV) {
-                                window.pdfCtrl = ctrl
-                                console.log('[Workspace] pdfCtrl ready:', ctrl)
-                              }
+                              if (import.meta.env.DEV) window.pdfCtrl = ctrl
                             }}
                           />
                           {pdfLoadError && (

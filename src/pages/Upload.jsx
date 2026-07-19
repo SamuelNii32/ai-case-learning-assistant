@@ -73,8 +73,6 @@ export default function UploadPage() {
         setUploadProgress(0)
         return
       }
-      console.log('Uploading file to API:', API_BASE)
-      console.log('File:', { name: file.name, size: file.size })
       const fd = new FormData()
       fd.append('file', file)
       // use centralized API helper

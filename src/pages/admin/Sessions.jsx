@@ -58,8 +58,6 @@ export default function AdminSessions() {
   const auth = useContext(AuthContext)
   const _navigate = useNavigate() // kept for future use
 
-  console.log('AUTH DEBUG:', auth)
-
   const isInstructor =
     auth?.user?.role === 'instructor' ||
     auth?.user?.isSuperUser === true ||
