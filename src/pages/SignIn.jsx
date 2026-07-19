@@ -100,7 +100,7 @@ export default function SignInPage() {
       }
 
       const isInstructor = (user && user.role === 'instructor') || role === 'instructor'
-      navigate(isInstructor ? '/admin/sessions' : '/dashboard')
+      navigate(isInstructor ? '/admin/classes' : '/dashboard')
     } catch (e) {
       const msg = String(e?.message || e)
       if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {

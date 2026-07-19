@@ -93,7 +93,7 @@ export default function Header() {
                 <div className="absolute right-0 top-full mt-2 w-44 bg-white border border-slate-200 rounded-md shadow-lg z-50">
                   <div className="py-1">
                     <Link
-                      to={auth?.user?.role === 'instructor' ? '/admin/sessions' : '/dashboard'}
+                      to={auth?.user?.role === 'instructor' ? '/admin/classes' : '/dashboard'}
                       className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
                       onClick={() => setUserMenuOpen(false)}
                     >

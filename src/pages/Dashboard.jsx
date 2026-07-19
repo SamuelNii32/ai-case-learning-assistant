@@ -13,10 +13,10 @@ export default function Dashboard() {
   const auth = useContext(AuthContext)
   const navigate = useNavigate()
 
-  // If a superuser visits the regular dashboard, send them to the admin view
+  // If an instructor visits the student dashboard, send them to the class admin view
   useEffect(() => {
     if (auth?.user?.role === 'instructor') {
-      navigate('/admin/sessions', { replace: true })
+      navigate('/admin/classes', { replace: true })
     }
   }, [auth?.user?.role, navigate])
 
