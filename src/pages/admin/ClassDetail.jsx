@@ -117,7 +117,7 @@ export default function ClassDetail() {
     try {
       setLoadingUploads(true)
       const uploads = await getMyUploads()
-      setMyUploads(uploads || [])
+      setMyUploads(getPagedItems(uploads))
     } catch (err) {
       console.error('Failed to load uploads', err)
     } finally {
@@ -155,7 +155,7 @@ export default function ClassDetail() {
       setProgressLoading(true)
       setProgressError('')
       const rows = await getClassTutorProgress(classId)
-      setTutorProgress(Array.isArray(rows) ? rows : [])
+      setTutorProgress(getPagedItems(rows))
     } catch (err) {
       console.error('Failed to load Reading Coach progress', err)
       setProgressError(err?.message || 'Failed to load Reading Coach progress')
