@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { AuthContext } from '@/contexts/AuthContext'
 import {
   getClassDetails,
+  getPagedItems,
   addStudentToClass,
   assignCaseToClass,
   getMyUploads,
@@ -134,8 +135,8 @@ export default function ClassDetail() {
         getClassStudents(classId).catch(() => []),
         getClassCases(classId).catch(() => []),
       ])
-      setStudents(Array.isArray(s) ? s : [])
-      const nextCases = Array.isArray(c) ? c : []
+      setStudents(getPagedItems(s))
+      const nextCases = getPagedItems(c)
       setCases(nextCases)
       const selectedCase = nextCases.find(item => String(item.uploadId) === String(uploadId))
       if (selectedCase?.readingCoachQuestions != null) {
@@ -233,6 +234,16 @@ export default function ClassDetail() {
       item => String(item.uploadId) === String(caseUploadId)
     )
     return match?.readingCoachQuestions ?? match?.customReadingCoachQuestions ?? ''
+  }
+
+  function getNormalizedStudents() {
+    if (students.length) return students
+    return getPagedItems(details?.students)
+  }
+
+  function getNormalizedCases() {
+    if (cases.length) return cases
+    return getPagedItems(details?.cases)
   }
 
   function handleUploadSelection(nextUploadId) {
@@ -563,8 +574,8 @@ export default function ClassDetail() {
               </Button>
             </form>
             <div className="border-t pt-4 space-y-3">
-              {(students?.length ? students : details.students || []).length ? (
-                (students?.length ? students : details.students).map(stu => (
+              {getNormalizedStudents().length ? (
+                getNormalizedStudents().map(stu => (
                   <div key={stu.id} className="flex items-center justify-between">
                     <div>
                       <p className="font-medium text-sm">{stu.fullName || stu.email}</p>
@@ -631,8 +642,8 @@ export default function ClassDetail() {
               </Button>
             </form>
             <div className="border-t pt-4 space-y-3">
-              {(cases?.length ? cases : details.cases || []).length ? (
-                (cases?.length ? cases : details.cases).map(c => (
+              {getNormalizedCases().length ? (
+                getNormalizedCases().map(c => (
                   <div key={c.uploadId} className="flex items-center justify-between">
                     <div>
                       <p className="font-medium text-sm">{c.fileName || c.uploadId}</p>

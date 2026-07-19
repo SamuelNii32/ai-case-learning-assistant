@@ -869,7 +869,7 @@ export async function getClassTutorProgress(classId) {
 }
 
 export async function getClassReadingCoachSummary(classId) {
-  const path = `/admin/classes/${encodeURIComponent(classId)}/tutor-progress/summary`
+  const path = `/admin/classes/${encodeURIComponent(classId)}/tutor-summary`
   const url = makeUrl(path)
   const res = await requestWithRetry(url, { method: 'GET' })
 
