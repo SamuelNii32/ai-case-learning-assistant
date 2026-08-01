@@ -45,6 +45,16 @@ using PdfPigDoc = UglyToad.PdfPig.PdfDocument;
 
 var builder = WebApplication.CreateBuilder(args);
 
+if (args.Any(arg => string.Equals(arg, "--migrate-documents-to-blob", StringComparison.OrdinalIgnoreCase)))
+{
+    var result = await DocumentStorageMigrator.MigrateLocalToAzureAsync(
+        builder.Configuration,
+        builder.Environment);
+    Console.WriteLine(
+        $"[STORAGE MIGRATION] Copied {result.PdfsCopied} PDFs and {result.JsonArtifactsCopied} JSON artifacts; skipped {result.FilesSkipped} unrelated files.");
+    return;
+}
+
 if (args.Any(arg => string.Equals(arg, "--worker", StringComparison.OrdinalIgnoreCase)))
 {
     await RunIndexWorkerOnlyAsync(args);
@@ -601,10 +611,8 @@ bool DebugEndpointsEnabled()
 
 static async Task RunIndexWorkerOnlyAsync(string[] workerArgs)
 {
-    Environment.SetEnvironmentVariable("RUN_BACKGROUND_WORKER", "true");
     var workerBuilder = Host.CreateApplicationBuilder(workerArgs);
-    var authSettings = AuthSettings.Load(workerBuilder.Configuration);
-    workerBuilder.Services.AddAppServices(workerBuilder.Configuration, authSettings);
+    workerBuilder.Services.AddIndexWorkerServices(workerBuilder.Configuration);
 
     using var workerHost = workerBuilder.Build();
     await workerHost.RunAsync();
@@ -711,7 +719,7 @@ if (!app.Environment.IsProduction())
 
 // Figures/visuals for a document (MVP: backed by layout manifest)
 // GET /api/documents/{caseId}/figures
-app.MapGet("/api/documents/{caseId}/figures", async (string caseId, HttpContext ctx, IWebHostEnvironment env) =>
+app.MapGet("/api/documents/{caseId}/figures", async (string caseId, HttpContext ctx, IDocumentStorage storage) =>
 {
     if (!Guid.TryParse(caseId, out var uploadId))
     {
@@ -722,16 +730,16 @@ app.MapGet("/api/documents/{caseId}/figures", async (string caseId, HttpContext 
     if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
     if (!await CanAccessUploadAsync(uploadId, me)) return Results.NotFound(new { error = "not found" });
 
-    var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
-    var layoutPath = Path.Combine(uploadsRoot, $"{uploadId}.layout.json");
-    if (!File.Exists(layoutPath))
+    var json = await storage.ReadTextAsync(uploadId, DocumentArtifactSuffixes.Layout, ctx.RequestAborted);
+    if (string.IsNullOrWhiteSpace(json))
     {
-        var pdfPath = Path.Combine(uploadsRoot, $"{uploadId}.pdf");
-        if (!File.Exists(pdfPath)) return Results.NotFound(new { error = "PDF not found" });
-        await DocumentLayoutAnalyzer.AnalyzeAndSaveAsync(uploadId, env);
+        if (!await storage.PdfExistsAsync(uploadId, ctx.RequestAborted))
+            return Results.NotFound(new { error = "PDF not found" });
+
+        var generated = await DocumentLayoutAnalyzer.AnalyzeAndSaveAsync(uploadId, storage, ctx.RequestAborted);
+        json = System.Text.Json.JsonSerializer.Serialize(generated);
     }
 
-    var json = await File.ReadAllTextAsync(layoutPath);
     var manifest = System.Text.Json.JsonSerializer.Deserialize<LayoutManifest>(json);
     var captionedEvidence = (manifest?.Captions ?? new List<LayoutCaption>())
         .Select(c => new
@@ -779,14 +787,14 @@ static IEnumerable<(int page, string text)> ExtractPerPageText(string path)
 }
 
 // GET /uploads/{id}/pages/preview  -> returns first few page snippets (no embeddings yet)
-app.MapGet("/uploads/{uploadId:guid}/pages/preview", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
+app.MapGet("/uploads/{uploadId:guid}/pages/preview", async (Guid uploadId, HttpContext ctx, IDocumentStorage storage) =>
 {
     var me = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
     if (!await CanAccessUploadAsync(uploadId, me)) return Results.NotFound();
 
-    var pdfPath = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.pdf");
-    if (!System.IO.File.Exists(pdfPath)) return Results.NotFound();
+    var pdfPath = await storage.GetPdfPathAsync(uploadId, ctx.RequestAborted);
+    if (pdfPath is null) return Results.NotFound();
 
     var preview = ExtractPerPageText(pdfPath)
         .Take(3)
@@ -802,7 +810,7 @@ app.MapGet("/uploads/{uploadId:guid}/pages/preview", async (Guid uploadId, HttpC
 
 // ---- simple in-memory vector index ----
 
-app.MapPost("/index/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env, IndexJobStore jobStore, IndexingService indexingService) =>
+app.MapPost("/index/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IDocumentStorage storage, IndexJobStore jobStore, IndexingService indexingService) =>
 {
     var me = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(me))
@@ -813,9 +821,7 @@ app.MapPost("/index/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWe
     if (!await CanAccessUploadAsync(uploadId, me))
         return Results.NotFound(new { error = "not found" }); // don't leak existence
 
-    var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
-    var pdfPath = Path.Combine(uploadsRoot, $"{uploadId}.pdf");
-    if (!System.IO.File.Exists(pdfPath))
+    if (!await storage.PdfExistsAsync(uploadId, ctx.RequestAborted))
         return Results.NotFound(new { error = "PDF not found" });
 
     var existingJob = await jobStore.GetAsync(uploadId, ctx.RequestAborted);
@@ -859,7 +865,7 @@ app.MapPost("/index/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWe
         }
     }
 
-    if (IndexPersistence.TryLoad(uploadId, env, out _))
+    if (await IndexPersistence.TryLoadAsync(uploadId, storage, ctx.RequestAborted) is { Count: > 0 })
     {
         var summary = await indexingService.BuildAsync(uploadId, ctx.RequestAborted);
         await jobStore.MarkCompletedAsync(uploadId, summary, cancellationToken: ctx.RequestAborted);
@@ -890,13 +896,14 @@ app.MapPost("/index/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWe
 });
 
 // GET /uploads/{uploadId}/classification -> returns doc type & confidence
-app.MapGet("/uploads/{uploadId:guid}/classification", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
+app.MapGet("/uploads/{uploadId:guid}/classification", async (Guid uploadId, HttpContext ctx, IDocumentStorage storage) =>
 {
     var me = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
     if (!await CanAccessUploadAsync(uploadId, me)) return Results.NotFound(new { error = "No classification stored for this uploadId." });
 
-    if (DocTypePersistence.TryLoad(uploadId, env, out var cls) && cls != null)
+    var cls = await DocTypePersistence.TryLoadAsync(uploadId, storage, ctx.RequestAborted);
+    if (cls is not null)
         return Results.Json(cls);
 
     return Results.NotFound(new { error = "No classification stored for this uploadId." });
@@ -906,7 +913,7 @@ app.MapGet("/uploads/{uploadId:guid}/classification", async (Guid uploadId, Http
 
 
 // GET /search/{uploadId}?q=...  -> top-k chunks by cosine similarity
-app.MapGet("/search/{uploadId:guid}", async (Guid uploadId, string q, HttpContext ctx, IWebHostEnvironment env) =>
+app.MapGet("/search/{uploadId:guid}", async (Guid uploadId, string q, HttpContext ctx, IDocumentStorage storage) =>
 {
     var me = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
@@ -915,7 +922,8 @@ app.MapGet("/search/{uploadId:guid}", async (Guid uploadId, string q, HttpContex
     // Lazy-load index from disk if missing in RAM
     if (!InMemoryStore.VectorIndex.TryGetValue(uploadId.ToString(), out var list) || list.Count == 0)
     {
-        if (!IndexPersistence.TryLoad(uploadId, env, out list))
+        list = await IndexPersistence.TryLoadAsync(uploadId, storage, ctx.RequestAborted);
+        if (list is null)
             return Results.NotFound(new { error = "Not indexed. POST /index/{uploadId} first." });
     }
 
@@ -984,7 +992,7 @@ WHERE u.UploadId = @u;
 });
 
 // GET /ask/{uploadId}?q=...
-app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessionId, HttpContext ctx, IWebHostEnvironment env, IMessageRepository messages) =>
+app.MapGet("/ask/{uploadId:guid}", async (Guid uploadId, string q, string? sessionId, HttpContext ctx, IWebHostEnvironment env, IDocumentStorage storage, IMessageRepository messages) =>
 {
     var me = ctx.GetCurrentUserId() ?? "";
     Console.WriteLine($"[ASK DEBUG] me={me}, uploadId={uploadId}");
@@ -1032,7 +1040,8 @@ LIMIT 1;
 
     if (!InMemoryStore.VectorIndex.TryGetValue(uploadId.ToString(), out var list) || list.Count == 0)
     {
-        if (!IndexPersistence.TryLoad(uploadId, env, out list))
+        list = await IndexPersistence.TryLoadAsync(uploadId, storage, ctx.RequestAborted);
+        if (list is null)
             return Results.NotFound(new { error = "Not indexed. POST /index/{uploadId} first." });
     }
     try
@@ -1131,7 +1140,8 @@ LIMIT 1;
         // ==== FAST PATH: Authors (front matter only) ====
         if (intent == SectionIntent.Authors)
         {
-            var (_, metaAuthor) = PdfMetadataHelper.Read(uploadId, env);
+            var metadataPdfPath = await storage.GetPdfPathAsync(uploadId, ctx.RequestAborted);
+            var (_, metaAuthor) = PdfMetadataHelper.Read(metadataPdfPath);
 
             // 2) restrict to pages 1–2 (fallback 1–4), excluding References/Bibliography
             var front = list.Where(x => x.Page >= 1 && x.Page <= 2).ToList();
@@ -1306,7 +1316,8 @@ LIMIT 1;
             // Handle Title/Authors metadata separately (keep your existing logic)
             if (intent == SectionIntent.Title || intent == SectionIntent.Authors)
             {
-                var (metaTitle, metaAuthor) = PdfMetadataHelper.Read(uploadId, env);
+                var metadataPdfPath = await storage.GetPdfPathAsync(uploadId, ctx.RequestAborted);
+                var (metaTitle, metaAuthor) = PdfMetadataHelper.Read(metadataPdfPath);
 
                 if (intent == SectionIntent.Title && !string.IsNullOrWhiteSpace(metaTitle) &&
                     !Regex.IsMatch(metaTitle, @"^\s*untitled\s*$", RegexOptions.IgnoreCase))
@@ -1323,7 +1334,7 @@ LIMIT 1;
 
                 if (intent == SectionIntent.Title)
                 {
-                    var guess = TitleHeuristics.FromPdfFirstPage(uploadId, env);
+                    var guess = TitleHeuristics.FromPdfFirstPage(metadataPdfPath);
                     if (!string.IsNullOrWhiteSpace(guess))
                     {
                         var pagesGuess = new[] { 1 };
@@ -1535,6 +1546,7 @@ app.MapGet("/ask/stream/{uploadId}", async (
     string? tutorStepId,
     HttpContext ctx,
     IWebHostEnvironment env,
+    IDocumentStorage storage,
     IMessageRepository messages,
     IUploadRepository uploadsRepository,
     ITutorRepository tutorRepository) =>
@@ -1582,7 +1594,8 @@ app.MapGet("/ask/stream/{uploadId}", async (
 
     if (!InMemoryStore.VectorIndex.TryGetValue(parsedUploadId.ToString(), out var list) || list.Count == 0)
     {
-        if (!IndexPersistence.TryLoad(parsedUploadId, env, out list))
+        list = await IndexPersistence.TryLoadAsync(parsedUploadId, storage, ctx.RequestAborted);
+        if (list is null)
         {
             await ctx.Response.WriteAsync("event: error\ndata: {\"message\":\"Not indexed. POST /index first.\"}\n\n");
             await ctx.Response.WriteAsync("event: done\ndata: {}\n\n");
@@ -1688,7 +1701,8 @@ app.MapGet("/ask/stream/{uploadId}", async (
         // ==== FAST PATH: Title ====
         if (intent == SectionIntent.Title)
         {
-            var (metaTitle, _) = PdfMetadataHelper.Read(parsedUploadId, env);
+            var metadataPdfPath = await storage.GetPdfPathAsync(parsedUploadId, ctx.RequestAborted);
+            var (metaTitle, _) = PdfMetadataHelper.Read(metadataPdfPath);
             if (!string.IsNullOrWhiteSpace(metaTitle) &&
                 !Regex.IsMatch(metaTitle, @"^\s*untitled\s*$", RegexOptions.IgnoreCase))
             {
@@ -1703,7 +1717,7 @@ app.MapGet("/ask/stream/{uploadId}", async (
                 return;
             }
 
-            var guess = TitleHeuristics.FromPdfFirstPage(parsedUploadId, env);
+            var guess = TitleHeuristics.FromPdfFirstPage(metadataPdfPath);
             if (!string.IsNullOrWhiteSpace(guess))
             {
                 await ctx.Response.WriteAsync($"event: token\ndata: {System.Text.Json.JsonSerializer.Serialize(new { text = $"{guess} [p:1]" })}\n\n");
@@ -1723,7 +1737,8 @@ app.MapGet("/ask/stream/{uploadId}", async (
         // ==== FAST PATH: Authors (front matter only) ====
         if (intent == SectionIntent.Authors)
         {
-            var (_, metaAuthor) = PdfMetadataHelper.Read(parsedUploadId, env);
+            var metadataPdfPath = await storage.GetPdfPathAsync(parsedUploadId, ctx.RequestAborted);
+            var (_, metaAuthor) = PdfMetadataHelper.Read(metadataPdfPath);
             if (!string.IsNullOrWhiteSpace(metaAuthor) &&
     !Regex.IsMatch(metaAuthor, @"^\s*(unknown|n/?a|none)\s*$", RegexOptions.IgnoreCase))
             {
@@ -2027,7 +2042,7 @@ Context:
 
 
 
-app.MapGet("/index/status/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env, IndexJobStore jobStore) =>
+app.MapGet("/index/status/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IDocumentStorage storage, IndexJobStore jobStore) =>
 {
     var me = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
@@ -2036,9 +2051,7 @@ app.MapGet("/index/status/{uploadId:guid}", async (Guid uploadId, HttpContext ct
     var id = uploadId.ToString();
     var inMemory = InMemoryStore.VectorIndex.TryGetValue(id, out var list) && list?.Count > 0;
 
-    var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
-    var indexPath = Path.Combine(uploadsRoot, $"{id}.index.json");
-    var onDisk = System.IO.File.Exists(indexPath);
+    var persisted = await storage.ExistsAsync(uploadId, DocumentArtifactSuffixes.Index, ctx.RequestAborted);
 
     int? chunks = null;
     int? pagesIndexed = null;
@@ -2054,12 +2067,14 @@ app.MapGet("/index/status/{uploadId:guid}", async (Guid uploadId, HttpContext ct
         error = job.LastError;
     }
 
-    if (onDisk)
+    if (persisted)
     {
         try
         {
-            var json = System.IO.File.ReadAllText(indexPath);
-            var rows = System.Text.Json.JsonSerializer.Deserialize<SerializableChunk[]>(json);
+            var json = await storage.ReadTextAsync(uploadId, DocumentArtifactSuffixes.Index, ctx.RequestAborted);
+            var rows = string.IsNullOrWhiteSpace(json)
+                ? null
+                : System.Text.Json.JsonSerializer.Deserialize<SerializableChunk[]>(json);
             chunks = rows?.Length;
             pagesIndexed = rows?.Select(x => x.Page).Distinct().Count();
             sample = rows?.Take(3).Select(x => new { page = x.Page, preview = x.Preview });
@@ -2112,7 +2127,7 @@ app.MapGet("/index/status/{uploadId:guid}", async (Guid uploadId, HttpContext ct
         uploadId = id,
         state,
         inMemory,
-        onDisk,
+        onDisk = persisted,
         chunks,
         pagesIndexed,
         sample,
@@ -2399,15 +2414,14 @@ app.MapPatch("/uploads/{uploadId:guid}/name", async (Guid uploadId, RenameUpload
     });
 });
 
-app.MapGet("/uploads/{uploadId:guid}/download", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env, IUploadRepository uploadsRepository) =>
+app.MapGet("/uploads/{uploadId:guid}/download", async (Guid uploadId, HttpContext ctx, IDocumentStorage storage, IUploadRepository uploadsRepository) =>
 {
     var me = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
     if (!await uploadsRepository.CanAccessAsync(uploadId, me, ctx.RequestAborted)) return Results.NotFound();
 
-    var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
-    var path = Path.Combine(uploadsRoot, $"{uploadId}.pdf");
-    if (!File.Exists(path)) return Results.NotFound();
+    var path = await storage.GetPdfPathAsync(uploadId, ctx.RequestAborted);
+    if (path is null) return Results.NotFound();
 
     string fileName = $"{uploadId}.pdf";
     if (uploadsRepository is not null)
@@ -2425,7 +2439,7 @@ app.MapGet("/uploads/{uploadId:guid}/download", async (Guid uploadId, HttpContex
 
 
 // DELETE /uploads/{uploadId} -> delete a case and its sessions/messages/notes/files for current user
-app.MapDelete("/uploads/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env, IUploadRepository uploadsRepository) =>
+app.MapDelete("/uploads/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IDocumentStorage storage, IUploadRepository uploadsRepository) =>
 {
     var me = ctx.GetCurrentUserId() ?? "";
     var id = uploadId.ToString(); // string version used for files / notes
@@ -2436,17 +2450,8 @@ app.MapDelete("/uploads/{uploadId:guid}", async (Guid uploadId, HttpContext ctx,
     }
 
     // 8) Clear in-memory index
-    InMemoryStore.VectorIndex.Remove(id);
-
-    // 9) Delete files on disk
-    var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
-    var pdfPath = Path.Combine(uploadsRoot, $"{id}.pdf");
-    var summaryPath = Path.Combine(uploadsRoot, $"{id}.summary.json");
-    var indexPath = Path.Combine(uploadsRoot, $"{id}.index.json");
-
-    try { if (File.Exists(pdfPath)) File.Delete(pdfPath); } catch { }
-    try { if (File.Exists(summaryPath)) File.Delete(summaryPath); } catch { }
-    try { if (File.Exists(indexPath)) File.Delete(indexPath); } catch { }
+    InMemoryStore.VectorIndex.TryRemove(id, out _);
+    await storage.DeleteArtifactsAsync(uploadId, ctx.RequestAborted);
 
     return Results.Json(new { uploadId = id, deleted = true });
 });

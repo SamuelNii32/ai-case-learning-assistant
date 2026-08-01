@@ -49,7 +49,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -65,15 +64,45 @@ jobs:
       - name: Build backend
         run: dotnet build IngestionApi.csproj --no-restore /p:UseAppHost=false -o artifacts/ci-backend
 
+      - name: Start Azurite Blob emulator
+        run: >-
+          docker run --rm -d --name casepilot-ci-azurite -p 10000:10000
+          mcr.microsoft.com/azure-storage/azurite:3.36.0
+          azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --skipApiVersionCheck
+
       - name: Verify PostgreSQL schema and repositories
         run: dotnet artifacts/ci-backend/IngestionApi.dll --verify-database
         env:
           ASPNETCORE_ENVIRONMENT: Development
           DATABASE_PROVIDER: postgres
           POSTGRES_CONNECTION_STRING: Host=localhost;Port=5432;Database=ingestion_verify;Username=postgres;Password=postgres
+          DOCUMENT_STORAGE_PROVIDER: azureblob
+          AZURE_STORAGE_CONNECTION_STRING: UseDevelopmentStorage=true
+          AZURE_STORAGE_CONTAINER: ci-documents
           OPENAI_API_KEY: verification-key-not-used
           JWT_SECRET: verification-only-secret-at-least-32-characters
           RUN_BACKGROUND_WORKER: 'false'
+
+      - name: Verify worker starts without web authentication settings
+        shell: bash
+        run: |
+          set +e
+          timeout 5s dotnet artifacts/ci-backend/IngestionApi.dll --worker
+          exit_code=$?
+          set -e
+          test "$exit_code" -eq 124
+        env:
+          ASPNETCORE_ENVIRONMENT: Production
+          DATABASE_PROVIDER: postgres
+          POSTGRES_CONNECTION_STRING: Host=localhost;Port=5432;Database=ingestion_verify;Username=postgres;Password=postgres
+          DOCUMENT_STORAGE_PROVIDER: azureblob
+          AZURE_STORAGE_CONNECTION_STRING: UseDevelopmentStorage=true
+          AZURE_STORAGE_CONTAINER: ci-documents
+          OPENAI_API_KEY: verification-key-not-used
+
+      - name: Stop Azurite Blob emulator
+        if: always()
+        run: docker stop casepilot-ci-azurite
 
   security:
     name: Security audit

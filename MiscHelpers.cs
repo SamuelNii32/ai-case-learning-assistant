@@ -11,7 +11,7 @@ using iText.Kernel.Pdf.Canvas.Parser.Data;
 public static class MiscHelpers
 {
     public static List<(int page, string text)> ExtractAnchorsFromPages(
-        string uploadId,
+        string pdfPath,
         IEnumerable<int> pages,
         int maxTotal = 3,
         int maxChars = 220)
@@ -19,10 +19,9 @@ public static class MiscHelpers
         var anchors = new List<(int page, string text)>();
         try
         {
-            var path = Path.Combine("uploads", $"{uploadId}.pdf");
-            if (!File.Exists(path)) return anchors;
+            if (!File.Exists(pdfPath)) return anchors;
 
-            using var doc = PdfPigDoc.Open(path);
+            using var doc = PdfPigDoc.Open(pdfPath);
 
             foreach (var p in pages.Distinct().OrderBy(x => x))
             {
@@ -39,7 +38,7 @@ public static class MiscHelpers
         }
         catch
         {
-            // swallow — return whatever we could extract
+            // swallow â€” return whatever we could extract
         }
 
         return anchors;
@@ -55,7 +54,7 @@ public static class MiscHelpers
         var cut = dot > 0 && dot < softLimit + 120 ? dot + 1 : maxChars;
         if (cut > clean.Length) cut = clean.Length;
 
-        return clean.Substring(0, cut).Trim() + "…";
+        return clean.Substring(0, cut).Trim() + "â€¦";
     }
 
     public static string CollapseWhitespace(string s)

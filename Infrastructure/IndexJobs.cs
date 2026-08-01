@@ -320,28 +320,28 @@ VALUES (@uploadId, 'failed', NULL, @now, @now, @now, 1, @lastError, NULL, NULL, 
 
 public sealed class IndexingService
 {
-    private readonly IHostEnvironment _environment;
+    private readonly IDocumentStorage _storage;
     private readonly IndexJobStore _jobStore;
     private readonly ILogger<IndexingService> _logger;
 
     public IndexingService(
-        IHostEnvironment environment,
+        IDocumentStorage storage,
         IndexJobStore jobStore,
         ILogger<IndexingService> logger)
     {
-        _environment = environment;
+        _storage = storage;
         _jobStore = jobStore;
         _logger = logger;
     }
 
     public async Task<IndexBuildSummary> BuildAsync(Guid uploadId, CancellationToken cancellationToken = default, string? workerId = null)
     {
-        var uploadsRoot = Path.Combine(_environment.ContentRootPath, "uploads");
-        var pdfPath = Path.Combine(uploadsRoot, $"{uploadId}.pdf");
-        if (!File.Exists(pdfPath))
-            throw new FileNotFoundException("PDF not found", pdfPath);
+        var pdfPath = await _storage.GetPdfPathAsync(uploadId, cancellationToken);
+        if (pdfPath is null)
+            throw new FileNotFoundException($"PDF not found for upload {uploadId}.");
 
-        if (IndexPersistence.TryLoad(uploadId, _environment, out var existingChunks))
+        var existingChunks = await IndexPersistence.TryLoadAsync(uploadId, _storage, cancellationToken);
+        if (existingChunks is { Count: > 0 })
         {
             return new IndexBuildSummary(
                 uploadId,
@@ -403,7 +403,7 @@ public sealed class IndexingService
         try
         {
             var cls = DocTypeClassifier.Evaluate(chunks);
-            DocTypePersistence.Save(uploadId, _environment, cls);
+            await DocTypePersistence.SaveAsync(uploadId, _storage, cls, cancellationToken);
             _logger.LogInformation("[CLASSIFY] {UploadId} -> {DocType} (conf {Confidence:0.00}) :: {Reason}",
                 uploadId, cls.DocType, cls.Confidence, cls.Reason);
         }
@@ -412,10 +412,12 @@ public sealed class IndexingService
             _logger.LogWarning(ex, "[CLASSIFY ERROR] {UploadId}", uploadId);
         }
 
-        Directory.CreateDirectory(uploadsRoot);
         var serializable = chunks.Select(c => new SerializableChunk(c.Page, c.Preview, c.Vec.ToArray())).ToArray();
-        var indexPath = Path.Combine(uploadsRoot, $"{uploadId}.index.json");
-        await File.WriteAllTextAsync(indexPath, JsonSerializer.Serialize(serializable), cancellationToken);
+        await _storage.WriteJsonAsync(
+            uploadId,
+            DocumentArtifactSuffixes.Index,
+            serializable,
+            cancellationToken);
 
         return new IndexBuildSummary(
             uploadId,

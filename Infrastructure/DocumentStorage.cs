@@ -6,12 +6,29 @@ namespace Api.Infrastructure;
 
 public sealed record StoredSummaryFile(string UploadId, string Json, DateTime LastModifiedUtc);
 
+public static class DocumentArtifactSuffixes
+{
+    public const string Summary = ".summary.json";
+    public const string Index = ".index.json";
+    public const string Layout = ".layout.json";
+    public const string DocumentType = ".doctype.json";
+
+    public static readonly string[] All = { ".pdf", Summary, Index, Layout, DocumentType };
+
+    public static void EnsureSupported(string suffix)
+    {
+        if (!All.Contains(suffix, StringComparer.Ordinal))
+            throw new ArgumentException($"Unsupported document artifact suffix '{suffix}'.", nameof(suffix));
+    }
+}
+
 public interface IDocumentStorage
 {
     Task<string> SavePdfAsync(Guid uploadId, IFormFile file, CancellationToken cancellationToken = default);
     Task<string?> GetPdfPathAsync(Guid uploadId, CancellationToken cancellationToken = default);
     Task<bool> PdfExistsAsync(Guid uploadId, CancellationToken cancellationToken = default);
     Task WriteJsonAsync(Guid uploadId, string suffix, object value, CancellationToken cancellationToken = default);
+    Task WriteTextAsync(Guid uploadId, string suffix, string content, CancellationToken cancellationToken = default);
     Task<string?> ReadTextAsync(Guid uploadId, string suffix, CancellationToken cancellationToken = default);
     Task<bool> ExistsAsync(Guid uploadId, string suffix, CancellationToken cancellationToken = default);
     IAsyncEnumerable<StoredSummaryFile> EnumerateSummariesAsync(CancellationToken cancellationToken = default);
@@ -22,7 +39,7 @@ public sealed class LocalDocumentStorage : IDocumentStorage
 {
     private readonly string _uploadsRoot;
 
-    public LocalDocumentStorage(IWebHostEnvironment env)
+    public LocalDocumentStorage(IHostEnvironment env)
     {
         _uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
         Directory.CreateDirectory(_uploadsRoot);
@@ -51,9 +68,14 @@ public sealed class LocalDocumentStorage : IDocumentStorage
 
     public async Task WriteJsonAsync(Guid uploadId, string suffix, object value, CancellationToken cancellationToken = default)
     {
-        Directory.CreateDirectory(_uploadsRoot);
         var json = JsonSerializer.Serialize(value);
-        await File.WriteAllTextAsync(GetPath(uploadId, suffix), json, cancellationToken);
+        await WriteTextAsync(uploadId, suffix, json, cancellationToken);
+    }
+
+    public async Task WriteTextAsync(Guid uploadId, string suffix, string content, CancellationToken cancellationToken = default)
+    {
+        Directory.CreateDirectory(_uploadsRoot);
+        await File.WriteAllTextAsync(GetPath(uploadId, suffix), content, cancellationToken);
     }
 
     public async Task<string?> ReadTextAsync(Guid uploadId, string suffix, CancellationToken cancellationToken = default)
@@ -86,7 +108,7 @@ public sealed class LocalDocumentStorage : IDocumentStorage
 
     public Task DeleteArtifactsAsync(Guid uploadId, CancellationToken cancellationToken = default)
     {
-        foreach (var suffix in new[] { ".pdf", ".summary.json", ".index.json", ".layout.json" })
+        foreach (var suffix in DocumentArtifactSuffixes.All)
         {
             var path = GetPath(uploadId, suffix);
             try
@@ -107,6 +129,7 @@ public sealed class LocalDocumentStorage : IDocumentStorage
 
     private string GetPath(Guid uploadId, string suffix)
     {
+        DocumentArtifactSuffixes.EnsureSupported(suffix);
         return Path.Combine(_uploadsRoot, $"{uploadId}{suffix}");
     }
 }
@@ -116,7 +139,7 @@ public sealed class AzureBlobDocumentStorage : IDocumentStorage
     private readonly BlobContainerClient _container;
     private readonly string _cacheRoot;
 
-    public AzureBlobDocumentStorage(IConfiguration configuration, IWebHostEnvironment env)
+    public AzureBlobDocumentStorage(IConfiguration configuration, IHostEnvironment env)
     {
         var connectionString = Environment.GetEnvironmentVariable("AZURE_STORAGE_CONNECTION_STRING")
             ?? configuration["AzureBlobStorage:ConnectionString"];
@@ -130,22 +153,23 @@ public sealed class AzureBlobDocumentStorage : IDocumentStorage
         }
 
         _container = new BlobContainerClient(connectionString, containerName);
-        _container.CreateIfNotExists();
         _cacheRoot = Path.Combine(Path.GetTempPath(), "casepilot-document-cache", env.EnvironmentName);
         Directory.CreateDirectory(_cacheRoot);
     }
 
     public async Task<string> SavePdfAsync(Guid uploadId, IFormFile file, CancellationToken cancellationToken = default)
     {
-        var blob = _container.GetBlobClient(GetBlobName(uploadId, ".pdf"));
-        await using var input = file.OpenReadStream();
-        await blob.UploadAsync(input, overwrite: true, cancellationToken);
-
         var localPath = GetCachePath(uploadId, ".pdf");
         Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
-        await using var output = File.Open(localPath, FileMode.Create, FileAccess.Write, FileShare.Read);
-        input.Position = 0;
-        await input.CopyToAsync(output, cancellationToken);
+        await using (var output = File.Open(localPath, FileMode.Create, FileAccess.Write, FileShare.Read))
+        {
+            await file.CopyToAsync(output, cancellationToken);
+        }
+
+        await EnsureContainerAsync(cancellationToken);
+        var blob = _container.GetBlobClient(GetBlobName(uploadId, ".pdf"));
+        await using var input = File.OpenRead(localPath);
+        await blob.UploadAsync(input, overwrite: true, cancellationToken);
         return localPath;
     }
 
@@ -176,12 +200,18 @@ public sealed class AzureBlobDocumentStorage : IDocumentStorage
     public async Task WriteJsonAsync(Guid uploadId, string suffix, object value, CancellationToken cancellationToken = default)
     {
         var json = JsonSerializer.Serialize(value);
+        await WriteTextAsync(uploadId, suffix, json, cancellationToken);
+    }
+
+    public async Task WriteTextAsync(Guid uploadId, string suffix, string content, CancellationToken cancellationToken = default)
+    {
+        await EnsureContainerAsync(cancellationToken);
         var blob = _container.GetBlobClient(GetBlobName(uploadId, suffix));
-        await blob.UploadAsync(BinaryData.FromString(json), overwrite: true, cancellationToken);
+        await blob.UploadAsync(BinaryData.FromString(content), overwrite: true, cancellationToken);
 
         var localPath = GetCachePath(uploadId, suffix);
         Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
-        await File.WriteAllTextAsync(localPath, json, cancellationToken);
+        await File.WriteAllTextAsync(localPath, content, cancellationToken);
     }
 
     public async Task<string?> ReadTextAsync(Guid uploadId, string suffix, CancellationToken cancellationToken = default)
@@ -227,7 +257,7 @@ public sealed class AzureBlobDocumentStorage : IDocumentStorage
 
     public async Task DeleteArtifactsAsync(Guid uploadId, CancellationToken cancellationToken = default)
     {
-        foreach (var suffix in new[] { ".pdf", ".summary.json", ".index.json", ".layout.json" })
+        foreach (var suffix in DocumentArtifactSuffixes.All)
         {
             await _container
                 .GetBlobClient(GetBlobName(uploadId, suffix))
@@ -250,12 +280,18 @@ public sealed class AzureBlobDocumentStorage : IDocumentStorage
 
     private static string GetBlobName(Guid uploadId, string suffix)
     {
+        DocumentArtifactSuffixes.EnsureSupported(suffix);
         return $"uploads/{uploadId}{suffix}";
     }
 
     private string GetCachePath(Guid uploadId, string suffix)
     {
         return Path.Combine(_cacheRoot, $"{uploadId}{suffix}");
+    }
+
+    private async Task EnsureContainerAsync(CancellationToken cancellationToken)
+    {
+        await _container.CreateIfNotExistsAsync(cancellationToken: cancellationToken);
     }
 }
 

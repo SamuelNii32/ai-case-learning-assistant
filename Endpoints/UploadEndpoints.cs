@@ -14,7 +14,7 @@ public static class UploadEndpoints
     {
 
 
-        // POST /uploads  (save PDF + minimal summary) — uses ABSOLUTE uploads path
+        // POST /uploads  (save PDF + minimal summary) â€” uses ABSOLUTE uploads path
         app.MapPost("/uploads", async (HttpRequest request, HttpContext ctx, IWebHostEnvironment env, IDocumentStorage storage, IUploadRepository uploads) =>
         {
             var ownerId = ctx.GetCurrentUserId();
@@ -101,7 +101,7 @@ public static class UploadEndpoints
             var tables = 0;
             try
             {
-                var layout = await DocumentLayoutAnalyzer.AnalyzeAndSaveAsync(uploadId, env);
+                var layout = await DocumentLayoutAnalyzer.AnalyzeAndSaveAsync(uploadId, storage, ctx.RequestAborted);
                 figures = layout.Captions.Count(c => c.Kind.Equals("figure", StringComparison.OrdinalIgnoreCase));
                 tables = layout.Captions.Count(c => c.Kind.Equals("table", StringComparison.OrdinalIgnoreCase)) + layout.Tables.Count;
             }
@@ -143,7 +143,7 @@ public static class UploadEndpoints
         .Produces(StatusCodes.Status400BadRequest)
         .Produces(StatusCodes.Status415UnsupportedMediaType);
 
-        // GET /uploads/{id}/summary — reads from ABSOLUTE path
+        // GET /uploads/{id}/summary â€” reads from ABSOLUTE path
         app.MapGet("/uploads/{uploadId:guid}/summary", async (Guid uploadId, HttpContext ctx, IDocumentStorage storage, IUploadRepository uploads) =>
         {
             var me = ctx.GetCurrentUserId();
@@ -163,7 +163,7 @@ public static class UploadEndpoints
 
             if (!await storage.PdfExistsAsync(uploadId, ctx.RequestAborted)) return Results.NotFound(new { error = "PDF not found" });
 
-            var manifest = await DocumentLayoutAnalyzer.AnalyzeAndSaveAsync(uploadId, env);
+            var manifest = await DocumentLayoutAnalyzer.AnalyzeAndSaveAsync(uploadId, storage, ctx.RequestAborted);
             return Results.Json(manifest);
         });
 
@@ -178,7 +178,7 @@ public static class UploadEndpoints
             return Results.Text(json, "application/json");
         });
 
-        // GET /cases — per-user list of uploads
+        // GET /cases â€” per-user list of uploads
         app.MapGet("/cases", async (HttpContext ctx, IDocumentStorage storage, IUploadRepository uploads) =>
         {
             // 1) Get current userId from JWT middleware
@@ -238,7 +238,7 @@ public static class UploadEndpoints
             return Results.Json(ordered);
         });
 
-        // GET/HEAD /uploads/{id}.pdf — serves from ABSOLUTE path (use Results.File)
+        // GET/HEAD /uploads/{id}.pdf â€” serves from ABSOLUTE path (use Results.File)
         app.MapMethods("/uploads/{uploadId:guid}.pdf", new[] { "GET", "HEAD" }, async (Guid uploadId, HttpContext ctx, IDocumentStorage storage, IUploadRepository uploads) =>
         {
             try

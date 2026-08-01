@@ -35,19 +35,7 @@ public static class ServiceCollectionExtensions
             return new ChatClient(model: answerModel, openAiApiKey);
         });
 
-        services.AddSingleton<IDocumentStorage>(sp =>
-        {
-            var provider = (Environment.GetEnvironmentVariable("DOCUMENT_STORAGE_PROVIDER")
-                ?? configuration["DocumentStorage:Provider"]
-                ?? "local").Trim().ToLowerInvariant();
-
-            return provider switch
-            {
-                "local" => ActivatorUtilities.CreateInstance<LocalDocumentStorage>(sp),
-                "azureblob" => ActivatorUtilities.CreateInstance<AzureBlobDocumentStorage>(sp),
-                _ => throw new InvalidOperationException($"Unsupported DOCUMENT_STORAGE_PROVIDER '{provider}'.")
-            };
-        });
+        AddDocumentStorage(services, configuration);
         services.AddSingleton(DatabaseOptions.Load(configuration));
         services.AddSingleton<IUploadRepository, SqliteUploadRepository>();
         services.AddSingleton<IUserRepository, SqliteUserRepository>();
@@ -168,6 +156,40 @@ public static class ServiceCollectionExtensions
         });
 
         return services;
+    }
+
+    public static IServiceCollection AddIndexWorkerServices(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("OPENAI_API_KEY")))
+        {
+            throw new InvalidOperationException("OPENAI_API_KEY must be configured for the index worker.");
+        }
+
+        AddDocumentStorage(services, configuration);
+        services.AddSingleton(DatabaseOptions.Load(configuration));
+        services.AddSingleton<IndexJobStore>();
+        services.AddSingleton<IndexingService>();
+        services.AddHostedService<IndexJobWorkerHostedService>();
+        return services;
+    }
+
+    private static void AddDocumentStorage(IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddSingleton<IDocumentStorage>(sp =>
+        {
+            var provider = (Environment.GetEnvironmentVariable("DOCUMENT_STORAGE_PROVIDER")
+                ?? configuration["DocumentStorage:Provider"]
+                ?? "local").Trim().ToLowerInvariant();
+
+            return provider switch
+            {
+                "local" => ActivatorUtilities.CreateInstance<LocalDocumentStorage>(sp),
+                "azureblob" => ActivatorUtilities.CreateInstance<AzureBlobDocumentStorage>(sp),
+                _ => throw new InvalidOperationException($"Unsupported DOCUMENT_STORAGE_PROVIDER '{provider}'.")
+            };
+        });
     }
 
     private static long GetLong(IConfiguration configuration, string envName, string configKey, long fallback)

@@ -12,7 +12,7 @@ public static class TutorEndpoints
 {
     public static void MapTutorEndpoints(this WebApplication app, DatabaseOptions databaseOptions)
     {
-        app.MapPost("/tutor/start/{uploadId:guid}", async (Guid uploadId, TutorStartRequest? request, HttpContext ctx, IWebHostEnvironment env, IUploadRepository uploads) =>
+        app.MapPost("/tutor/start/{uploadId:guid}", async (Guid uploadId, TutorStartRequest? request, HttpContext ctx, IDocumentStorage storage, IUploadRepository uploads) =>
         {
             var me = ctx.GetCurrentUserId();
             if (string.IsNullOrWhiteSpace(me))
@@ -26,7 +26,8 @@ public static class TutorEndpoints
             }
 
             DocType category;
-            if (DocTypePersistence.TryLoad(uploadId, env, out var docTypeResult) && docTypeResult is not null)
+            var docTypeResult = await DocTypePersistence.TryLoadAsync(uploadId, storage, ctx.RequestAborted);
+            if (docTypeResult is not null)
             {
                 category = docTypeResult.DocType;
             }
@@ -152,7 +153,7 @@ public static class TutorEndpoints
             return Results.Json(response);
         }).RequireRateLimiting("Ai");
 
-        app.MapPost("/tutor/reading/start/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env, ChatClient chat, IUploadRepository uploads, ITutorRepository tutorRepository) =>
+        app.MapPost("/tutor/reading/start/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IDocumentStorage storage, ChatClient chat, IUploadRepository uploads, ITutorRepository tutorRepository) =>
         {
             var me = ctx.GetCurrentUserId();
             if (string.IsNullOrWhiteSpace(me))
@@ -166,7 +167,8 @@ public static class TutorEndpoints
             }
 
             DocType category;
-            if (DocTypePersistence.TryLoad(uploadId, env, out var docTypeResult) && docTypeResult is not null)
+            var docTypeResult = await DocTypePersistence.TryLoadAsync(uploadId, storage, ctx.RequestAborted);
+            if (docTypeResult is not null)
             {
                 category = docTypeResult.DocType;
             }
@@ -175,7 +177,7 @@ public static class TutorEndpoints
                 category = DocType.UnsupportedOther;
             }
 
-            EnsureIndexLoaded(uploadId, env);
+            await EnsureIndexLoadedAsync(uploadId, storage, ctx.RequestAborted);
             var assignment = await LoadReadingAssignmentContextAsync(tutorRepository, uploadId, me, ctx.RequestAborted);
 
             var sessionId = Guid.NewGuid().ToString("N");
@@ -209,7 +211,7 @@ public static class TutorEndpoints
             return Results.Json(response);
         }).RequireRateLimiting("Ai");
 
-        app.MapGet("/tutor/reading/resume/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env, ChatClient chat, IUploadRepository uploads, ITutorRepository tutorRepository) =>
+        app.MapGet("/tutor/reading/resume/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IDocumentStorage storage, ChatClient chat, IUploadRepository uploads, ITutorRepository tutorRepository) =>
         {
             var me = ctx.GetCurrentUserId();
             if (string.IsNullOrWhiteSpace(me))
@@ -234,7 +236,7 @@ public static class TutorEndpoints
 
             TutorSessionStore.Sessions[session.SessionId] = session;
 
-            EnsureIndexLoaded(uploadId, env);
+            await EnsureIndexLoadedAsync(uploadId, storage, ctx.RequestAborted);
             var assignment = await LoadReadingAssignmentContextAsync(tutorRepository, uploadId, me, ctx.RequestAborted);
 
             if (string.Equals(session.CurrentNode, "reading:complete", StringComparison.OrdinalIgnoreCase))
@@ -261,7 +263,7 @@ public static class TutorEndpoints
             });
         }).RequireRateLimiting("Ai");
 
-        app.MapPost("/tutor/reading/answer", async (TutorAnswerRequest request, HttpContext ctx, IWebHostEnvironment env, ChatClient chat, IUploadRepository uploads, ITutorRepository tutorRepository) =>
+        app.MapPost("/tutor/reading/answer", async (TutorAnswerRequest request, HttpContext ctx, IDocumentStorage storage, ChatClient chat, IUploadRepository uploads, ITutorRepository tutorRepository) =>
         {
             if (request is null ||
                 string.IsNullOrWhiteSpace(request.SessionId) ||
@@ -297,7 +299,7 @@ public static class TutorEndpoints
                 return Results.BadRequest(new { error = "Unknown reading step" });
             }
 
-            EnsureIndexLoaded(session.UploadId, env);
+            await EnsureIndexLoadedAsync(session.UploadId, storage, ctx.RequestAborted);
             var assignment = await LoadReadingAssignmentContextAsync(tutorRepository, session.UploadId, me, ctx.RequestAborted);
             var question = GuidedReadingTutor.ResolveDisplayedQuestion(step, assignment);
 
@@ -1129,7 +1131,10 @@ public static class TutorEndpoints
             "c5-1" or "c5-2" or "c5-3";
     }
 
-    private static void EnsureIndexLoaded(Guid uploadId, IWebHostEnvironment env)
+    private static async Task EnsureIndexLoadedAsync(
+        Guid uploadId,
+        IDocumentStorage storage,
+        CancellationToken cancellationToken)
     {
         var id = uploadId.ToString();
         if (InMemoryStore.VectorIndex.TryGetValue(id, out var chunks) && chunks.Count > 0)
@@ -1137,7 +1142,7 @@ public static class TutorEndpoints
             return;
         }
 
-        IndexPersistence.TryLoad(uploadId, env, out _);
+        await IndexPersistence.TryLoadAsync(uploadId, storage, cancellationToken);
     }
 
     private static string? ExtractReadingStepId(string? currentNode)

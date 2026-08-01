@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Microsoft.AspNetCore.Hosting;
 using UglyToad.PdfPig.Content;
 using PdfPigDoc = UglyToad.PdfPig.PdfDocument;
 
@@ -54,9 +53,8 @@ public static class DocumentLayoutAnalyzer
         @"\s(?:\.{3,}|\s{4,})\s*\d{1,4}\s*$",
         RegexOptions.Compiled);
 
-    public static LayoutManifest Analyze(Guid uploadId, IWebHostEnvironment env)
+    public static LayoutManifest Analyze(Guid uploadId, string pdfPath)
     {
-        var pdfPath = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.pdf");
         if (!File.Exists(pdfPath))
         {
             throw new FileNotFoundException("PDF not found", pdfPath);
@@ -109,14 +107,19 @@ public static class DocumentLayoutAnalyzer
         return new LayoutManifest(uploadId, DateTime.UtcNow, captions, tables, pages);
     }
 
-    public static async Task<LayoutManifest> AnalyzeAndSaveAsync(Guid uploadId, IWebHostEnvironment env)
+    public static async Task<LayoutManifest> AnalyzeAndSaveAsync(
+        Guid uploadId,
+        Api.Infrastructure.IDocumentStorage storage,
+        CancellationToken cancellationToken = default)
     {
-        var manifest = Analyze(uploadId, env);
-        var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
-        Directory.CreateDirectory(uploadsRoot);
-        var path = Path.Combine(uploadsRoot, $"{uploadId}.layout.json");
-        var json = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(path, json);
+        var pdfPath = await storage.GetPdfPathAsync(uploadId, cancellationToken)
+            ?? throw new FileNotFoundException($"PDF not found for upload {uploadId}.");
+        var manifest = Analyze(uploadId, pdfPath);
+        await storage.WriteJsonAsync(
+            uploadId,
+            Api.Infrastructure.DocumentArtifactSuffixes.Layout,
+            manifest,
+            cancellationToken);
         return manifest;
     }
 

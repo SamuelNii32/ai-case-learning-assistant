@@ -1,18 +1,16 @@
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
-using Microsoft.AspNetCore.Hosting;
 using PdfPigDoc = UglyToad.PdfPig.PdfDocument;
 
 
 public static class PdfMetadataHelper
 {
-    public static (string? Title, string? Author) Read(Guid uploadId, IWebHostEnvironment env)
+    public static (string? Title, string? Author) Read(string? path)
     {
         try
         {
-            var path = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.pdf");
-            if (!File.Exists(path)) return (null, null);
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return (null, null);
             using var pdf = new iText.Kernel.Pdf.PdfDocument(new iText.Kernel.Pdf.PdfReader(path));
             var info = pdf.GetDocumentInfo();
             var title = info?.GetTitle();
@@ -28,10 +26,9 @@ public static class PdfMetadataHelper
 
 public static class TitleHeuristics
 {
-    public static string? FromPdfFirstPage(Guid uploadId, IWebHostEnvironment env)
+    public static string? FromPdfFirstPage(string? path)
     {
-        var path = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.pdf");
-        if (!File.Exists(path)) return null;
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
 
         using var doc = PdfPigDoc.Open(path);
         var first = doc.GetPages().FirstOrDefault();
@@ -97,7 +94,7 @@ public static class TitleHeuristics
         var cut = Regex.Split(pick, @"\b(BY|SUPERVISOR|SUBMITTED|SUBMISSION|NAME OF|SIGNATURE|APPROVAL)\b",
                               RegexOptions.IgnoreCase)[0];
 
-        // 2) If there’s an institutional prelude, start from the first likely title keyword
+        // 2) If thereâ€™s an institutional prelude, start from the first likely title keyword
         var m = Regex.Match(cut,
             @"\b(FINAL\s+YEAR|PROJECT\s+REPORT|THESIS|DISSERTATION|RESEARCH\s+PROJECT|REPORT\s+ON)\b",
             RegexOptions.IgnoreCase);
@@ -125,7 +122,7 @@ public static class TitleHeuristics
             if (words.Length > 30)
                 return null;
 
-            // Rough multi-sentence check – abstracts usually have several sentences
+            // Rough multi-sentence check â€“ abstracts usually have several sentences
             var sentenceEndCount = Regex.Matches(pick, "[\\.\\?!]").Count;
             if (sentenceEndCount > 2)
                 return null;

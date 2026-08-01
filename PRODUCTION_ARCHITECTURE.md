@@ -44,6 +44,8 @@ This app is moving from a single-instance SQLite/local-disk pilot toward a produ
    - Next: replace startup DDL with versioned, reviewed migration files before the first production schema change.
 3. Add Azure Blob implementation of `IDocumentStorage`.
    - Done: select with `DOCUMENT_STORAGE_PROVIDER=azureblob`.
+   - Done: API and worker share PDFs, summaries, indexes, layouts, and document classifications through the same storage provider.
+   - Done: Azure Blob behavior is integration-tested in CI with Azurite, including cache eviction and re-download.
 4. Done: upload post-processing now enqueues durable index jobs.
 5. Done: the app can run as a worker with `--worker`, and `RUN_BACKGROUND_WORKER=false` allows web-only instances.
 6. Add load tests for auth, upload, indexing, chat, tutor, and instructor dashboards.
@@ -58,7 +60,7 @@ This app is moving from a single-instance SQLite/local-disk pilot toward a produ
 - `AZURE_STORAGE_CONTAINER` defaults to `documents`.
 - `RUN_BACKGROUND_WORKER=false` disables the hosted worker in web instances.
 - `--worker` starts the process in worker-only mode.
-- `--verify-database` runs destructive smoke checks and must only target an empty disposable database.
+- `--verify-database` runs destructive database and document-storage smoke checks and must only target an empty disposable database and test storage container.
 - `MAX_UPLOAD_BYTES` limits uploaded file size.
 - `MAX_UPLOAD_PAGES` limits uploaded PDF page count.
 - `ENABLE_DEBUG_ENDPOINTS=true` exposes protected debug endpoints in production.

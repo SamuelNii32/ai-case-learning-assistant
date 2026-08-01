@@ -397,27 +397,30 @@ public static class DocTypeClassifier
 
 public static class DocTypePersistence
 {
-    public static void Save(Guid uploadId, IHostEnvironment env, DocTypeResult result)
+    public static Task SaveAsync(
+        Guid uploadId,
+        Api.Infrastructure.IDocumentStorage storage,
+        DocTypeResult result,
+        CancellationToken cancellationToken = default)
     {
-        var path = Path.Combine(env.ContentRootPath, "uploads", $"docclass-{uploadId}.json");
-        var json = JsonSerializer.Serialize(result, new JsonSerializerOptions
-        {
-            WriteIndented = true
-        });
-        File.WriteAllText(path, json);
+        return storage.WriteJsonAsync(
+            uploadId,
+            Api.Infrastructure.DocumentArtifactSuffixes.DocumentType,
+            result,
+            cancellationToken);
     }
 
-    public static bool TryLoad(Guid uploadId, IHostEnvironment env, out DocTypeResult? result)
+    public static async Task<DocTypeResult?> TryLoadAsync(
+        Guid uploadId,
+        Api.Infrastructure.IDocumentStorage storage,
+        CancellationToken cancellationToken = default)
     {
-        var path = Path.Combine(env.ContentRootPath, "uploads", $"docclass-{uploadId}.json");
-        if (!File.Exists(path))
-        {
-            result = null;
-            return false;
-        }
-
-        var json = File.ReadAllText(path);
-        result = JsonSerializer.Deserialize<DocTypeResult>(json);
-        return result != null;
+        var json = await storage.ReadTextAsync(
+            uploadId,
+            Api.Infrastructure.DocumentArtifactSuffixes.DocumentType,
+            cancellationToken);
+        return string.IsNullOrWhiteSpace(json)
+            ? null
+            : JsonSerializer.Deserialize<DocTypeResult>(json);
     }
 }

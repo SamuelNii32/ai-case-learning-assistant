@@ -64,3 +64,18 @@ Backend production database
 
 - The migration command reads SQLite from `SQLITE_CONNECTION_STRING` if set,
   otherwise it falls back to the local `ingestion.db` default.
+
+Shared document storage
+-----------------------
+- Set `DOCUMENT_STORAGE_PROVIDER=azureblob` on both the API and index worker.
+- Set the same `AZURE_STORAGE_CONNECTION_STRING` and `AZURE_STORAGE_CONTAINER`
+  values on both services. The container defaults to `documents`.
+- The API and worker exchange PDFs, generated indexes, layout manifests,
+  summaries, and document classifications through this container. Local disk
+  is only a disposable PDF processing cache.
+- Before changing an existing deployment from local storage to Blob Storage,
+  set the Azure variables and run `dotnet run -- --migrate-documents-to-blob`.
+  The command copies known artifacts without deleting or modifying local files,
+  so it is safe to verify Blob contents before changing the provider flag.
+- The worker process started with `--worker` requires the database, Blob
+  Storage, and `OPENAI_API_KEY` settings. It does not require JWT settings.
