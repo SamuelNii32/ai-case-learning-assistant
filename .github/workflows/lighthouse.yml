@@ -32,6 +32,7 @@ jobs:
             if curl -sS http://localhost:5000 > /dev/null; then echo ok && break; fi
             echo "waiting for server..."; sleep 1;
           done
+          curl --fail --silent --show-error http://localhost:5000 > /dev/null
 
       - name: Install Lighthouse
         run: npm install -g lighthouse
@@ -40,6 +41,8 @@ jobs:
         run: |
           lighthouse http://localhost:5000 \
             --output json --output-path ./lighthouse-report.json \
+            --chrome-flags="--headless --no-sandbox"
+          lighthouse http://localhost:5000 \
             --output html --output-path ./lighthouse-report.html \
             --chrome-flags="--headless --no-sandbox"
 
