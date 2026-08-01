@@ -25,7 +25,7 @@ This app is moving from a single-instance SQLite/local-disk pilot toward a produ
 - Document artifacts: Azure Blob Storage.
 - Background processing: dedicated worker role for PDF analysis, classification, embeddings, and index generation.
 - Job storage: the `IndexJobs` table is the durable handoff point between web and worker processes.
-- Cache/rate limits: Redis when the API runs multiple instances.
+- Cache/rate limits: Redis-backed global and endpoint limits when `REDIS_CONNECTION_STRING` is configured, with the existing per-instance limiter retained as a fail-open safety net.
 - Observability: structured logs, tracing, queue depth, model usage, latency, and cost dashboards.
 
 ## Migration Order
@@ -50,6 +50,14 @@ This app is moving from a single-instance SQLite/local-disk pilot toward a produ
 5. Done: the app can run as a worker with `--worker`, and `RUN_BACKGROUND_WORKER=false` allows web-only instances.
 6. Add load tests for auth, upload, indexing, chat, tutor, and instructor dashboards.
 
+## Process-local caches
+
+- Vector indexes are cached only as an acceleration layer; Blob Storage remains authoritative.
+- The vector cache defaults to a 256 MiB exact memory budget and 30-minute sliding expiration. Override with `VECTOR_INDEX_CACHE_MAX_BYTES` and `VECTOR_INDEX_CACHE_SLIDING_MINUTES`.
+- Tutor sessions are loaded from PostgreSQL at each mutating request, scoped to their owning user, and cached only during processing. The local cache defaults to 2,048 entries and a 120-minute sliding expiration. Override with `TUTOR_SESSION_CACHE_MAX_ENTRIES` and `TUTOR_SESSION_CACHE_SLIDING_MINUTES`.
+- Set `REDIS_CONNECTION_STRING` before scaling the API horizontally. Redis uses atomic fixed-window counters for global, authentication, upload, and AI limits; the local limiter remains active if Redis is temporarily unavailable.
+- Render enables forwarded-header processing automatically through its built-in `RENDER=true` variable because the service port is reachable only through Render's proxy. On other platforms, set `TRUST_FORWARDED_HEADERS=true` only when the service port is likewise isolated behind a trusted proxy. The app then uses the proxy-normalized client IP instead of trusting a raw, spoofable `X-Forwarded-For` value.
+
 ## Runtime Flags
 
 - `DATABASE_PROVIDER=sqlite|postgres` selects the relational database provider.
@@ -59,6 +67,8 @@ This app is moving from a single-instance SQLite/local-disk pilot toward a produ
 - `AZURE_STORAGE_CONNECTION_STRING` is required for Azure Blob storage.
 - `AZURE_STORAGE_CONTAINER` defaults to `documents`.
 - `RUN_BACKGROUND_WORKER=false` disables the hosted worker in web instances.
+- `REDIS_CONNECTION_STRING` enables cross-instance rate-limit coordination.
+- `TRUST_FORWARDED_HEADERS=true` processes one proxy hop for client IP and HTTPS scheme on non-Render platforms; use only behind a trusted managed proxy.
 - `--worker` starts the process in worker-only mode.
 - `--verify-database` runs destructive database and document-storage smoke checks and must only target an empty disposable database and test storage container.
 - `MAX_UPLOAD_BYTES` limits uploaded file size.

@@ -79,3 +79,13 @@ Shared document storage
   so it is safe to verify Blob contents before changing the provider flag.
 - The worker process started with `--worker` requires the database, Blob
   Storage, and `OPENAI_API_KEY` settings. It does not require JWT settings.
+
+Multi-instance API settings
+---------------------------
+- Set `REDIS_CONNECTION_STRING` on API instances to enforce global, auth,
+  upload, and AI request limits across every replica. Do not add it to the
+  background worker.
+- Render's built-in `RENDER=true` setting automatically enables one trusted
+  forwarded-header hop, so rate limits use the originating client IP and HTTPS
+  redirects understand Render's TLS termination. On another provider, set
+  `TRUST_FORWARDED_HEADERS=true` only when Kestrel is isolated behind its proxy.

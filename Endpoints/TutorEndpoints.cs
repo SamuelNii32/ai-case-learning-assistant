@@ -278,16 +278,12 @@ public static class TutorEndpoints
                 return Results.Unauthorized();
             }
 
-            if (!TutorSessionStore.Sessions.TryGetValue(request.SessionId, out var session))
+            var session = await TutorSessionPersistence.TryLoadAsync(databaseOptions, request.SessionId, me);
+            if (session is null)
             {
-                session = await TutorSessionPersistence.TryLoadAsync(databaseOptions, request.SessionId);
-                if (session is null)
-                {
-                    return Results.NotFound(new { error = "Tutor session not found" });
-                }
-
-                TutorSessionStore.Sessions[session.SessionId] = session;
+                return Results.NotFound(new { error = "Tutor session not found" });
             }
+            TutorSessionStore.Sessions[session.SessionId] = session;
 
             if (!await uploads.CanAccessAsync(session.UploadId, me, ctx.RequestAborted))
             {
@@ -439,22 +435,18 @@ public static class TutorEndpoints
                 return Results.BadRequest(new { error = "Invalid request" });
             }
 
-            if (!TutorSessionStore.Sessions.TryGetValue(request.SessionId, out var session))
-            {
-                session = await TutorSessionPersistence.TryLoadAsync(databaseOptions, request.SessionId);
-                if (session is null)
-                {
-                    return Results.NotFound(new { error = "Tutor session not found" });
-                }
-
-                TutorSessionStore.Sessions[session.SessionId] = session;
-            }
-
             var me = ctx.GetCurrentUserId();
             if (string.IsNullOrWhiteSpace(me))
             {
                 return Results.Unauthorized();
             }
+
+            var session = await TutorSessionPersistence.TryLoadAsync(databaseOptions, request.SessionId, me);
+            if (session is null)
+            {
+                return Results.NotFound(new { error = "Tutor session not found" });
+            }
+            TutorSessionStore.Sessions[session.SessionId] = session;
 
             if (!await uploads.CanAccessAsync(session.UploadId, me, ctx.RequestAborted))
             {

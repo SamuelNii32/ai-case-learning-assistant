@@ -45,6 +45,12 @@ using PdfPigDoc = UglyToad.PdfPig.PdfDocument;
 
 var builder = WebApplication.CreateBuilder(args);
 
+if (args.Any(arg => string.Equals(arg, "--verify-runtime-state", StringComparison.OrdinalIgnoreCase)))
+{
+    await RuntimeStateVerification.RunAsync(builder.Configuration);
+    return;
+}
+
 if (args.Any(arg => string.Equals(arg, "--migrate-documents-to-blob", StringComparison.OrdinalIgnoreCase)))
 {
     var result = await DocumentStorageMigrator.MigrateLocalToAzureAsync(
@@ -1577,7 +1583,7 @@ app.MapGet("/ask/stream/{uploadId}", async (
     var questionOriginal = q ?? string.Empty;
     var hasTutorChatContext = !string.IsNullOrWhiteSpace(tutorSessionId) || !string.IsNullOrWhiteSpace(tutorStepId);
     var tutorChatContext = hasTutorChatContext
-        ? await TutorChatContext.BuildAsync(databaseOptions, tutorSessionId, tutorStepId)
+        ? await TutorChatContext.BuildAsync(databaseOptions, tutorSessionId, tutorStepId, me)
         : "";
 
     // High-level classification: Summary / Fact / Method / Findings / WhyExplain / Other

@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 using Api.Infrastructure;
 using Microsoft.OpenApi.Models;
+using StackExchange.Redis;
 
 namespace Api.Extensions;
 
@@ -78,6 +79,21 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddHealthChecks();
+
+        var redisConnectionString = Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING")
+            ?? configuration["Redis:ConnectionString"];
+        if (!string.IsNullOrWhiteSpace(redisConnectionString))
+        {
+            services.AddSingleton<IConnectionMultiplexer>(_ =>
+            {
+                var options = RedisConnectionOptions.Parse(
+                    redisConnectionString,
+                    abortOnConnectFail: false,
+                    clientName: "casepilot-api");
+                return ConnectionMultiplexer.Connect(options);
+            });
+            services.AddSingleton<RedisRateLimiter>();
+        }
 
         // Swagger (optional)
         services.AddEndpointsApiExplorer();
@@ -214,12 +230,6 @@ public static class ServiceCollectionExtensions
 
     private static string GetClientIp(HttpContext ctx)
     {
-        var forwardedFor = ctx.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-        if (!string.IsNullOrWhiteSpace(forwardedFor))
-        {
-            return $"ip:{forwardedFor.Split(',')[0].Trim()}";
-        }
-
         return $"ip:{ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
     }
 }

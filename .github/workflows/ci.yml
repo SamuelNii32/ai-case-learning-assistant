@@ -49,6 +49,15 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -63,6 +72,11 @@ jobs:
 
       - name: Build backend
         run: dotnet build IngestionApi.csproj --no-restore /p:UseAppHost=false -o artifacts/ci-backend
+
+      - name: Verify bounded caches and distributed rate limiting
+        run: dotnet artifacts/ci-backend/IngestionApi.dll --verify-runtime-state
+        env:
+          REDIS_CONNECTION_STRING: localhost:6379,abortConnect=true
 
       - name: Start Azurite Blob emulator
         run: >-

@@ -10,12 +10,13 @@ public static class TutorChatContext
     public static async Task<string> BuildAsync(
         DatabaseOptions databaseOptions,
         string? tutorSessionId,
-        string? tutorStepId)
+        string? tutorStepId,
+        string userId)
     {
         TutorSession? session = null;
         if (!string.IsNullOrWhiteSpace(tutorSessionId))
         {
-            session = await TutorSessionPersistence.TryLoadAsync(databaseOptions, tutorSessionId);
+            session = await TutorSessionPersistence.TryLoadAsync(databaseOptions, tutorSessionId, userId);
         }
 
         var explicitStepProvided = !string.IsNullOrWhiteSpace(tutorStepId);

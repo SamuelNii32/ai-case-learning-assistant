@@ -66,6 +66,26 @@ public static class DatabaseVerification
         Ensure(sessionPage.Items[0].MessageCount == 1 && sessionPage.Items[0].NotesCount == 1,
             "PostgreSQL aggregate conversion failed.");
 
+        Console.WriteLine("[DB VERIFY] Verifying tutor-session ownership boundaries...");
+        var tutorSession = new TutorSession(
+            SessionId: $"verify-tutor-{suffix}",
+            UploadId: Guid.NewGuid(),
+            Category: DocType.AcademicResearch,
+            Focus: "reading_coach",
+            CurrentNode: "reading:orientation",
+            VisitedTopics: new List<string>(),
+            VisitedPages: new List<int>(),
+            History: new List<string>(),
+            LastStepSummary: null);
+        await TutorSessionPersistence.SaveAsync(
+            services.GetRequiredService<DatabaseOptions>(), tutorSession, studentId);
+        Ensure(await TutorSessionPersistence.TryLoadAsync(
+                services.GetRequiredService<DatabaseOptions>(), tutorSession.SessionId, studentId) is not null,
+            "The tutor-session owner could not load their session.");
+        Ensure(await TutorSessionPersistence.TryLoadAsync(
+                services.GetRequiredService<DatabaseOptions>(), tutorSession.SessionId, instructorId) is null,
+            "A different user could load another user's tutor session.");
+
         Console.WriteLine("[DB VERIFY] Verifying concurrent worker claims and lease ownership...");
         var uploadA = Guid.NewGuid();
         var uploadB = Guid.NewGuid();

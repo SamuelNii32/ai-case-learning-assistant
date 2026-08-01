@@ -1,7 +1,7 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using Api.Infrastructure;
 
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -82,5 +82,16 @@ public record TutorDrillNode(
 
 public static class TutorSessionStore
 {
-    public static readonly ConcurrentDictionary<string, TutorSession> Sessions = new();
+    private const long DefaultMaxEntries = 2_048;
+
+    public static readonly BoundedCache<string, TutorSession> Sessions = new(
+        maxSize: ReadPositiveLong("TUTOR_SESSION_CACHE_MAX_ENTRIES", DefaultMaxEntries),
+        slidingExpiration: TimeSpan.FromMinutes(ReadPositiveLong("TUTOR_SESSION_CACHE_SLIDING_MINUTES", 120)));
+
+    private static long ReadPositiveLong(string name, long fallback)
+    {
+        return long.TryParse(Environment.GetEnvironmentVariable(name), out var value) && value > 0
+            ? value
+            : fallback;
+    }
 }

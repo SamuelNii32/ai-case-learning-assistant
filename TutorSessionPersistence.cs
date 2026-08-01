@@ -16,22 +16,22 @@ public static class TutorSessionPersistence
         cmd.CommandText = @"
 SELECT SessionId
 FROM TutorSessions
-WHERE UserId = $userId
-  AND UPPER(UploadId) = UPPER($uploadId)
+WHERE UserId = @userId
+  AND UPPER(UploadId) = UPPER(@uploadId)
   AND Focus = 'reading_coach'
 ORDER BY UpdatedAt DESC
 LIMIT 1;
 ";
-        cmd.AddWithValue("$userId", userId);
-        cmd.AddWithValue("$uploadId", uploadId.ToString());
+        cmd.AddWithValue("@userId", userId);
+        cmd.AddWithValue("@uploadId", uploadId.ToString());
 
         var sessionId = await cmd.ExecuteScalarAsync() as string;
         return string.IsNullOrWhiteSpace(sessionId)
             ? null
-            : await TryLoadAsync(databaseOptions, sessionId);
+            : await TryLoadAsync(databaseOptions, sessionId, userId);
     }
 
-    public static async Task<TutorSession?> TryLoadAsync(DatabaseOptions databaseOptions, string sessionId)
+    public static async Task<TutorSession?> TryLoadAsync(DatabaseOptions databaseOptions, string sessionId, string userId)
     {
         await using var conn = databaseOptions.CreateConnection();
         await conn.OpenAsync();
@@ -51,10 +51,12 @@ SELECT
   DrillPathJson,
   PendingDrillChoicesJson
 FROM TutorSessions
-WHERE SessionId = $sessionId
+WHERE SessionId = @sessionId
+  AND UserId = @userId
 LIMIT 1;
 ";
-        cmd.AddWithValue("$sessionId", sessionId);
+        cmd.AddWithValue("@sessionId", sessionId);
+        cmd.AddWithValue("@userId", userId);
 
         using var reader = await cmd.ExecuteReaderAsync();
         if (!await reader.ReadAsync())
@@ -110,20 +112,20 @@ INSERT INTO TutorSessions (
   UpdatedAt
 )
 VALUES (
-  $sessionId,
-  $userId,
-  $uploadId,
-  $category,
-  $focus,
-  $currentNode,
-  $visitedTopicsJson,
-  $visitedPagesJson,
-  $historyJson,
-  $lastStepSummary,
-  $drillPathJson,
-  $pendingDrillChoicesJson,
-  $createdAt,
-  $updatedAt
+  @sessionId,
+  @userId,
+  @uploadId,
+  @category,
+  @focus,
+  @currentNode,
+  @visitedTopicsJson,
+  @visitedPagesJson,
+  @historyJson,
+  @lastStepSummary,
+  @drillPathJson,
+  @pendingDrillChoicesJson,
+  @createdAt,
+  @updatedAt
 )
 ON CONFLICT(SessionId) DO UPDATE SET
   UserId = excluded.UserId,
@@ -140,20 +142,20 @@ ON CONFLICT(SessionId) DO UPDATE SET
   UpdatedAt = excluded.UpdatedAt;
 ";
 
-        cmd.AddWithValue("$sessionId", session.SessionId);
-        cmd.AddWithValue("$userId", userId);
-        cmd.AddWithValue("$uploadId", session.UploadId.ToString());
-        cmd.AddWithValue("$category", session.Category.ToString());
-        cmd.AddWithValue("$focus", (object?)session.Focus ?? DBNull.Value);
-        cmd.AddWithValue("$currentNode", session.CurrentNode);
-        cmd.AddWithValue("$visitedTopicsJson", JsonSerializer.Serialize(session.VisitedTopics));
-        cmd.AddWithValue("$visitedPagesJson", JsonSerializer.Serialize(session.VisitedPages));
-        cmd.AddWithValue("$historyJson", JsonSerializer.Serialize(session.History));
-        cmd.AddWithValue("$lastStepSummary", (object?)session.LastStepSummary ?? DBNull.Value);
-        cmd.AddWithValue("$drillPathJson", JsonSerializer.Serialize(session.DrillPath ?? new List<TutorDrillNode>()));
-        cmd.AddWithValue("$pendingDrillChoicesJson", JsonSerializer.Serialize(session.PendingDrillChoices ?? new List<TutorDrillNode>()));
-        cmd.AddWithValue("$createdAt", now);
-        cmd.AddWithValue("$updatedAt", now);
+        cmd.AddWithValue("@sessionId", session.SessionId);
+        cmd.AddWithValue("@userId", userId);
+        cmd.AddWithValue("@uploadId", session.UploadId.ToString());
+        cmd.AddWithValue("@category", session.Category.ToString());
+        cmd.AddWithValue("@focus", (object?)session.Focus ?? DBNull.Value);
+        cmd.AddWithValue("@currentNode", session.CurrentNode);
+        cmd.AddWithValue("@visitedTopicsJson", JsonSerializer.Serialize(session.VisitedTopics));
+        cmd.AddWithValue("@visitedPagesJson", JsonSerializer.Serialize(session.VisitedPages));
+        cmd.AddWithValue("@historyJson", JsonSerializer.Serialize(session.History));
+        cmd.AddWithValue("@lastStepSummary", (object?)session.LastStepSummary ?? DBNull.Value);
+        cmd.AddWithValue("@drillPathJson", JsonSerializer.Serialize(session.DrillPath ?? new List<TutorDrillNode>()));
+        cmd.AddWithValue("@pendingDrillChoicesJson", JsonSerializer.Serialize(session.PendingDrillChoices ?? new List<TutorDrillNode>()));
+        cmd.AddWithValue("@createdAt", now);
+        cmd.AddWithValue("@updatedAt", now);
 
         await cmd.ExecuteNonQueryAsync();
     }

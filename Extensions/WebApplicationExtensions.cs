@@ -1,10 +1,31 @@
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
+using Api.Infrastructure;
 
 public static class WebApplicationExtensions
 {
     public static WebApplication UseAppPipeline(this WebApplication app)
     {
+        if (string.Equals(
+            Environment.GetEnvironmentVariable("TRUST_FORWARDED_HEADERS")
+                ?? app.Configuration["Proxy:TrustForwardedHeaders"]
+                ?? Environment.GetEnvironmentVariable("RENDER"),
+            "true",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            var forwardedHeaders = new ForwardedHeadersOptions
+            {
+                ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+                ForwardLimit = 1
+            };
+            // Render sets RENDER=true and exposes the service port only through its managed
+            // reverse proxy. Other platforms must opt in explicitly after verifying the same.
+            forwardedHeaders.KnownNetworks.Clear();
+            forwardedHeaders.KnownProxies.Clear();
+            app.UseForwardedHeaders(forwardedHeaders);
+        }
+
         app.Use((context, next) =>
         {
             if (context.Request.Path.StartsWithSegments("/api/v1", out var remaining))
@@ -61,8 +82,9 @@ public static class WebApplicationExtensions
             app.UseHttpsRedirection();
         }
 
-        app.UseRateLimiter();
         app.UseAuthentication();
+        app.UseRedisRateLimiter();
+        app.UseRateLimiter();
         app.UseAuthorization();
         return app;
     }
