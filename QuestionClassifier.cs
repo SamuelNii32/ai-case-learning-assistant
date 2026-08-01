@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using OpenAI.Chat;
 
@@ -6,7 +6,7 @@ public static class QuestionClassifier
 {
    public  static Task<QuestionType> ClassifyQuestionAsync(string question)
     {
-        // Very short or empty → treat as Other
+        // Very short or empty ? treat as Other
         if (string.IsNullOrWhiteSpace(question))
             return Task.FromResult(QuestionType.Other);
 

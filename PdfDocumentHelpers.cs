@@ -1,4 +1,4 @@
-ï»¿using System.IO;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Hosting;
@@ -97,7 +97,7 @@ public static class TitleHeuristics
         var cut = Regex.Split(pick, @"\b(BY|SUPERVISOR|SUBMITTED|SUBMISSION|NAME OF|SIGNATURE|APPROVAL)\b",
                               RegexOptions.IgnoreCase)[0];
 
-        // 2) If thereâ€™s an institutional prelude, start from the first likely title keyword
+        // 2) If there’s an institutional prelude, start from the first likely title keyword
         var m = Regex.Match(cut,
             @"\b(FINAL\s+YEAR|PROJECT\s+REPORT|THESIS|DISSERTATION|RESEARCH\s+PROJECT|REPORT\s+ON)\b",
             RegexOptions.IgnoreCase);
@@ -125,7 +125,7 @@ public static class TitleHeuristics
             if (words.Length > 30)
                 return null;
 
-            // Rough multi-sentence check â€“ abstracts usually have several sentences
+            // Rough multi-sentence check – abstracts usually have several sentences
             var sentenceEndCount = Regex.Matches(pick, "[\\.\\?!]").Count;
             if (sentenceEndCount > 2)
                 return null;

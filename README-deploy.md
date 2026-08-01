@@ -53,3 +53,14 @@ Rollbacks & cleanup
 -------------------
 - To remove a bad publish, delete the `gh-pages` branch and re-run the
   workflow or re-publish from a fixed commit.
+
+Backend production database
+---------------------------
+- Set `DATABASE_PROVIDER=postgres`.
+- Set `POSTGRES_CONNECTION_STRING` to your PostgreSQL connection string.
+- To migrate existing SQLite data into PostgreSQL, run:
+
+  `dotnet run -- --migrate-sqlite-to-postgres`
+
+- The migration command reads SQLite from `SQLITE_CONNECTION_STRING` if set,
+  otherwise it falls back to the local `ingestion.db` default.

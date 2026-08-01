@@ -3,15 +3,16 @@ using System.Collections.Generic;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Data.Sqlite;
+using Microsoft.AspNetCore.RateLimiting;
 using OpenAI.Chat;
 using Api.Extensions;
+using Api.Infrastructure;
 
 public static class TutorEndpoints
 {
-    public static void MapTutorEndpoints(this WebApplication app, string connString)
+    public static void MapTutorEndpoints(this WebApplication app, DatabaseOptions databaseOptions)
     {
-        app.MapPost("/tutor/start/{uploadId:guid}", async (Guid uploadId, TutorStartRequest? request, HttpContext ctx, IWebHostEnvironment env) =>
+        app.MapPost("/tutor/start/{uploadId:guid}", async (Guid uploadId, TutorStartRequest? request, HttpContext ctx, IWebHostEnvironment env, IUploadRepository uploads) =>
         {
             var me = ctx.GetCurrentUserId();
             if (string.IsNullOrWhiteSpace(me))
@@ -19,35 +20,9 @@ public static class TutorEndpoints
                 return Results.Unauthorized();
             }
 
-            using (var conn = new SqliteConnection(connString))
+            if (!await uploads.CanAccessAsync(uploadId, me, ctx.RequestAborted))
             {
-                await conn.OpenAsync();
-
-                using var chk = conn.CreateCommand();
-                chk.CommandText = @"
-SELECT 1
-FROM Uploads u
-WHERE UPPER(u.UploadId) = UPPER($u)
-  AND (
-        u.UserId = $me
-     OR EXISTS (
-            SELECT 1
-            FROM ClassCases cc
-            JOIN ClassStudents cs ON cs.ClassId = cc.ClassId
-            WHERE UPPER(cc.UploadId) = UPPER(u.UploadId)
-              AND cs.StudentId = $me
-        )
-  )
-LIMIT 1;
-";
-                chk.Parameters.AddWithValue("$u", uploadId.ToString());
-                chk.Parameters.AddWithValue("$me", me);
-
-                var ok = await chk.ExecuteScalarAsync();
-                if (ok is null)
-                {
-                    return Results.NotFound(new { error = "not found" });
-                }
+                return Results.NotFound(new { error = "not found" });
             }
 
             DocType category;
@@ -173,11 +148,11 @@ LIMIT 1;
             };
 
             TutorSessionStore.Sessions[sessionId] = session;
-            await TutorSessionPersistence.SaveAsync(connString, session, me);
+            await TutorSessionPersistence.SaveAsync(databaseOptions, session, me);
             return Results.Json(response);
-        });
+        }).RequireRateLimiting("Ai");
 
-        app.MapPost("/tutor/reading/start/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env, ChatClient chat) =>
+        app.MapPost("/tutor/reading/start/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env, ChatClient chat, IUploadRepository uploads, ITutorRepository tutorRepository) =>
         {
             var me = ctx.GetCurrentUserId();
             if (string.IsNullOrWhiteSpace(me))
@@ -185,7 +160,7 @@ LIMIT 1;
                 return Results.Unauthorized();
             }
 
-            if (!await CanAccessUploadAsync(connString, uploadId, me))
+            if (!await uploads.CanAccessAsync(uploadId, me, ctx.RequestAborted))
             {
                 return Results.NotFound(new { error = "not found" });
             }
@@ -201,7 +176,7 @@ LIMIT 1;
             }
 
             EnsureIndexLoaded(uploadId, env);
-            var assignment = await LoadReadingAssignmentContextAsync(connString, uploadId, me);
+            var assignment = await LoadReadingAssignmentContextAsync(tutorRepository, uploadId, me, ctx.RequestAborted);
 
             var sessionId = Guid.NewGuid().ToString("N");
             var session = new TutorSession(
@@ -229,12 +204,12 @@ LIMIT 1;
             };
 
             TutorSessionStore.Sessions[sessionId] = session;
-            await TutorSessionPersistence.SaveAsync(connString, session, me);
+            await TutorSessionPersistence.SaveAsync(databaseOptions, session, me);
 
             return Results.Json(response);
-        });
+        }).RequireRateLimiting("Ai");
 
-        app.MapGet("/tutor/reading/resume/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env, ChatClient chat) =>
+        app.MapGet("/tutor/reading/resume/{uploadId:guid}", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env, ChatClient chat, IUploadRepository uploads, ITutorRepository tutorRepository) =>
         {
             var me = ctx.GetCurrentUserId();
             if (string.IsNullOrWhiteSpace(me))
@@ -242,12 +217,12 @@ LIMIT 1;
                 return Results.Unauthorized();
             }
 
-            if (!await CanAccessUploadAsync(connString, uploadId, me))
+            if (!await uploads.CanAccessAsync(uploadId, me, ctx.RequestAborted))
             {
                 return Results.NotFound(new { error = "not found" });
             }
 
-            var session = await TutorSessionPersistence.TryLoadLatestReadingAsync(connString, uploadId, me);
+            var session = await TutorSessionPersistence.TryLoadLatestReadingAsync(databaseOptions, uploadId, me);
             if (session is null)
             {
                 return Results.NotFound(new
@@ -260,11 +235,11 @@ LIMIT 1;
             TutorSessionStore.Sessions[session.SessionId] = session;
 
             EnsureIndexLoaded(uploadId, env);
-            var assignment = await LoadReadingAssignmentContextAsync(connString, uploadId, me);
+            var assignment = await LoadReadingAssignmentContextAsync(tutorRepository, uploadId, me, ctx.RequestAborted);
 
             if (string.Equals(session.CurrentNode, "reading:complete", StringComparison.OrdinalIgnoreCase))
             {
-                var performance = await LoadReadingPerformanceSnapshotAsync(connString, session.UploadId, me);
+                var performance = await LoadReadingPerformanceSnapshotAsync(tutorRepository, session.UploadId, me, ctx.RequestAborted);
                 var recap = await GuidedReadingTutor.BuildFinalRecapAsync(session, chat, performance, assignment);
                 return Results.Json(recap with
                 {
@@ -284,9 +259,9 @@ LIMIT 1;
             {
                 Stage = session.CurrentNode.EndsWith(":retry", StringComparison.OrdinalIgnoreCase) ? "retry" : "check"
             });
-        });
+        }).RequireRateLimiting("Ai");
 
-        app.MapPost("/tutor/reading/answer", async (TutorAnswerRequest request, HttpContext ctx, IWebHostEnvironment env, ChatClient chat) =>
+        app.MapPost("/tutor/reading/answer", async (TutorAnswerRequest request, HttpContext ctx, IWebHostEnvironment env, ChatClient chat, IUploadRepository uploads, ITutorRepository tutorRepository) =>
         {
             if (request is null ||
                 string.IsNullOrWhiteSpace(request.SessionId) ||
@@ -303,7 +278,7 @@ LIMIT 1;
 
             if (!TutorSessionStore.Sessions.TryGetValue(request.SessionId, out var session))
             {
-                session = await TutorSessionPersistence.TryLoadAsync(connString, request.SessionId);
+                session = await TutorSessionPersistence.TryLoadAsync(databaseOptions, request.SessionId);
                 if (session is null)
                 {
                     return Results.NotFound(new { error = "Tutor session not found" });
@@ -312,7 +287,7 @@ LIMIT 1;
                 TutorSessionStore.Sessions[session.SessionId] = session;
             }
 
-            if (!await CanAccessUploadAsync(connString, session.UploadId, me))
+            if (!await uploads.CanAccessAsync(session.UploadId, me, ctx.RequestAborted))
             {
                 return Results.Forbid();
             }
@@ -323,11 +298,12 @@ LIMIT 1;
             }
 
             EnsureIndexLoaded(session.UploadId, env);
-            var assignment = await LoadReadingAssignmentContextAsync(connString, session.UploadId, me);
+            var assignment = await LoadReadingAssignmentContextAsync(tutorRepository, session.UploadId, me, ctx.RequestAborted);
+            var question = GuidedReadingTutor.ResolveDisplayedQuestion(step, assignment);
 
             var (previews, _) = GuidedReadingTutor.Retrieve(session.UploadId, step.Query);
-            var feedback = await GuidedReadingTutor.GradeAnswerAsync(chat, step, request.Answer ?? "", previews);
-            await GuidedReadingTutor.SaveAnswerAsync(connString, session, me, step, request.Answer ?? "", feedback);
+            var feedback = await GuidedReadingTutor.GradeAnswerAsync(chat, step, question, request.Answer ?? "", previews);
+            await GuidedReadingTutor.SaveAnswerAsync(databaseOptions, session, me, step, question, request.Answer ?? "", feedback);
 
             var nextStep = GuidedReadingTutor.GetNextStep(session.Category, step.Id);
             TutorResponse response;
@@ -348,7 +324,7 @@ LIMIT 1;
             }
             else if (nextStep is null)
             {
-                var performance = await LoadReadingPerformanceSnapshotAsync(connString, session.UploadId, me);
+                var performance = await LoadReadingPerformanceSnapshotAsync(tutorRepository, session.UploadId, me, ctx.RequestAborted);
                 response = await GuidedReadingTutor.BuildFinalRecapAsync(session, chat, performance, assignment);
                 session = session with
                 {
@@ -374,12 +350,12 @@ LIMIT 1;
             }
 
             TutorSessionStore.Sessions[session.SessionId] = session;
-            await TutorSessionPersistence.SaveAsync(connString, session, me);
+            await TutorSessionPersistence.SaveAsync(databaseOptions, session, me);
 
             return Results.Json(response);
-        });
+        }).RequireRateLimiting("Ai");
 
-        app.MapGet("/admin/classes/{classId}/tutor-progress", async (string classId, HttpContext ctx) =>
+        app.MapGet("/admin/classes/{classId}/tutor-progress", async (string classId, HttpContext ctx, IClassRepository classesRepository, ITutorRepository tutorRepository) =>
         {
             var role = ctx.User.FindFirst("role")?.Value;
             if (!string.Equals(role, "instructor", StringComparison.OrdinalIgnoreCase) &&
@@ -394,162 +370,16 @@ LIMIT 1;
                 return Results.Unauthorized();
             }
 
-            using var conn = new SqliteConnection(connString);
-            await conn.OpenAsync();
-
-            using (var check = conn.CreateCommand())
+            var classDetails = await classesRepository.GetDetailsAsync(classId, me, ctx.RequestAborted);
+            if (classDetails is null)
             {
-                check.CommandText = "SELECT 1 FROM Classes WHERE Id = $classId AND InstructorId = $me LIMIT 1";
-                check.Parameters.AddWithValue("$classId", classId);
-                check.Parameters.AddWithValue("$me", me);
-                if (await check.ExecuteScalarAsync() is null)
-                {
-                    return Results.NotFound(new { error = "Class not found" });
-                }
+                return Results.NotFound(new { error = "Class not found" });
             }
 
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = @"
-SELECT
-  cs.StudentId,
-  IFNULL(u.FullName, '') AS FullName,
-  IFNULL(u.Email, '') AS Email,
-  cc.UploadId,
-  IFNULL(up.OriginalFileName, '') AS FileName,
-  COUNT(DISTINCT CASE WHEN ta.Score >= 0.55 THEN ta.StepId END) AS AnswersSubmitted,
-  COUNT(ta.Id) AS AnswerAttempts,
-  IFNULL(SUM(CASE WHEN ta.Score < 0.55 THEN 1 ELSE 0 END), 0) AS WeakAttempts,
-  (
-    SELECT COUNT(*)
-    FROM TutorHelpEvents he
-    WHERE he.UserId = cs.StudentId
-      AND UPPER(he.UploadId) = UPPER(cc.UploadId)
-  ) AS HelpRequests,
-  IFNULL(AVG(ta.Score), 0) AS AverageScore,
-  MAX(
-    IFNULL(ta.CreatedAt, ''),
-    IFNULL((
-      SELECT MAX(he.CreatedAt)
-      FROM TutorHelpEvents he
-      WHERE he.UserId = cs.StudentId
-        AND UPPER(he.UploadId) = UPPER(cc.UploadId)
-    ), ''),
-    IFNULL((
-      SELECT MAX(ts.UpdatedAt)
-      FROM TutorSessions ts
-      WHERE ts.UserId = cs.StudentId
-        AND UPPER(ts.UploadId) = UPPER(cc.UploadId)
-        AND ts.Focus = 'reading_coach'
-    ), '')
-  ) AS LastActivity,
-  (
-    SELECT ts.SessionId
-    FROM TutorSessions ts
-    WHERE ts.UserId = cs.StudentId
-      AND UPPER(ts.UploadId) = UPPER(cc.UploadId)
-      AND ts.Focus = 'reading_coach'
-    ORDER BY ts.UpdatedAt DESC
-    LIMIT 1
-  ) AS LatestTutorSessionId,
-  (
-    SELECT ts.CurrentNode
-    FROM TutorSessions ts
-    WHERE ts.UserId = cs.StudentId
-      AND UPPER(ts.UploadId) = UPPER(cc.UploadId)
-      AND ts.Focus = 'reading_coach'
-    ORDER BY ts.UpdatedAt DESC
-    LIMIT 1
-  ) AS CurrentNode,
-  (
-    SELECT ts.Category
-    FROM TutorSessions ts
-    WHERE ts.UserId = cs.StudentId
-      AND UPPER(ts.UploadId) = UPPER(cc.UploadId)
-      AND ts.Focus = 'reading_coach'
-    ORDER BY ts.UpdatedAt DESC
-    LIMIT 1
-  ) AS ReadingCategory,
-  (
-    SELECT ta2.StepId
-    FROM TutorAnswers ta2
-    WHERE ta2.UserId = cs.StudentId
-      AND UPPER(ta2.UploadId) = UPPER(cc.UploadId)
-      AND ta2.Score < 0.55
-    ORDER BY ta2.CreatedAt DESC, ta2.Id DESC
-    LIMIT 1
-  ) AS LastWeakStep,
-  (
-    SELECT he.Question
-    FROM TutorHelpEvents he
-    WHERE he.UserId = cs.StudentId
-      AND UPPER(he.UploadId) = UPPER(cc.UploadId)
-    ORDER BY he.CreatedAt DESC, he.Id DESC
-    LIMIT 1
-  ) AS LastHelpQuestion
-FROM ClassStudents cs
-JOIN ClassCases cc ON cc.ClassId = cs.ClassId
-LEFT JOIN Users u ON u.Id = cs.StudentId
-LEFT JOIN Uploads up ON up.UploadId = cc.UploadId
-LEFT JOIN TutorAnswers ta
-  ON ta.UserId = cs.StudentId
- AND UPPER(ta.UploadId) = UPPER(cc.UploadId)
-WHERE cs.ClassId = $classId
-GROUP BY cs.StudentId, cc.UploadId
-ORDER BY Email, FileName;
-";
-            cmd.Parameters.AddWithValue("$classId", classId);
-
-            var rows = new List<object>();
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
-            {
-                var completed = reader.IsDBNull(5) ? 0 : Convert.ToInt32(reader.GetInt64(5));
-                var answerAttempts = reader.IsDBNull(6) ? 0 : Convert.ToInt32(reader.GetInt64(6));
-                var weakAttempts = reader.IsDBNull(7) ? 0 : Convert.ToInt32(reader.GetInt64(7));
-                var helpRequests = reader.IsDBNull(8) ? 0 : Convert.ToInt32(reader.GetInt64(8));
-                var latestTutorSessionId = reader.IsDBNull(11) ? null : reader.GetString(11);
-                var currentNode = reader.IsDBNull(12) ? null : reader.GetString(12);
-                var category = ResolveReadingCategory(reader.IsDBNull(13) ? null : reader.GetString(13));
-                var lastWeakStep = reader.IsDBNull(14) ? null : reader.GetString(14);
-                var lastHelpQuestion = reader.IsDBNull(15) ? null : reader.GetString(15);
-                var currentStepId = ResolveCurrentReadingStepId(category, currentNode, completed);
-                var status = ResolveProgressStatus(category, completed, answerAttempts, weakAttempts, helpRequests, currentNode);
-                rows.Add(new
-                {
-                    studentId = reader.GetString(0),
-                    studentName = reader.GetString(1),
-                    studentEmail = reader.GetString(2),
-                    uploadId = reader.GetString(3),
-                    fileName = reader.GetString(4),
-                    readingCategory = category.ToString(),
-                    completedSteps = completed,
-                    totalSteps = GuidedReadingTutor.GetSteps(category).Count,
-                    answerAttempts,
-                    weakAttempts,
-                    helpRequests,
-                    averageScore = reader.IsDBNull(9) ? 0 : reader.GetDouble(9),
-                    lastActivity = reader.IsDBNull(10) ? null : reader.GetString(10),
-                    latestTutorSessionId,
-                    status,
-                    currentStep = currentStepId is null ? null : new
-                    {
-                        id = currentStepId,
-                        title = GetReadingStepTitle(category, currentStepId)
-                    },
-                    lastWeakStep = lastWeakStep is null ? null : new
-                    {
-                        id = lastWeakStep,
-                        title = GetReadingStepTitle(category, lastWeakStep)
-                    },
-                    lastHelpQuestion,
-                    needsAttention = status == "needs_help"
-                });
-            }
-
-            return Results.Ok(rows);
+            return Results.Ok(await tutorRepository.ListClassProgressAsync(classId, me, ctx.RequestAborted));
         });
 
-        app.MapGet("/admin/classes/{classId}/tutor-progress/{studentId}/{uploadId:guid}", async (string classId, string studentId, Guid uploadId, HttpContext ctx) =>
+        app.MapGet("/admin/classes/{classId}/tutor-summary", async (string classId, HttpContext ctx, IClassRepository classesRepository, ITutorRepository tutorRepository) =>
         {
             var role = ctx.User.FindFirst("role")?.Value;
             if (!string.Equals(role, "instructor", StringComparison.OrdinalIgnoreCase) &&
@@ -564,241 +394,41 @@ ORDER BY Email, FileName;
                 return Results.Unauthorized();
             }
 
-            using var conn = new SqliteConnection(connString);
-            await conn.OpenAsync();
-
-            using (var check = conn.CreateCommand())
+            var classDetails = await classesRepository.GetDetailsAsync(classId, me, ctx.RequestAborted);
+            if (classDetails is null)
             {
-                check.CommandText = @"
-SELECT 1
-FROM Classes c
-JOIN ClassStudents cs ON cs.ClassId = c.Id
-JOIN ClassCases cc ON cc.ClassId = c.Id
-WHERE c.Id = $classId
-  AND c.InstructorId = $me
-  AND cs.StudentId = $studentId
-  AND UPPER(cc.UploadId) = UPPER($uploadId)
-LIMIT 1;
-";
-                check.Parameters.AddWithValue("$classId", classId);
-                check.Parameters.AddWithValue("$me", me);
-                check.Parameters.AddWithValue("$studentId", studentId);
-                check.Parameters.AddWithValue("$uploadId", uploadId.ToString());
-                if (await check.ExecuteScalarAsync() is null)
-                {
-                    return Results.NotFound(new { error = "Progress record not found" });
-                }
+                return Results.NotFound(new { error = "Class not found" });
             }
 
-            string? studentName = null;
-            string? studentEmail = null;
-            string? caseName = null;
-            string? caseFileName = null;
-            object? student = null;
-            object? caseInfo = null;
-            using (var metaCmd = conn.CreateCommand())
-            {
-                metaCmd.CommandText = @"
-SELECT
-  IFNULL(u.FullName, ''),
-  IFNULL(u.Email, ''),
-  COALESCE(NULLIF(up.Name, ''), NULLIF(up.OriginalFileName, ''), ''),
-  IFNULL(up.OriginalFileName, '')
-FROM Users u
-LEFT JOIN Uploads up ON UPPER(up.UploadId) = UPPER($uploadId)
-WHERE u.Id = $studentId
-LIMIT 1;
-";
-                metaCmd.Parameters.AddWithValue("$studentId", studentId);
-                metaCmd.Parameters.AddWithValue("$uploadId", uploadId.ToString());
-
-                using var metaReader = await metaCmd.ExecuteReaderAsync();
-                if (await metaReader.ReadAsync())
-                {
-                    var fullName = metaReader.GetString(0);
-                    var email = metaReader.GetString(1);
-                    var resolvedCaseName = metaReader.GetString(2);
-                    var originalFileName = metaReader.GetString(3);
-
-                    studentName = string.IsNullOrWhiteSpace(fullName) ? null : fullName;
-                    studentEmail = string.IsNullOrWhiteSpace(email) ? null : email;
-                    caseName = string.IsNullOrWhiteSpace(resolvedCaseName) ? null : resolvedCaseName;
-                    caseFileName = string.IsNullOrWhiteSpace(originalFileName) ? null : originalFileName;
-
-                    student = new
-                    {
-                        id = studentId,
-                        fullName = studentName,
-                        email = studentEmail
-                    };
-
-                    caseInfo = new
-                    {
-                        uploadId,
-                        name = caseName,
-                        originalFileName = caseFileName
-                    };
-                }
-            }
-
-            var category = DocType.AcademicResearch;
-            var answers = new List<object>();
-            var completedStepIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var weakAttemptCount = 0;
-            string? lastWeakStepId = null;
-            using (var answersCmd = conn.CreateCommand())
-            {
-                answersCmd.CommandText = @"
-SELECT
-  Id,
-  SessionId,
-  StepId,
-  Question,
-  Answer,
-  Feedback,
-  Score,
-  CreatedAt
-FROM TutorAnswers
-WHERE UserId = $studentId
-  AND UPPER(UploadId) = UPPER($uploadId)
-ORDER BY CreatedAt ASC, Id ASC;
-";
-                answersCmd.Parameters.AddWithValue("$studentId", studentId);
-                answersCmd.Parameters.AddWithValue("$uploadId", uploadId.ToString());
-
-                using var reader = await answersCmd.ExecuteReaderAsync();
-                while (await reader.ReadAsync())
-                {
-                    var stepId = reader.GetString(2);
-                    var score = reader.GetDouble(6);
-                    if (score >= 0.55)
-                    {
-                        completedStepIds.Add(stepId);
-                    }
-
-                    if (score < 0.55)
-                    {
-                        weakAttemptCount++;
-                        lastWeakStepId = stepId;
-                    }
-
-                    answers.Add(new
-                    {
-                        id = reader.GetInt64(0),
-                        sessionId = reader.GetString(1),
-                        stepId,
-                        stepTitle = GetReadingStepTitle(category, stepId),
-                        question = reader.GetString(3),
-                        answer = reader.GetString(4),
-                        feedback = reader.GetString(5),
-                        feedbackSummary = ParseFeedback(reader.GetString(5)),
-                        score,
-                        createdAt = reader.GetString(7)
-                    });
-                }
-            }
-
-            var helpEvents = new List<object>();
-            string? lastHelpQuestion = null;
-            using (var helpCmd = conn.CreateCommand())
-            {
-                helpCmd.CommandText = @"
-SELECT
-  Id,
-  ChatSessionId,
-  TutorSessionId,
-  StepId,
-  Question,
-  CreatedAt
-FROM TutorHelpEvents
-WHERE UserId = $studentId
-  AND UPPER(UploadId) = UPPER($uploadId)
-ORDER BY CreatedAt ASC, Id ASC;
-";
-                helpCmd.Parameters.AddWithValue("$studentId", studentId);
-                helpCmd.Parameters.AddWithValue("$uploadId", uploadId.ToString());
-
-                using var reader = await helpCmd.ExecuteReaderAsync();
-                while (await reader.ReadAsync())
-                {
-                    lastHelpQuestion = reader.GetString(4);
-                    helpEvents.Add(new
-                    {
-                        id = reader.GetInt64(0),
-                        chatSessionId = reader.IsDBNull(1) ? null : reader.GetString(1),
-                        tutorSessionId = reader.IsDBNull(2) ? null : reader.GetString(2),
-                        stepId = reader.IsDBNull(3) ? null : reader.GetString(3),
-                        question = reader.GetString(4),
-                        createdAt = reader.GetString(5)
-                    });
-                }
-            }
-
-            string? latestTutorSessionId = null;
-            string? currentNode = null;
-            using (var sessionCmd = conn.CreateCommand())
-            {
-                sessionCmd.CommandText = @"
-SELECT SessionId, CurrentNode, Category
-FROM TutorSessions
-WHERE UserId = $studentId
-  AND UPPER(UploadId) = UPPER($uploadId)
-  AND Focus = 'reading_coach'
-ORDER BY UpdatedAt DESC
-LIMIT 1;
-";
-                sessionCmd.Parameters.AddWithValue("$studentId", studentId);
-                sessionCmd.Parameters.AddWithValue("$uploadId", uploadId.ToString());
-
-                using var reader = await sessionCmd.ExecuteReaderAsync();
-                if (await reader.ReadAsync())
-                {
-                    latestTutorSessionId = reader.GetString(0);
-                    currentNode = reader.GetString(1);
-                    category = ResolveReadingCategory(reader.IsDBNull(2) ? null : reader.GetString(2));
-                }
-            }
-
-            var currentStepId = ResolveCurrentReadingStepId(category, currentNode, completedStepIds.Count);
-            var status = ResolveProgressStatus(category, completedStepIds.Count, answers.Count, weakAttemptCount, helpEvents.Count, currentNode);
-
-            return Results.Ok(new
-            {
-                classId,
-                studentId,
-                uploadId,
-                student,
-                caseInfo,
-                studentName,
-                studentEmail,
-                caseName,
-                caseFileName,
-                readingCategory = category.ToString(),
-                totalSteps = GuidedReadingTutor.GetSteps(category).Count,
-                completedSteps = completedStepIds.Count,
-                answerAttempts = answers.Count,
-                weakAttempts = weakAttemptCount,
-                helpRequests = helpEvents.Count,
-                latestTutorSessionId,
-                status,
-                currentStep = currentStepId is null ? null : new
-                {
-                    id = currentStepId,
-                    title = GetReadingStepTitle(category, currentStepId)
-                },
-                lastWeakStep = lastWeakStepId is null ? null : new
-                {
-                    id = lastWeakStepId,
-                    title = GetReadingStepTitle(category, lastWeakStepId)
-                },
-                lastHelpQuestion,
-                needsAttention = status == "needs_help",
-                answers,
-                helpEvents
-            });
+            var summary = await tutorRepository.GetClassReadingCoachSummaryAsync(classId, me, ctx.RequestAborted);
+            return summary is null ? Results.NotFound(new { error = "Summary unavailable" }) : Results.Ok(summary);
         });
 
-        app.MapPost("/tutor/step", async (TutorStepRequest request, HttpContext ctx, ChatClient chat) =>
+        app.MapGet("/admin/classes/{classId}/tutor-progress/{studentId}/{uploadId:guid}", async (string classId, string studentId, Guid uploadId, HttpContext ctx, IClassRepository classesRepository, ITutorRepository tutorRepository) =>
+        {
+            var role = ctx.User.FindFirst("role")?.Value;
+            if (!string.Equals(role, "instructor", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.Forbid();
+            }
+
+            var me = ctx.GetCurrentUserId();
+            if (string.IsNullOrWhiteSpace(me))
+            {
+                return Results.Unauthorized();
+            }
+
+            var detail = await tutorRepository.GetTutorProgressDetailAsync(classId, me, studentId, uploadId, ctx.RequestAborted);
+            if (detail is null)
+            {
+                return Results.NotFound(new { error = "Progress record not found" });
+            }
+
+            return Results.Ok(detail);
+        });
+
+        app.MapPost("/tutor/step", async (TutorStepRequest request, HttpContext ctx, ChatClient chat, IUploadRepository uploads) =>
         {
             if (request is null ||
                 string.IsNullOrWhiteSpace(request.SessionId) ||
@@ -809,7 +439,7 @@ LIMIT 1;
 
             if (!TutorSessionStore.Sessions.TryGetValue(request.SessionId, out var session))
             {
-                session = await TutorSessionPersistence.TryLoadAsync(connString, request.SessionId);
+                session = await TutorSessionPersistence.TryLoadAsync(databaseOptions, request.SessionId);
                 if (session is null)
                 {
                     return Results.NotFound(new { error = "Tutor session not found" });
@@ -824,35 +454,9 @@ LIMIT 1;
                 return Results.Unauthorized();
             }
 
-            using (var conn = new SqliteConnection(connString))
+            if (!await uploads.CanAccessAsync(session.UploadId, me, ctx.RequestAborted))
             {
-                await conn.OpenAsync();
-
-                using var chk = conn.CreateCommand();
-                chk.CommandText = @"
-SELECT 1
-FROM Uploads u
-WHERE UPPER(u.UploadId) = UPPER($u)
-  AND (
-        u.UserId = $me
-     OR EXISTS (
-            SELECT 1
-            FROM ClassCases cc
-            JOIN ClassStudents cs ON cs.ClassId = cc.ClassId
-            WHERE UPPER(cc.UploadId) = UPPER(u.UploadId)
-              AND cs.StudentId = $me
-        )
-  )
-LIMIT 1;
-";
-                chk.Parameters.AddWithValue("$u", session.UploadId.ToString());
-                chk.Parameters.AddWithValue("$me", me);
-
-                var ok = await chk.ExecuteScalarAsync();
-                if (ok is null)
-                {
-                    return Results.Forbid();
-                }
+                return Results.Forbid();
             }
 
             TutorResponse response;
@@ -1373,10 +977,10 @@ LIMIT 1;
             var sessionToPersist = TutorSessionStore.Sessions.TryGetValue(session.SessionId, out var cachedSession)
                 ? cachedSession
                 : session;
-            await TutorSessionPersistence.SaveAsync(connString, sessionToPersist, me);
+            await TutorSessionPersistence.SaveAsync(databaseOptions, sessionToPersist, me);
 
             return Results.Json(response);
-        });
+        }).RequireRateLimiting("Ai");
     }
 
     private static bool TryResolveAcademicDrillReturn(
@@ -1620,139 +1224,49 @@ LIMIT 1;
     }
 
     private static async Task<ReadingAssignmentContext?> LoadReadingAssignmentContextAsync(
-        string connString,
+        ITutorRepository tutorRepository,
         Guid uploadId,
-        string userId)
+        string userId,
+        CancellationToken cancellationToken)
     {
-        using var conn = new SqliteConnection(connString);
-        await conn.OpenAsync();
-
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-SELECT cc.Objective, cc.Focus, cc.DueAt
-FROM ClassCases cc
-JOIN ClassStudents cs ON cs.ClassId = cc.ClassId
-WHERE cs.StudentId = $userId
-  AND UPPER(cc.UploadId) = UPPER($uploadId)
-ORDER BY cc.AssignedAt DESC
-LIMIT 1;
-";
-        cmd.Parameters.AddWithValue("$userId", userId);
-        cmd.Parameters.AddWithValue("$uploadId", uploadId.ToString());
-
-        using var reader = await cmd.ExecuteReaderAsync();
-        if (!await reader.ReadAsync())
+        var data = await tutorRepository.LoadReadingAssignmentContextAsync(uploadId, userId, cancellationToken);
+        if (data is null)
         {
             return null;
         }
 
-        var objective = reader.IsDBNull(0) ? null : reader.GetString(0);
-        var focus = reader.IsDBNull(1) ? null : reader.GetString(1);
-        var dueAt = reader.IsDBNull(2) ? null : reader.GetString(2);
-
-        return string.IsNullOrWhiteSpace(objective) &&
-            string.IsNullOrWhiteSpace(focus) &&
-            string.IsNullOrWhiteSpace(dueAt)
+        return string.IsNullOrWhiteSpace(data.Objective) &&
+            string.IsNullOrWhiteSpace(data.Focus) &&
+            string.IsNullOrWhiteSpace(data.DueAt) &&
+            string.IsNullOrWhiteSpace(data.ReadingCoachQuestions)
             ? null
-            : new ReadingAssignmentContext(objective, focus, dueAt);
+            : new ReadingAssignmentContext(data.Objective, data.Focus, data.DueAt, data.ReadingCoachQuestions);
     }
 
     private static async Task<ReadingPerformanceSnapshot> LoadReadingPerformanceSnapshotAsync(
-        string connString,
+        ITutorRepository tutorRepository,
         Guid uploadId,
-        string userId)
+        string userId,
+        CancellationToken cancellationToken)
     {
-        using var conn = new SqliteConnection(connString);
-        await conn.OpenAsync();
-
-        var category = DocType.AcademicResearch;
-        using (var categoryCmd = conn.CreateCommand())
-        {
-            categoryCmd.CommandText = @"
-SELECT Category
-FROM TutorSessions
-WHERE UserId = $userId
-  AND UPPER(UploadId) = UPPER($uploadId)
-  AND Focus = 'reading_coach'
-ORDER BY UpdatedAt DESC
-LIMIT 1;
-";
-            categoryCmd.Parameters.AddWithValue("$userId", userId);
-            categoryCmd.Parameters.AddWithValue("$uploadId", uploadId.ToString());
-            category = ResolveReadingCategory(await categoryCmd.ExecuteScalarAsync() as string);
-        }
-
-        var answers = new List<ReadingAnswerSnapshot>();
-        var completed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var weakAttempts = 0;
-
-        using (var answerCmd = conn.CreateCommand())
-        {
-            answerCmd.CommandText = @"
-SELECT StepId, Question, Answer, Feedback, Score
-FROM TutorAnswers
-WHERE UserId = $userId
-  AND UPPER(UploadId) = UPPER($uploadId)
-ORDER BY CreatedAt ASC, Id ASC;
-";
-            answerCmd.Parameters.AddWithValue("$userId", userId);
-            answerCmd.Parameters.AddWithValue("$uploadId", uploadId.ToString());
-
-            using var reader = await answerCmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
-            {
-                var stepId = reader.GetString(0);
-                var score = reader.GetDouble(4);
-                var feedback = ParseFeedback(reader.GetString(3));
-
-                if (score >= 0.55)
-                {
-                    completed.Add(stepId);
-                }
-                else
-                {
-                    weakAttempts++;
-                }
-
-                answers.Add(new ReadingAnswerSnapshot(
-                    StepId: stepId,
-                    Question: reader.GetString(1),
-                    Answer: reader.GetString(2),
-                    Score: score,
-                    Verdict: feedback?.Verdict,
-                    Hint: feedback?.Hint
-                ));
-            }
-        }
-
-        var helpQuestions = new List<string>();
-        using (var helpCmd = conn.CreateCommand())
-        {
-            helpCmd.CommandText = @"
-SELECT Question
-FROM TutorHelpEvents
-WHERE UserId = $userId
-  AND UPPER(UploadId) = UPPER($uploadId)
-ORDER BY CreatedAt ASC, Id ASC;
-";
-            helpCmd.Parameters.AddWithValue("$userId", userId);
-            helpCmd.Parameters.AddWithValue("$uploadId", uploadId.ToString());
-
-            using var reader = await helpCmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
-            {
-                helpQuestions.Add(reader.GetString(0));
-            }
-        }
+        var data = await tutorRepository.LoadReadingPerformanceSnapshotAsync(uploadId, userId, cancellationToken);
+        var category = ResolveReadingCategory(data.CategoryText);
+        var answers = data.Answers.Select(a => new ReadingAnswerSnapshot(
+            StepId: a.StepId,
+            Question: a.Question,
+            Answer: a.Answer,
+            Score: a.Score,
+            Verdict: a.Verdict,
+            Hint: a.Hint)).ToList();
 
         return new ReadingPerformanceSnapshot(
-            CompletedSteps: completed.Count,
+            CompletedSteps: data.CompletedSteps,
             TotalSteps: GuidedReadingTutor.GetSteps(category).Count,
-            AnswerAttempts: answers.Count,
-            WeakAttempts: weakAttempts,
-            HelpRequests: helpQuestions.Count,
+            AnswerAttempts: data.AnswerAttempts,
+            WeakAttempts: data.WeakAttempts,
+            HelpRequests: data.HelpRequests,
             Answers: answers,
-            HelpQuestions: helpQuestions
+            HelpQuestions: data.HelpQuestions
         );
     }
 
@@ -1770,31 +1284,4 @@ ORDER BY CreatedAt ASC, Id ASC;
         }
     }
 
-    private static async Task<bool> CanAccessUploadAsync(string connString, Guid uploadId, string userId)
-    {
-        using var conn = new SqliteConnection(connString);
-        await conn.OpenAsync();
-
-        using var chk = conn.CreateCommand();
-        chk.CommandText = @"
-SELECT 1
-FROM Uploads u
-WHERE UPPER(u.UploadId) = UPPER($u)
-  AND (
-        u.UserId = $me
-     OR EXISTS (
-            SELECT 1
-            FROM ClassCases cc
-            JOIN ClassStudents cs ON cs.ClassId = cc.ClassId
-            WHERE UPPER(cc.UploadId) = UPPER(u.UploadId)
-              AND cs.StudentId = $me
-        )
-  )
-LIMIT 1;
-";
-        chk.Parameters.AddWithValue("$u", uploadId.ToString());
-        chk.Parameters.AddWithValue("$me", userId);
-
-        return await chk.ExecuteScalarAsync() is not null;
-    }
 }

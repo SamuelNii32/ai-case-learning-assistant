@@ -1,6 +1,8 @@
-ï»¿using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing;
 using System.Text.Json;
 using Api.Extensions;
+using Api.Infrastructure;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Api.Endpoints;
 
@@ -12,8 +14,8 @@ public static class UploadEndpoints
     {
 
 
-        // POST /uploads  (save PDF + minimal summary) â€” uses ABSOLUTE uploads path
-        app.MapPost("/uploads", async (HttpRequest request, HttpContext ctx, IWebHostEnvironment env) =>
+        // POST /uploads  (save PDF + minimal summary) — uses ABSOLUTE uploads path
+        app.MapPost("/uploads", async (HttpRequest request, HttpContext ctx, IWebHostEnvironment env, IDocumentStorage storage, IUploadRepository uploads) =>
         {
             var ownerId = ctx.GetCurrentUserId();
             if (string.IsNullOrWhiteSpace(ownerId))
@@ -32,6 +34,16 @@ public static class UploadEndpoints
                 return Results.BadRequest($"No file. ContentType={request.ContentType}; Keys=[{string.Join(",", form.Keys)}]; Files={form.Files.Count}");
             }
 
+            var maxUploadBytes = GetLongEnv("MAX_UPLOAD_BYTES", 25L * 1024L * 1024L);
+            if (file.Length > maxUploadBytes)
+            {
+                return Results.BadRequest(new
+                {
+                    error = "File is too large.",
+                    maxBytes = maxUploadBytes
+                });
+            }
+
             // PDF-only guard
             var isPdf = string.Equals(file.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase)
                         || Path.GetExtension(file.FileName).Equals(".pdf", StringComparison.OrdinalIgnoreCase);
@@ -40,17 +52,7 @@ public static class UploadEndpoints
 
             var uploadId = Guid.NewGuid();
 
-            // ABSOLUTE uploads folder
-            var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
-            Directory.CreateDirectory(uploadsRoot);
-
-            var filePath = Path.Combine(uploadsRoot, $"{uploadId}.pdf");
-
-            // Save file
-            await using (var outStream = File.Open(filePath, FileMode.Create, FileAccess.Write, FileShare.Read))
-            {
-                await file.CopyToAsync(outStream);
-            }
+            var filePath = await storage.SavePdfAsync(uploadId, file, ctx.RequestAborted);
 
             // --- Minimal analysis: pages + raster images + file size + uploadedAt ---
             var uploadedAt = DateTime.UtcNow;
@@ -63,6 +65,26 @@ public static class UploadEndpoints
             using (var doc = new iText.Kernel.Pdf.PdfDocument(new iText.Kernel.Pdf.PdfReader(filePath)))
             {
                 pages = doc.GetNumberOfPages();
+            }
+
+            var maxPages = GetIntEnv("MAX_UPLOAD_PAGES", 100);
+            if (pages > maxPages)
+            {
+                try
+                {
+                    await storage.DeleteArtifactsAsync(uploadId, ctx.RequestAborted);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[UPLOAD WARNING] Could not delete rejected PDF {filePath}: {ex.Message}");
+                }
+
+                return Results.BadRequest(new
+                {
+                    error = "PDF has too many pages.",
+                    pages,
+                    maxPages
+                });
             }
 
             int images = 0;
@@ -100,27 +122,15 @@ public static class UploadEndpoints
                 generatedAt = DateTime.UtcNow.ToString("o")
             };
 
-            var summaryPath = Path.Combine(uploadsRoot, $"{uploadId}.summary.json");
-            await File.WriteAllTextAsync(summaryPath, JsonSerializer.Serialize(summary));
+            await storage.WriteJsonAsync(uploadId, ".summary.json", summary, ctx.RequestAborted);
 
             // Use the original filename from the upload (e.g. "Healthcare Case.pdf")
             var originalFileName = Path.GetFileName(file.FileName);
 
 
-            // persist ownership (per-user scoping)
-            using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString))
-            {
-                await conn.OpenAsync();
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = @"INSERT INTO Uploads (UploadId, UserId, FilePath, OriginalFileName, CreatedAt)
-            VALUES ($u, $usr, $path, $name, $ts)";
-                cmd.Parameters.AddWithValue("$u", uploadId);
-                cmd.Parameters.AddWithValue("$usr", ownerId);
-                cmd.Parameters.AddWithValue("$path", filePath);
-                cmd.Parameters.AddWithValue("$name", originalFileName ?? "");
-                cmd.Parameters.AddWithValue("$ts", DateTime.UtcNow.ToString("o"));
-                await cmd.ExecuteNonQueryAsync();
-            }
+            await uploads.CreateAsync(
+                new UploadMetadata(uploadId, ownerId, filePath, originalFileName ?? "", DateTime.UtcNow),
+                ctx.RequestAborted);
 
             return Results.Json(new { uploadId });
 
@@ -128,51 +138,48 @@ public static class UploadEndpoints
            
         })
         .Accepts<IFormFile>("multipart/form-data")
+        .RequireRateLimiting("Upload")
         .Produces(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status400BadRequest)
         .Produces(StatusCodes.Status415UnsupportedMediaType);
 
-        // GET /uploads/{id}/summary â€” reads from ABSOLUTE path
-        app.MapGet("/uploads/{uploadId:guid}/summary", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
+        // GET /uploads/{id}/summary — reads from ABSOLUTE path
+        app.MapGet("/uploads/{uploadId:guid}/summary", async (Guid uploadId, HttpContext ctx, IDocumentStorage storage, IUploadRepository uploads) =>
         {
             var me = ctx.GetCurrentUserId();
             if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
-            if (!await CanAccessUploadAsync(connString, uploadId, me)) return Results.NotFound();
+            if (!await uploads.CanAccessAsync(uploadId, me, ctx.RequestAborted)) return Results.NotFound();
 
-            var path = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.summary.json");
-            if (!File.Exists(path)) return Results.NotFound();
-            var json = await File.ReadAllTextAsync(path);
+            var json = await storage.ReadTextAsync(uploadId, ".summary.json", ctx.RequestAborted);
+            if (json is null) return Results.NotFound();
             return Results.Text(json, "application/json");
         });
 
-        app.MapPost("/uploads/{uploadId:guid}/layout/analyze", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
+        app.MapPost("/uploads/{uploadId:guid}/layout/analyze", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env, IDocumentStorage storage, IUploadRepository uploads) =>
         {
             var me = ctx.GetCurrentUserId();
             if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
-            if (!await CanAccessUploadAsync(connString, uploadId, me)) return Results.NotFound(new { error = "PDF not found" });
+            if (!await uploads.CanAccessAsync(uploadId, me, ctx.RequestAborted)) return Results.NotFound(new { error = "PDF not found" });
 
-            var pdfPath = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.pdf");
-            if (!File.Exists(pdfPath)) return Results.NotFound(new { error = "PDF not found" });
+            if (!await storage.PdfExistsAsync(uploadId, ctx.RequestAborted)) return Results.NotFound(new { error = "PDF not found" });
 
             var manifest = await DocumentLayoutAnalyzer.AnalyzeAndSaveAsync(uploadId, env);
             return Results.Json(manifest);
         });
 
-        app.MapGet("/uploads/{uploadId:guid}/layout", async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
+        app.MapGet("/uploads/{uploadId:guid}/layout", async (Guid uploadId, HttpContext ctx, IDocumentStorage storage, IUploadRepository uploads) =>
         {
             var me = ctx.GetCurrentUserId();
             if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
-            if (!await CanAccessUploadAsync(connString, uploadId, me)) return Results.NotFound(new { error = "layout not found" });
+            if (!await uploads.CanAccessAsync(uploadId, me, ctx.RequestAborted)) return Results.NotFound(new { error = "layout not found" });
 
-            var path = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.layout.json");
-            if (!File.Exists(path)) return Results.NotFound(new { error = "layout not found" });
-
-            var json = await File.ReadAllTextAsync(path);
+            var json = await storage.ReadTextAsync(uploadId, ".layout.json", ctx.RequestAborted);
+            if (json is null) return Results.NotFound(new { error = "layout not found" });
             return Results.Text(json, "application/json");
         });
 
-        // GET /cases â€” per-user list of uploads
-        app.MapGet("/cases", async (HttpContext ctx, IWebHostEnvironment env) =>
+        // GET /cases — per-user list of uploads
+        app.MapGet("/cases", async (HttpContext ctx, IDocumentStorage storage, IUploadRepository uploads) =>
         {
             // 1) Get current userId from JWT middleware
             var userId = ctx.GetCurrentUserId();
@@ -183,40 +190,16 @@ public static class UploadEndpoints
                 return Results.Unauthorized();
             }
 
-            // 2) Load this user's uploadIds from the Uploads table
-            var allowedUploadIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString))
-            {
-                await conn.OpenAsync();
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = @"SELECT UploadId FROM Uploads WHERE UserId = $userId";
-                cmd.Parameters.AddWithValue("$userId", userId);
-
-                using var reader = await cmd.ExecuteReaderAsync();
-                while (await reader.ReadAsync())
-                {
-                    if (!reader.IsDBNull(0))
-                    {
-                        var uploadId = reader.GetString(0);
-                        if (!string.IsNullOrWhiteSpace(uploadId))
-                            allowedUploadIds.Add(uploadId);
-                    }
-                }
-            }
+            var allowedUploadIds = await uploads.GetOwnedUploadIdsAsync(userId, ctx.RequestAborted);
 
             // 3) Scan uploads folder as before, but filter to this user's UploadIds
-            var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
-            Directory.CreateDirectory(uploadsRoot);
-
             var cases = new List<CaseDto>();
 
-            foreach (var path in Directory.EnumerateFiles(uploadsRoot, "*.summary.json"))
+            await foreach (var summaryFile in storage.EnumerateSummariesAsync(ctx.RequestAborted))
             {
                 try
                 {
-                    using var fs = File.OpenRead(path);
-                    using var doc = JsonDocument.Parse(fs);
+                    using var doc = JsonDocument.Parse(summaryFile.Json);
                     var root = doc.RootElement;
 
                     string id = root.TryGetProperty("uploadId", out var pid)
@@ -224,7 +207,7 @@ public static class UploadEndpoints
                         : "";
                     if (string.IsNullOrWhiteSpace(id)) continue;
 
-                    // ðŸ‘‡ New: if this upload does NOT belong to the current user, skip it
+                    // ?? New: if this upload does NOT belong to the current user, skip it
                     if (!allowedUploadIds.Contains(id))
                         continue;
 
@@ -238,13 +221,13 @@ public static class UploadEndpoints
 
                     string uploadedAt = root.TryGetProperty("uploadedAt", out var pu) && pu.ValueKind == JsonValueKind.String
                         ? (pu.GetString() ?? "")
-                        : File.GetLastWriteTimeUtc(path).ToString("o");
+                        : summaryFile.LastModifiedUtc.ToString("o");
 
                     cases.Add(new CaseDto(id, name, pages, images, sizeMB, uploadedAt));
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[CASES] Skipping '{Path.GetFileName(path)}': {ex.GetType().Name} - {ex.Message}");
+                    Console.WriteLine($"[CASES] Skipping '{summaryFile.UploadId}': {ex.GetType().Name} - {ex.Message}");
                 }
             }
 
@@ -255,17 +238,17 @@ public static class UploadEndpoints
             return Results.Json(ordered);
         });
 
-        // GET/HEAD /uploads/{id}.pdf â€” serves from ABSOLUTE path (use Results.File)
-        app.MapMethods("/uploads/{uploadId:guid}.pdf", new[] { "GET", "HEAD" }, async (Guid uploadId, HttpContext ctx, IWebHostEnvironment env) =>
+        // GET/HEAD /uploads/{id}.pdf — serves from ABSOLUTE path (use Results.File)
+        app.MapMethods("/uploads/{uploadId:guid}.pdf", new[] { "GET", "HEAD" }, async (Guid uploadId, HttpContext ctx, IDocumentStorage storage, IUploadRepository uploads) =>
         {
             try
             {
                 var me = ctx.GetCurrentUserId();
                 if (string.IsNullOrWhiteSpace(me)) return Results.Unauthorized();
-                if (!await CanAccessUploadAsync(connString, uploadId, me)) return Results.NotFound();
+                if (!await uploads.CanAccessAsync(uploadId, me, ctx.RequestAborted)) return Results.NotFound();
 
-                var path = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.pdf");
-                if (!File.Exists(path)) return Results.NotFound();
+                var path = await storage.GetPdfPathAsync(uploadId, ctx.RequestAborted);
+                if (path is null) return Results.NotFound();
                 return Results.File(path, "application/pdf", enableRangeProcessing: true);
             }
             catch (Exception ex)
@@ -279,31 +262,15 @@ public static class UploadEndpoints
         return app;
     }
 
-    private static async Task<bool> CanAccessUploadAsync(string connString, Guid uploadId, string userId)
+    private static long GetLongEnv(string name, long fallback)
     {
-        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
-        await conn.OpenAsync();
+        var raw = Environment.GetEnvironmentVariable(name);
+        return long.TryParse(raw, out var value) && value > 0 ? value : fallback;
+    }
 
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-SELECT 1
-FROM Uploads u
-WHERE UPPER(u.UploadId) = UPPER($uploadId)
-  AND (
-        u.UserId = $userId
-     OR EXISTS (
-            SELECT 1
-            FROM ClassCases cc
-            JOIN ClassStudents cs ON cs.ClassId = cc.ClassId
-            WHERE UPPER(cc.UploadId) = UPPER(u.UploadId)
-              AND cs.StudentId = $userId
-        )
-  )
-LIMIT 1;
-";
-        cmd.Parameters.AddWithValue("$uploadId", uploadId.ToString());
-        cmd.Parameters.AddWithValue("$userId", userId);
-
-        return await cmd.ExecuteScalarAsync() is not null;
+    private static int GetIntEnv(string name, int fallback)
+    {
+        var raw = Environment.GetEnvironmentVariable(name);
+        return int.TryParse(raw, out var value) && value > 0 ? value : fallback;
     }
 }

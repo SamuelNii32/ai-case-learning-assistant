@@ -1,14 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.Data.Sqlite;
+using Api.Infrastructure;
 
 public static class TutorSessionPersistence
 {
-    public static async Task<TutorSession?> TryLoadLatestReadingAsync(string connString, Guid uploadId, string userId)
+    public static async Task<TutorSession?> TryLoadLatestReadingAsync(DatabaseOptions databaseOptions, Guid uploadId, string userId)
     {
-        using var conn = new SqliteConnection(connString);
+        await using var conn = databaseOptions.CreateConnection();
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
@@ -21,18 +22,18 @@ WHERE UserId = $userId
 ORDER BY UpdatedAt DESC
 LIMIT 1;
 ";
-        cmd.Parameters.AddWithValue("$userId", userId);
-        cmd.Parameters.AddWithValue("$uploadId", uploadId.ToString());
+        cmd.AddWithValue("$userId", userId);
+        cmd.AddWithValue("$uploadId", uploadId.ToString());
 
         var sessionId = await cmd.ExecuteScalarAsync() as string;
         return string.IsNullOrWhiteSpace(sessionId)
             ? null
-            : await TryLoadAsync(connString, sessionId);
+            : await TryLoadAsync(databaseOptions, sessionId);
     }
 
-    public static async Task<TutorSession?> TryLoadAsync(string connString, string sessionId)
+    public static async Task<TutorSession?> TryLoadAsync(DatabaseOptions databaseOptions, string sessionId)
     {
-        using var conn = new SqliteConnection(connString);
+        await using var conn = databaseOptions.CreateConnection();
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
@@ -53,7 +54,7 @@ FROM TutorSessions
 WHERE SessionId = $sessionId
 LIMIT 1;
 ";
-        cmd.Parameters.AddWithValue("$sessionId", sessionId);
+        cmd.AddWithValue("$sessionId", sessionId);
 
         using var reader = await cmd.ExecuteReaderAsync();
         if (!await reader.ReadAsync())
@@ -83,11 +84,11 @@ LIMIT 1;
         );
     }
 
-    public static async Task SaveAsync(string connString, TutorSession session, string userId)
+    public static async Task SaveAsync(DatabaseOptions databaseOptions, TutorSession session, string userId)
     {
         var now = DateTime.UtcNow.ToString("O");
 
-        using var conn = new SqliteConnection(connString);
+        await using var conn = databaseOptions.CreateConnection();
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
@@ -139,25 +140,25 @@ ON CONFLICT(SessionId) DO UPDATE SET
   UpdatedAt = excluded.UpdatedAt;
 ";
 
-        cmd.Parameters.AddWithValue("$sessionId", session.SessionId);
-        cmd.Parameters.AddWithValue("$userId", userId);
-        cmd.Parameters.AddWithValue("$uploadId", session.UploadId.ToString());
-        cmd.Parameters.AddWithValue("$category", session.Category.ToString());
-        cmd.Parameters.AddWithValue("$focus", (object?)session.Focus ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$currentNode", session.CurrentNode);
-        cmd.Parameters.AddWithValue("$visitedTopicsJson", JsonSerializer.Serialize(session.VisitedTopics));
-        cmd.Parameters.AddWithValue("$visitedPagesJson", JsonSerializer.Serialize(session.VisitedPages));
-        cmd.Parameters.AddWithValue("$historyJson", JsonSerializer.Serialize(session.History));
-        cmd.Parameters.AddWithValue("$lastStepSummary", (object?)session.LastStepSummary ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$drillPathJson", JsonSerializer.Serialize(session.DrillPath ?? new List<TutorDrillNode>()));
-        cmd.Parameters.AddWithValue("$pendingDrillChoicesJson", JsonSerializer.Serialize(session.PendingDrillChoices ?? new List<TutorDrillNode>()));
-        cmd.Parameters.AddWithValue("$createdAt", now);
-        cmd.Parameters.AddWithValue("$updatedAt", now);
+        cmd.AddWithValue("$sessionId", session.SessionId);
+        cmd.AddWithValue("$userId", userId);
+        cmd.AddWithValue("$uploadId", session.UploadId.ToString());
+        cmd.AddWithValue("$category", session.Category.ToString());
+        cmd.AddWithValue("$focus", (object?)session.Focus ?? DBNull.Value);
+        cmd.AddWithValue("$currentNode", session.CurrentNode);
+        cmd.AddWithValue("$visitedTopicsJson", JsonSerializer.Serialize(session.VisitedTopics));
+        cmd.AddWithValue("$visitedPagesJson", JsonSerializer.Serialize(session.VisitedPages));
+        cmd.AddWithValue("$historyJson", JsonSerializer.Serialize(session.History));
+        cmd.AddWithValue("$lastStepSummary", (object?)session.LastStepSummary ?? DBNull.Value);
+        cmd.AddWithValue("$drillPathJson", JsonSerializer.Serialize(session.DrillPath ?? new List<TutorDrillNode>()));
+        cmd.AddWithValue("$pendingDrillChoicesJson", JsonSerializer.Serialize(session.PendingDrillChoices ?? new List<TutorDrillNode>()));
+        cmd.AddWithValue("$createdAt", now);
+        cmd.AddWithValue("$updatedAt", now);
 
         await cmd.ExecuteNonQueryAsync();
     }
 
-    private static string? GetNullableString(SqliteDataReader reader, string name)
+    private static string? GetNullableString(DbDataReader reader, string name)
     {
         var ordinal = reader.GetOrdinal(name);
         return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);

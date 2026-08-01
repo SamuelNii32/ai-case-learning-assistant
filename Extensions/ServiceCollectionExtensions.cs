@@ -1,10 +1,16 @@
-﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using OpenAI.Chat;
 using System;
 using System.Text;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
+using Api.Infrastructure;
+using Microsoft.OpenApi.Models;
 
 namespace Api.Extensions;
 
@@ -28,6 +34,35 @@ public static class ServiceCollectionExtensions
         {
             return new ChatClient(model: answerModel, openAiApiKey);
         });
+
+        services.AddSingleton<IDocumentStorage>(sp =>
+        {
+            var provider = (Environment.GetEnvironmentVariable("DOCUMENT_STORAGE_PROVIDER")
+                ?? configuration["DocumentStorage:Provider"]
+                ?? "local").Trim().ToLowerInvariant();
+
+            return provider switch
+            {
+                "local" => ActivatorUtilities.CreateInstance<LocalDocumentStorage>(sp),
+                "azureblob" => ActivatorUtilities.CreateInstance<AzureBlobDocumentStorage>(sp),
+                _ => throw new InvalidOperationException($"Unsupported DOCUMENT_STORAGE_PROVIDER '{provider}'.")
+            };
+        });
+        services.AddSingleton(DatabaseOptions.Load(configuration));
+        services.AddSingleton<IUploadRepository, SqliteUploadRepository>();
+        services.AddSingleton<IUserRepository, SqliteUserRepository>();
+        services.AddSingleton<ISessionRepository, SqliteSessionRepository>();
+        services.AddSingleton<IMessageRepository, SqliteMessageRepository>();
+        services.AddSingleton<IClassRepository, SqliteClassRepository>();
+        services.AddSingleton<ITutorRepository, SqliteTutorRepository>();
+        services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>();
+        services.AddSingleton<IndexJobStore>();
+        services.AddSingleton<IndexingService>();
+
+        if (ShouldRunBackgroundWorker(configuration))
+        {
+            services.AddHostedService<IndexJobWorkerHostedService>();
+        }
 
         services
             .AddAuthentication("Bearer").AddJwtBearer(options =>
@@ -54,9 +89,19 @@ public static class ServiceCollectionExtensions
             options.AddPolicy("StudentOnly", p => p.RequireClaim("role", "student"));
         });
 
+        services.AddHealthChecks();
+
         // Swagger (optional)
         services.AddEndpointsApiExplorer();
-        services.AddSwaggerGen();
+        services.AddSwaggerGen(c =>
+        {
+            c.SwaggerDoc("v1", new OpenApiInfo
+            {
+                Title = "Ingestion API",
+                Version = "v1",
+                Description = "Case learning and supervision API."
+            });
+        });
 
         services.AddCors(options =>
         {
@@ -67,6 +112,92 @@ public static class ServiceCollectionExtensions
                 .AllowCredentials());
         });
 
+        var maxUploadBytes = GetLong(configuration, "MAX_UPLOAD_BYTES", "Upload:MaxBytes", 25L * 1024L * 1024L);
+
+        services.Configure<FormOptions>(options =>
+        {
+            options.MultipartBodyLengthLimit = maxUploadBytes;
+            options.ValueLengthLimit = 1024 * 1024;
+            options.MultipartHeadersLengthLimit = 64 * 1024;
+        });
+
+        services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+            {
+                var key = GetClientPartitionKey(ctx);
+                return RateLimitPartition.GetTokenBucketLimiter(key, _ => new TokenBucketRateLimiterOptions
+                {
+                    TokenLimit = 180,
+                    TokensPerPeriod = 180,
+                    ReplenishmentPeriod = TimeSpan.FromMinutes(1),
+                    QueueLimit = 20,
+                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                    AutoReplenishment = true
+                });
+            });
+
+            options.AddPolicy("Auth", ctx =>
+                RateLimitPartition.GetFixedWindowLimiter(GetClientIp(ctx), _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 10,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0
+                }));
+
+            options.AddPolicy("Upload", ctx =>
+                RateLimitPartition.GetFixedWindowLimiter(GetClientPartitionKey(ctx), _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 8,
+                    Window = TimeSpan.FromMinutes(10),
+                    QueueLimit = 0
+                }));
+
+            options.AddPolicy("Ai", ctx =>
+                RateLimitPartition.GetTokenBucketLimiter(GetClientPartitionKey(ctx), _ => new TokenBucketRateLimiterOptions
+                {
+                    TokenLimit = 30,
+                    TokensPerPeriod = 30,
+                    ReplenishmentPeriod = TimeSpan.FromMinutes(1),
+                    QueueLimit = 5,
+                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                    AutoReplenishment = true
+                }));
+        });
+
         return services;
+    }
+
+    private static long GetLong(IConfiguration configuration, string envName, string configKey, long fallback)
+    {
+        var raw = Environment.GetEnvironmentVariable(envName) ?? configuration[configKey];
+        return long.TryParse(raw, out var value) && value > 0 ? value : fallback;
+    }
+
+    private static bool ShouldRunBackgroundWorker(IConfiguration configuration)
+    {
+        var raw = Environment.GetEnvironmentVariable("RUN_BACKGROUND_WORKER")
+            ?? configuration["BackgroundWorker:Enabled"];
+
+        return raw is null || string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetClientPartitionKey(HttpContext ctx)
+    {
+        var userId = ctx.User?.FindFirst("sub")?.Value;
+        return string.IsNullOrWhiteSpace(userId) ? GetClientIp(ctx) : $"user:{userId}";
+    }
+
+    private static string GetClientIp(HttpContext ctx)
+    {
+        var forwardedFor = ctx.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(forwardedFor))
+        {
+            return $"ip:{forwardedFor.Split(',')[0].Trim()}";
+        }
+
+        return $"ip:{ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
     }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -13,7 +13,7 @@ public static class CategoryDetector
 
         var s = q.ToLowerInvariant();
 
-        // Technologies / tech stack / skills → group by category
+        // Technologies / tech stack / skills ? group by category
         if (Regex.IsMatch(s, @"\b(tech(?:nologies?)?|tech\s*stack|technology\s*stack|stack|skills|technical\s+skills)\b"))
             return new CategoryHint(
                 "tech_group",
@@ -65,7 +65,7 @@ public static class CategoryDetector
             Regex.IsMatch(s, @"\b(january|february|march|april|may|june|july|august|september|october|november|december)\b") ||
             Regex.IsMatch(s, @"\b(19|20)\d{2}\b"))
             return new CategoryHint("dates",
-                "For dates, return only explicit date expressions as written (e.g., 11/2021–07/2023); exclude durations without dates.");
+                "For dates, return only explicit date expressions as written (e.g., 11/2021�07/2023); exclude durations without dates.");
 
         // Quantified metrics / achievements
         if (Regex.IsMatch(s, @"%|percent|percentage|\bplus\b|\b\+\b|\bmetrics?\b|\bachievements?\b"))

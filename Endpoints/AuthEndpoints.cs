@@ -1,4 +1,7 @@
-﻿using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing;
+
+using Microsoft.AspNetCore.RateLimiting;
+using Api.Infrastructure;
 
 namespace Api.Endpoints;
 
@@ -6,7 +9,6 @@ public static class AuthEndpoints
 {
     public static IEndpointRouteBuilder MapAuthEndpoints(
         this IEndpointRouteBuilder app,
-        string connString,
         string jwtSecret,
         string jwtIssuer,
         string jwtAudience)
@@ -14,7 +16,7 @@ public static class AuthEndpoints
         // endpoints will go here
 
         // --- Auth: signup (create user) ---
-        app.MapPost("/auth/signup", async (HttpContext ctx) =>
+        app.MapPost("/auth/signup", async (HttpContext ctx, IUserRepository users) =>
         {
             using var reader = new StreamReader(ctx.Request.Body);
             var body = await reader.ReadToEndAsync();
@@ -38,7 +40,7 @@ public static class AuthEndpoints
             }
             catch
             {
-                // bad JSON → will fail validation below
+                // bad JSON ? will fail validation below
             }
 
             if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
@@ -54,45 +56,28 @@ public static class AuthEndpoints
             var hash = BCrypt.Net.BCrypt.HashPassword(password);
             var isInstructor = IsValidInstructorInviteCode(instructorInviteCode);
 
-            using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
-            await conn.OpenAsync();
-
-            // Enforce unique email
-            var check = conn.CreateCommand();
-            check.CommandText = "SELECT 1 FROM Users WHERE Email = $e LIMIT 1";
-            check.Parameters.AddWithValue("$e", email);
-            var exists = (await check.ExecuteScalarAsync()) != null;
-            if (exists)
+            if (await users.EmailExistsAsync(email, ctx.RequestAborted))
                 return Results.Conflict(new { error = "email already exists" });
 
-            var cmd = conn.CreateCommand();
-            cmd.CommandText = @"
-        INSERT INTO Users (Id, Email, PasswordHash, FullName, CreatedAt, IsSuperUser)
-        VALUES ($id,$e,$h,$n,$t,$su)";
-            cmd.Parameters.AddWithValue("$id", userId);
-            cmd.Parameters.AddWithValue("$e", email);
-            cmd.Parameters.AddWithValue("$h", hash);
-            cmd.Parameters.AddWithValue("$n", string.IsNullOrWhiteSpace(fullName) ? DBNull.Value : fullName);
-            cmd.Parameters.AddWithValue("$t", DateTime.UtcNow.ToString("o"));
-            cmd.Parameters.AddWithValue("$su", isInstructor ? 1 : 0);
-
-            await cmd.ExecuteNonQueryAsync();
+            await users.CreateAsync(
+                new NewUser(userId, email, hash, fullName, isInstructor, DateTime.UtcNow),
+                ctx.RequestAborted);
 
             return Results.Ok(new { userId, email, fullName, role = isInstructor ? "instructor" : "student" });
 
-        });
+        }).RequireRateLimiting("Auth");
 
 
-        app.MapPost("/auth/login", async (HttpContext ctx) =>
+        app.MapPost("/auth/login", async (HttpContext ctx, IUserRepository users) =>
         {
-            // ⭐ Allow body to be read multiple times
+            // ? Allow body to be read multiple times
             ctx.Request.EnableBuffering();
             ctx.Request.Body.Position = 0;
 
             using var reader = new StreamReader(ctx.Request.Body, leaveOpen: true);
             var body = await reader.ReadToEndAsync();
 
-            // ⭐ Reset again so downstream can read body if needed
+            // ? Reset again so downstream can read body if needed
             ctx.Request.Body.Position = 0;
 
             string email = "", password = "";
@@ -107,28 +92,8 @@ public static class AuthEndpoints
             if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
                 return Results.BadRequest(new { error = "email and password required" });
 
-            using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
-            await conn.OpenAsync();
-
-            string? userId = null, hash = null, fullName = null;
-            bool isSuperUser = false;
-            int rawIsSuperUser = 0;
-
-            var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT Id, PasswordHash, IFNULL(FullName,''), IFNULL(IsSuperUser,0) FROM Users WHERE Email = $e LIMIT 1";
-            cmd.Parameters.AddWithValue("$e", email);
-            using (var r = await cmd.ExecuteReaderAsync())
-            {
-                if (await r.ReadAsync())
-                {
-                    userId = r.GetString(0);
-                    hash = r.GetString(1);
-                    fullName = r.GetString(2);
-                    rawIsSuperUser = r.GetInt32(3);
-                    isSuperUser = rawIsSuperUser != 0;
-                }
-            }
-            if (userId is null || hash is null || !BCrypt.Net.BCrypt.Verify(password, hash))
+            var user = await users.GetCredentialsByEmailAsync(email, ctx.RequestAborted);
+            if (user is null || !BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
                 return Results.Unauthorized();
 
             var key = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
@@ -141,10 +106,10 @@ public static class AuthEndpoints
 
             var claims = new[]
         {
-    new System.Security.Claims.Claim("sub", userId),
+    new System.Security.Claims.Claim("sub", user.Id),
     new System.Security.Claims.Claim("email", email),
-    new System.Security.Claims.Claim("isSuperUser", isSuperUser ? "true" : "false"),
-    new System.Security.Claims.Claim("role", isSuperUser ? "instructor" : "student"),
+    new System.Security.Claims.Claim("isSuperUser", user.IsSuperUser ? "true" : "false"),
+    new System.Security.Claims.Claim("role", user.IsSuperUser ? "instructor" : "student"),
 };
 
             var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
@@ -159,8 +124,8 @@ public static class AuthEndpoints
             var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler()
                 .WriteToken(token);
 
-            return Results.Ok(new { token = jwt, userId, email, fullName, isSuperUser });
-        });
+            return Results.Ok(new { token = jwt, userId = user.Id, email, fullName = user.FullName, isSuperUser = user.IsSuperUser });
+        }).RequireRateLimiting("Auth");
 
         return app;
     }

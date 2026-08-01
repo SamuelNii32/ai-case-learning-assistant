@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Hosting;
 
 public enum DocType
 {
@@ -397,7 +397,7 @@ public static class DocTypeClassifier
 
 public static class DocTypePersistence
 {
-    public static void Save(Guid uploadId, IWebHostEnvironment env, DocTypeResult result)
+    public static void Save(Guid uploadId, IHostEnvironment env, DocTypeResult result)
     {
         var path = Path.Combine(env.ContentRootPath, "uploads", $"docclass-{uploadId}.json");
         var json = JsonSerializer.Serialize(result, new JsonSerializerOptions
@@ -407,7 +407,7 @@ public static class DocTypePersistence
         File.WriteAllText(path, json);
     }
 
-    public static bool TryLoad(Guid uploadId, IWebHostEnvironment env, out DocTypeResult? result)
+    public static bool TryLoad(Guid uploadId, IHostEnvironment env, out DocTypeResult? result)
     {
         var path = Path.Combine(env.ContentRootPath, "uploads", $"docclass-{uploadId}.json");
         if (!File.Exists(path))

@@ -1,4 +1,4 @@
-ï»¿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -39,7 +39,7 @@ public static class MiscHelpers
         }
         catch
         {
-            // swallow â€” return whatever we could extract
+            // swallow — return whatever we could extract
         }
 
         return anchors;
@@ -55,7 +55,7 @@ public static class MiscHelpers
         var cut = dot > 0 && dot < softLimit + 120 ? dot + 1 : maxChars;
         if (cut > clean.Length) cut = clean.Length;
 
-        return clean.Substring(0, cut).Trim() + "â€¦";
+        return clean.Substring(0, cut).Trim() + "…";
     }
 
     public static string CollapseWhitespace(string s)

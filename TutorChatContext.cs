@@ -3,18 +3,19 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Api.Infrastructure;
 
 public static class TutorChatContext
 {
     public static async Task<string> BuildAsync(
-        string connString,
+        DatabaseOptions databaseOptions,
         string? tutorSessionId,
         string? tutorStepId)
     {
         TutorSession? session = null;
         if (!string.IsNullOrWhiteSpace(tutorSessionId))
         {
-            session = await TutorSessionPersistence.TryLoadAsync(connString, tutorSessionId);
+            session = await TutorSessionPersistence.TryLoadAsync(databaseOptions, tutorSessionId);
         }
 
         var explicitStepProvided = !string.IsNullOrWhiteSpace(tutorStepId);

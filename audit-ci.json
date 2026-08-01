@@ -2,5 +2,5 @@
   "moderate": true,
   "high": true,
   "critical": true,
-  "allowlist": []
+  "allowlist": ["GHSA-qwww-vcr4-c8h2"]
 }

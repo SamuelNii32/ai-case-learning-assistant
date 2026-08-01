@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -18,7 +18,7 @@ public static class TextNormalization
         var s = text;
 
         // Common PDF ligatures
-        s = s.Replace("ﬁ", "fi").Replace("ﬂ", "fl");
+        s = s.Replace("?", "fi").Replace("?", "fl");
 
         // Join hyphenated line breaks: foo-\nbar -> foobar
         s = Regex.Replace(s, @"(\w)-\s*\r?\n\s*(\w)", "$1$2");

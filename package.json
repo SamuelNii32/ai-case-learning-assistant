@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite --configLoader native build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
@@ -13,11 +13,11 @@
     "preview": "vite preview",
     "serve:dist": "npx http-server ./dist -p 5000",
     "lighthouse:local": "npx lighthouse http://localhost:5000 --output=json --output-path=./lighthouse-report.json --output=html --output-path=./lighthouse-report.html --chrome-flags=\"--headless --no-sandbox\"",
-    "test": "vitest",
-    "test:run": "vitest run",
-    "test:watch": "vitest --watch",
-    "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage",
+    "test": "vitest --configLoader native",
+    "test:run": "vitest --configLoader native run",
+    "test:watch": "vitest --configLoader native --watch",
+    "test:ui": "vitest --configLoader native --ui",
+    "test:coverage": "vitest --configLoader native run --coverage",
     "audit:security": "audit-ci --config ./audit-ci.json"
   },
   "dependencies": {

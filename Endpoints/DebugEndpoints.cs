@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Routing;
 using Microsoft.Data.Sqlite;
 using Api.Extensions;
+using Api.Infrastructure;
 
 namespace Api.Endpoints;
 
@@ -8,7 +9,9 @@ public static class DebugEndpoints
 {
     public static IEndpointRouteBuilder MapDebugEndpoints(
         this IEndpointRouteBuilder app,
-        string connString)
+        DatabaseOptions databaseOptions,
+        IUploadRepository uploadsRepository,
+        ISessionRepository sessionsRepository)
     {
         app.MapGet("/ping", () => Results.Ok("pong"));
 
@@ -49,7 +52,7 @@ public static class DebugEndpoints
 
 
 
-        app.MapGet("/me", async (HttpContext ctx) =>
+        app.MapGet("/me", async (HttpContext ctx, IUserRepository users) =>
         {
             var userId = ctx.GetCurrentUserId();
             if (string.IsNullOrWhiteSpace(userId))
@@ -59,32 +62,14 @@ public static class DebugEndpoints
 
             bool tokenIsSuper = ctx.IsCurrentUserSuperUser();
 
-            using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
-            await conn.OpenAsync();
-
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = @"
-        SELECT Email,
-               IFNULL(FullName, ''),
-               IFNULL(IsSuperUser, 0)
-        FROM Users
-        WHERE Id = $id
-        LIMIT 1;";
-            cmd.Parameters.AddWithValue("$id", userId);
-
-            using var r = await cmd.ExecuteReaderAsync();
-            if (!await r.ReadAsync())
+            var profile = await users.GetProfileByIdAsync(userId, ctx.RequestAborted);
+            if (profile is null)
             {
                 // Token might be valid but user row missing; treat as unauthorized
                 return Results.Unauthorized();
             }
 
-            var email = r.GetString(0);
-            var fullName = r.GetString(1);
-            var dbIsSuper = r.GetInt32(2) != 0;
-
-
-            var isSuperUser = dbIsSuper || tokenIsSuper;
+            var isSuperUser = profile.IsSuperUser || tokenIsSuper;
 
 
             var role = isSuperUser ? "instructor" : "student";
@@ -92,8 +77,8 @@ public static class DebugEndpoints
             return Results.Ok(new
             {
                 userId,
-                email,
-                fullName,
+                email = profile.Email,
+                fullName = profile.FullName,
                 role
             });
         }).RequireAuthorization();
@@ -136,28 +121,10 @@ public static class DebugEndpoints
 
             var result = new List<object>();
 
-            // A) Connection using connString (startup DB)
             try
             {
-                using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
+                using var conn = databaseOptions.CreateConnection();
                 conn.Open();
-
-                string? path = null;
-                using (var cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "PRAGMA database_list;";
-                    using var reader = cmd.ExecuteReader();
-                    while (reader.Read())
-                    {
-                        // columns: seq, name, file
-                        var name = reader.GetString(1);
-                        if (name == "main")
-                        {
-                            path = reader.GetString(2);
-                            break;
-                        }
-                    }
-                }
 
                 int uploads = -1;
                 using (var cmd = conn.CreateCommand())
@@ -166,47 +133,11 @@ public static class DebugEndpoints
                     uploads = Convert.ToInt32(cmd.ExecuteScalar());
                 }
 
-                result.Add(new { kind = "connString", path, uploads });
+                result.Add(new { kind = "configured", provider = databaseOptions.Provider, path = databaseOptions.LocalPath, uploads });
             }
             catch (Exception ex)
             {
-                result.Add(new { kind = "connString", error = ex.Message });
-            }
-
-            // B) Connection using literal "ingestion.db"
-            try
-            {
-                using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
-                conn.Open();
-
-                string? path = null;
-                using (var cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "PRAGMA database_list;";
-                    using var reader = cmd.ExecuteReader();
-                    while (reader.Read())
-                    {
-                        var name = reader.GetString(1);
-                        if (name == "main")
-                        {
-                            path = reader.GetString(2);
-                            break;
-                        }
-                    }
-                }
-
-                int uploads = -1;
-                using (var cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT COUNT(*) FROM Uploads;";
-                    uploads = Convert.ToInt32(cmd.ExecuteScalar());
-                }
-
-                result.Add(new { kind = "literal", path, uploads });
-            }
-            catch (Exception ex)
-            {
-                result.Add(new { kind = "literal", error = ex.Message });
+                result.Add(new { kind = "configured", error = ex.Message });
             }
 
             return Results.Json(result);
@@ -218,32 +149,14 @@ public static class DebugEndpoints
             var deny = RequireDebugAccess(ctx);
             if (deny is not null) return deny;
 
-            using var conn = new SqliteConnection(connString);
-            await conn.OpenAsync();
-
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = @"
-        SELECT UploadId, UserId, Name, CreatedAt
-        FROM Uploads;
-    ";
-
-            var list = new List<object>();
-
-            using (var reader = await cmd.ExecuteReaderAsync())
+            var list = await uploadsRepository.ListAllAsync(ctx.RequestAborted);
+            return Results.Ok(list.Select(row => new
             {
-                while (await reader.ReadAsync())
-                {
-                    list.Add(new
-                    {
-                        uploadId = reader.IsDBNull(0) ? null : reader.GetString(0),
-                        userId = reader.IsDBNull(1) ? null : reader.GetString(1),
-                        name = reader.IsDBNull(2) ? null : reader.GetString(2),
-                        createdAt = reader.IsDBNull(3) ? null : reader.GetString(3)
-                    });
-                }
-            }
-
-            return Results.Ok(list);
+                uploadId = row.UploadId.ToString(),
+                userId = row.UserId,
+                name = row.Name,
+                createdAt = row.CreatedAt
+            }));
         });
 
 
@@ -255,28 +168,7 @@ public static class DebugEndpoints
             var deny = RequireDebugAccess(ctx);
             if (deny is not null) return deny;
 
-            using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connString);
-            await conn.OpenAsync();
-
-            var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT Id, UserId, UploadId, ClassId, CreatedAt FROM Sessions";
-
-            var list = new List<object>();
-            using (var reader = await cmd.ExecuteReaderAsync())
-            {
-                while (await reader.ReadAsync())
-                {
-                    list.Add(new
-                    {
-                        sessionId = reader.GetString(0),
-                        userId = reader.GetString(1),
-                        uploadId = reader.IsDBNull(2) ? null : reader.GetString(2),
-                        classId = reader.IsDBNull(3) ? null : reader.GetString(3),
-                        createdAt = reader.GetString(4)
-                    });
-                }
-            }
-
+            var list = await sessionsRepository.ListAllSessionsAsync(ctx.RequestAborted);
             return Results.Ok(list);
         });
 
@@ -289,6 +181,16 @@ public static class DebugEndpoints
         if (!string.Equals(env, "Production", StringComparison.OrdinalIgnoreCase))
         {
             return null;
+        }
+
+        var enabled = string.Equals(
+            Environment.GetEnvironmentVariable("ENABLE_DEBUG_ENDPOINTS"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+
+        if (!enabled)
+        {
+            return Results.NotFound();
         }
 
         if (ctx.User?.Identity?.IsAuthenticated != true)

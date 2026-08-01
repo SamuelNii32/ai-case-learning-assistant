@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Data.Common;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using Microsoft.Data.Sqlite;
+using Api.Infrastructure;
 using OpenAI.Chat;
 
 public record GuidedReadingStepDef(
@@ -17,7 +18,8 @@ public record GuidedReadingStepDef(
 public record ReadingAssignmentContext(
     string? Objective,
     string? Focus,
-    string? DueAt
+    string? DueAt,
+    string? ReadingCoachQuestions
 );
 
 public record ReadingAnswerSnapshot(
@@ -151,10 +153,11 @@ public static class GuidedReadingTutor
         ChatClient chat,
         ReadingAssignmentContext? assignment = null)
     {
+        var question = ResolveDisplayedQuestion(step, assignment);
         var (previews, cites) = Retrieve(session.UploadId, step.Query);
         var citationText = cites.Count == 0 ? "[p:1]" : string.Join("", cites.Take(3).Select(p => $"[p:{p}]"));
 
-        var narrative = await GenerateStepNarrativeAsync(chat, step, previews, citationText, assignment);
+        var narrative = await GenerateStepNarrativeAsync(chat, step, previews, citationText, question, assignment);
         var steps = GetSteps(session.Category);
         var index = steps.ToList().FindIndex(x => string.Equals(x.Id, step.Id, StringComparison.OrdinalIgnoreCase));
 
@@ -166,7 +169,7 @@ public static class GuidedReadingTutor
             StepSummary: $"Reading coach: {step.Title}",
             Stage: "check",
             StepId: step.Id,
-            Question: step.Question,
+            Question: question,
             StepNumber: index + 1,
             TotalSteps: steps.Count
         );
@@ -181,6 +184,7 @@ public static class GuidedReadingTutor
     {
         await Task.CompletedTask;
 
+        var question = ResolveDisplayedQuestion(step, assignment);
         var (_, cites) = Retrieve(session.UploadId, step.Query);
         var steps = GetSteps(session.Category);
         var index = steps.ToList().FindIndex(x => string.Equals(x.Id, step.Id, StringComparison.OrdinalIgnoreCase));
@@ -193,7 +197,7 @@ public static class GuidedReadingTutor
             StepSummary: $"Reading coach retry: {step.Title}",
             Stage: "retry",
             StepId: step.Id,
-            Question: step.Question,
+            Question: question,
             StepNumber: index + 1,
             TotalSteps: steps.Count,
             Feedback: feedback
@@ -203,6 +207,7 @@ public static class GuidedReadingTutor
     public static async Task<TutorFeedback> GradeAnswerAsync(
         ChatClient chat,
         GuidedReadingStepDef step,
+        string question,
         string answer,
         List<string> previews)
     {
@@ -224,7 +229,7 @@ public static class GuidedReadingTutor
                 "Return only valid JSON: {\"score\":0.0,\"verdict\":\"...\",\"hint\":\"...\"}\n" +
                 "Score from 0 to 1. Verdict should be one sentence. Hint should be one concrete coaching question or revision direction."),
             new UserChatMessage(
-                $"STEP: {step.Title}\nQUESTION: {step.Question}\n\n" +
+                $"STEP: {step.Title}\nQUESTION: {question}\n\n" +
                 $"DOCUMENT EXCERPTS:\n{context}\n\n" +
                 $"STUDENT ANSWER:\n{answer}")
         };
@@ -255,14 +260,15 @@ public static class GuidedReadingTutor
     }
 
     public static async Task SaveAnswerAsync(
-        string connString,
+        DatabaseOptions databaseOptions,
         TutorSession session,
         string userId,
         GuidedReadingStepDef step,
+        string question,
         string answer,
         TutorFeedback feedback)
     {
-        using var conn = new SqliteConnection(connString);
+        await using var conn = databaseOptions.CreateConnection();
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
@@ -290,15 +296,15 @@ VALUES (
   $createdAt
 );
 ";
-        cmd.Parameters.AddWithValue("$sessionId", session.SessionId);
-        cmd.Parameters.AddWithValue("$userId", userId);
-        cmd.Parameters.AddWithValue("$uploadId", session.UploadId.ToString());
-        cmd.Parameters.AddWithValue("$stepId", step.Id);
-        cmd.Parameters.AddWithValue("$question", step.Question);
-        cmd.Parameters.AddWithValue("$answer", answer);
-        cmd.Parameters.AddWithValue("$feedback", JsonSerializer.Serialize(feedback));
-        cmd.Parameters.AddWithValue("$score", feedback.Score);
-        cmd.Parameters.AddWithValue("$createdAt", DateTime.UtcNow.ToString("O"));
+cmd.AddWithValue("$sessionId", session.SessionId);
+        cmd.AddWithValue("$userId", userId);
+        cmd.AddWithValue("$uploadId", session.UploadId.ToString());
+        cmd.AddWithValue("$stepId", step.Id);
+        cmd.AddWithValue("$question", question);
+        cmd.AddWithValue("$answer", answer);
+        cmd.AddWithValue("$feedback", JsonSerializer.Serialize(feedback));
+        cmd.AddWithValue("$score", feedback.Score);
+        cmd.AddWithValue("$createdAt", DateTime.UtcNow.ToString("O"));
 
         await cmd.ExecuteNonQueryAsync();
     }
@@ -398,6 +404,17 @@ VALUES (
         return string.Join("\n", lines) + "\n\n";
     }
 
+    public static string ResolveDisplayedQuestion(GuidedReadingStepDef step, ReadingAssignmentContext? assignment = null)
+    {
+        var custom = assignment?.ReadingCoachQuestions?.Trim();
+        if (!string.IsNullOrWhiteSpace(custom))
+        {
+            return custom;
+        }
+
+        return step.Question;
+    }
+
     private static string Truncate(string? text, int maxLength)
     {
         if (string.IsNullOrWhiteSpace(text)) return "";
@@ -433,6 +450,7 @@ VALUES (
         GuidedReadingStepDef step,
         List<string> previews,
         string citationText,
+        string displayQuestion,
         ReadingAssignmentContext? assignment = null)
     {
         var assignmentText = BuildAssignmentPromptText(assignment);
@@ -467,7 +485,7 @@ VALUES (
                 "- Include the supplied citation marker naturally."),
             new UserChatMessage(
                 $"READING STEP: {step.Title}\n" +
-                $"CHECK QUESTION: {step.Question}\n" +
+                $"CHECK QUESTION: {displayQuestion}\n" +
                 $"CITATION MARKER: {citationText}\n\n" +
                 $"{assignmentText}" +
                 $"DOCUMENT EXCERPTS:\n{context}")
@@ -504,7 +522,8 @@ VALUES (
         if (assignment is null ||
             (string.IsNullOrWhiteSpace(assignment.Objective) &&
              string.IsNullOrWhiteSpace(assignment.Focus) &&
-             string.IsNullOrWhiteSpace(assignment.DueAt)))
+             string.IsNullOrWhiteSpace(assignment.DueAt) &&
+             string.IsNullOrWhiteSpace(assignment.ReadingCoachQuestions)))
         {
             return "";
         }
@@ -523,6 +542,12 @@ VALUES (
         if (!string.IsNullOrWhiteSpace(assignment.DueAt))
         {
             parts.Add($"Due at: {assignment.DueAt}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(assignment.ReadingCoachQuestions))
+        {
+            parts.Add("Custom Reading Coach questions:");
+            parts.Add(assignment.ReadingCoachQuestions.Trim());
         }
 
         return "ASSIGNMENT INSTRUCTIONS:\n" + string.Join("\n", parts) + "\n\n";

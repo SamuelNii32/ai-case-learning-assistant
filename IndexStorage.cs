@@ -1,9 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Hosting;
 
 public record SerializableChunk(int Page, string Preview, float[] Vec);
 
@@ -14,7 +14,7 @@ public static class InMemoryStore
 
 public static class IndexPersistence
 {
-    public static bool TryLoad(Guid uploadId, IWebHostEnvironment env, out List<IndexedChunk> list)
+    public static bool TryLoad(Guid uploadId, IHostEnvironment env, out List<IndexedChunk> list)
     {
         var id = uploadId.ToString();
         var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");

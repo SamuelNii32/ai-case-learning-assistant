@@ -1,4 +1,4 @@
-ï»¿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -19,7 +19,7 @@ public static class TutorRetrieval
             return new TutorResponse(
                 SessionId: session.SessionId,
                 Narrative:
-                    "I canâ€™t find enough indexed document content to introduce the background section yet. [p:1]\n\n" +
+                    "I can’t find enough indexed document content to introduce the background section yet. [p:1]\n\n" +
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
@@ -97,7 +97,7 @@ public static class TutorRetrieval
             return new TutorResponse(
                 SessionId: session.SessionId,
                 Narrative:
-                    "I canâ€™t find enough indexed document content to guide this background step yet. [p:1]\n\n" +
+                    "I can’t find enough indexed document content to guide this background step yet. [p:1]\n\n" +
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
@@ -220,7 +220,7 @@ public static class TutorRetrieval
             return new TutorResponse(
                 SessionId: session.SessionId,
                 Narrative:
-                    "I canâ€™t find enough indexed document content to introduce the methodology section yet. [p:1]\n\n" +
+                    "I can’t find enough indexed document content to introduce the methodology section yet. [p:1]\n\n" +
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
@@ -296,7 +296,7 @@ public static class TutorRetrieval
             return new TutorResponse(
                 SessionId: session.SessionId,
                 Narrative:
-                    "I canâ€™t find enough indexed document content to guide this methodology step yet. [p:1]\n\n" +
+                    "I can’t find enough indexed document content to guide this methodology step yet. [p:1]\n\n" +
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
@@ -350,7 +350,7 @@ public static class TutorRetrieval
             "data_sources" => await BuildDataSourcesNarrative(chat, chosen, cites),
             "measures" => await BuildMeasuresNarrative(chat, chosen, cites),
             "analysis_methods" => await BuildAnalysisNarrative(chat, chosen, cites),
-            _ => $"I canâ€™t find that in the document. [p:{cites[0]}]"
+            _ => $"I can’t find that in the document. [p:{cites[0]}]"
         };
 
         var choiceSet = await TutorChoiceWriter.GenerateChoicesAsync(
@@ -419,7 +419,7 @@ public static class TutorRetrieval
         List<int> cites)
     {
         if (chosen.Count == 0)
-            return $"I canâ€™t find that in the document. [p:{cites[0]}]";
+            return $"I can’t find that in the document. [p:{cites[0]}]";
 
         return await TutorAiWriter.GenerateNarrativeAsync(
             chat,
@@ -436,7 +436,7 @@ public static class TutorRetrieval
         List<int> cites)
     {
         if (chosen.Count == 0)
-            return $"I canâ€™t find that in the document. [p:{cites[0]}]";
+            return $"I can’t find that in the document. [p:{cites[0]}]";
 
         return await TutorAiWriter.GenerateNarrativeAsync(
             chat,
@@ -453,7 +453,7 @@ public static class TutorRetrieval
         List<int> cites)
     {
         if (chosen.Count == 0)
-            return $"I canâ€™t find that in the document. [p:{cites[0]}]";
+            return $"I can’t find that in the document. [p:{cites[0]}]";
 
         return await TutorAiWriter.GenerateNarrativeAsync(
             chat,
@@ -474,7 +474,7 @@ public static class TutorRetrieval
             return new TutorResponse(
                 SessionId: session.SessionId,
                 Narrative:
-                    "I canâ€™t find enough indexed document content to introduce the findings section yet. [p:1]\n\n" +
+                    "I can’t find enough indexed document content to introduce the findings section yet. [p:1]\n\n" +
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
@@ -550,7 +550,7 @@ public static class TutorRetrieval
             return new TutorResponse(
                 SessionId: session.SessionId,
                 Narrative:
-                    "I canâ€™t find enough indexed document content to guide this findings step yet. [p:1]\n\n" +
+                    "I can’t find enough indexed document content to guide this findings step yet. [p:1]\n\n" +
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
@@ -594,7 +594,7 @@ public static class TutorRetrieval
             "supporting_evidence" => await BuildFindingsMeasurementNarrative(chat, chosen, cites),
             "why_it_matters" => await BuildFindingsRelationshipsNarrative(chat, chosen, cites),
             "limits_or_tradeoffs" => await BuildFindingsExceptionsNarrative(chat, chosen, cites),
-            _ => $"I canâ€™t find that in the document. [p:{cites[0]}]"
+            _ => $"I can’t find that in the document. [p:{cites[0]}]"
         };
 
         var choiceSet = await TutorChoiceWriter.GenerateChoicesAsync(
@@ -663,7 +663,7 @@ public static class TutorRetrieval
         List<int> cites)
     {
         if (chosen.Count == 0)
-            return $"I canâ€™t find that in the document. [p:{cites[0]}]";
+            return $"I can’t find that in the document. [p:{cites[0]}]";
 
         return await TutorAiWriter.GenerateNarrativeAsync(
             chat,
@@ -680,7 +680,7 @@ public static class TutorRetrieval
         List<int> cites)
     {
         if (chosen.Count == 0)
-            return $"I canâ€™t find that in the document. [p:{cites[0]}]";
+            return $"I can’t find that in the document. [p:{cites[0]}]";
 
         return await TutorAiWriter.GenerateNarrativeAsync(
             chat,
@@ -697,7 +697,7 @@ public static class TutorRetrieval
         List<int> cites)
     {
         if (chosen.Count == 0)
-            return $"I canâ€™t find that in the document. [p:{cites[0]}]";
+            return $"I can’t find that in the document. [p:{cites[0]}]";
 
         return await TutorAiWriter.GenerateNarrativeAsync(
             chat,
@@ -717,7 +717,7 @@ public static class TutorRetrieval
             return new TutorResponse(
                 SessionId: session.SessionId,
                 Narrative:
-                    "I canâ€™t find enough indexed document content to introduce the concepts section yet. [p:1]\n\n" +
+                    "I can’t find enough indexed document content to introduce the concepts section yet. [p:1]\n\n" +
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
@@ -794,7 +794,7 @@ public static class TutorRetrieval
             return new TutorResponse(
                 SessionId: session.SessionId,
                 Narrative:
-                    "I canâ€™t find enough indexed document content to guide this concepts step yet. [p:1]\n\n" +
+                    "I can’t find enough indexed document content to guide this concepts step yet. [p:1]\n\n" +
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
@@ -908,7 +908,7 @@ public static class TutorRetrieval
             return new TutorResponse(
                 SessionId: session.SessionId,
                 Narrative:
-                    "I canâ€™t find enough indexed document content to introduce the implications section yet. [p:1]\n\n" +
+                    "I can’t find enough indexed document content to introduce the implications section yet. [p:1]\n\n" +
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
@@ -984,7 +984,7 @@ public static class TutorRetrieval
             return new TutorResponse(
                 SessionId: session.SessionId,
                 Narrative:
-                    "I canâ€™t find enough indexed document content to guide this implications step yet. [p:1]\n\n" +
+                    "I can’t find enough indexed document content to guide this implications step yet. [p:1]\n\n" +
                     "Try indexing the document first or return to another focus. [p:1]",
                 Choices: new List<TutorChoice>
                 {
@@ -1117,7 +1117,7 @@ public static class TutorRetrieval
             return new TutorResponse(
                 SessionId: session.SessionId,
                 Narrative:
-                    "I canâ€™t find enough indexed document content to drill deeper into this topic yet. [p:1]\n\n" +
+                    "I can’t find enough indexed document content to drill deeper into this topic yet. [p:1]\n\n" +
                     "Try indexing the document first or return to another branch. [p:1]",
                 Choices: new List<TutorChoice>
                 {

@@ -1,4 +1,4 @@
-ï»¿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -32,12 +32,12 @@ public static class TutorAiWriter
 "The first paragraph should state the one idea this step teaches. " +
 "The second paragraph should explain why that idea matters for reading the paper. " +
 "Do not add a third paragraph unless the excerpt is too weak to explain the section in two paragraphs. " +
-"Do not list extra supporting details unless they are essential to the sectionâ€™s main point. " +
+"Do not list extra supporting details unless they are essential to the section’s main point. " +
               "Each paragraph must end with a page citation like [p:X]. " +
-              "If the content is weak, say: 'I canâ€™t find that in the document.' [p:X]"
+              "If the content is weak, say: 'I can’t find that in the document.' [p:X]"
             : "You are a guided academic tutor helping a reader understand a specific paper step-by-step. " +
   "Stay tightly grounded in the provided excerpts. " +
-  "Do NOT summarize broadly â€” teach one idea from these excerpts. " +
+  "Do NOT summarize broadly — teach one idea from these excerpts. " +
 
   "Make the explanation feel connected to the previous learning path. " +
   "Use a natural progression: start from the current focus, then reveal the deeper idea. " +
@@ -53,7 +53,7 @@ public static class TutorAiWriter
   "Each paragraph must clearly connect to the topic and build understanding. " +
   "Write 2 concise paragraphs, not long essays. " +
   "Each paragraph must end with a page citation like [p:X]. " +
-  "If the content is weak, say: 'I canâ€™t find that in the document.' [p:X]";
+  "If the content is weak, say: 'I can’t find that in the document.' [p:X]";
 
         var messages = new List<ChatMessage>
         {
@@ -77,7 +77,7 @@ public static class TutorAiWriter
         if (string.IsNullOrWhiteSpace(text))
         {
             var fallbackPage = cites.Count > 0 ? cites[0] : 1;
-            return $"I canâ€™t find that in the document. [p:{fallbackPage}]";
+            return $"I can’t find that in the document. [p:{fallbackPage}]";
         }
 
         return text;

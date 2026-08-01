@@ -1,4 +1,4 @@
-ï»¿//using Microsoft.AspNetCore.Builder;
+//using Microsoft.AspNetCore.Builder;
 //using Microsoft.AspNetCore.Http;
 //using Microsoft.Extensions.DependencyInjection;
 //using Microsoft.Extensions.Hosting;
@@ -65,7 +65,7 @@
 
 //app.MapGet("/ping", () => Results.Ok("pong"));
 
-//// POST /uploads  (save PDF + minimal summary) â€” uses ABSOLUTE uploads path
+//// POST /uploads  (save PDF + minimal summary) — uses ABSOLUTE uploads path
 //app.MapPost("/uploads", async (HttpRequest request, IWebHostEnvironment env) =>
 //{
 //    if (!request.HasFormContentType)
@@ -136,7 +136,7 @@
 //.Produces(StatusCodes.Status400BadRequest)
 //.Produces(StatusCodes.Status415UnsupportedMediaType);
 
-//// GET /uploads/{id}/summary â€” reads from ABSOLUTE path
+//// GET /uploads/{id}/summary — reads from ABSOLUTE path
 //app.MapGet("/uploads/{uploadId:guid}/summary", async (Guid uploadId, IWebHostEnvironment env) =>
 //{
 //    var path = Path.Combine(env.ContentRootPath, "uploads", $"{uploadId}.summary.json");
@@ -145,7 +145,7 @@
 //    return Results.Text(json, "application/json");
 //});
 
-//// GET /cases â€” scans ABSOLUTE uploads folder
+//// GET /cases — scans ABSOLUTE uploads folder
 //app.MapGet("/cases", (IWebHostEnvironment env) =>
 //{
 //    var uploadsRoot = Path.Combine(env.ContentRootPath, "uploads");
@@ -193,7 +193,7 @@
 //    return Results.Json(ordered);
 //});
 
-//// GET/HEAD /uploads/{id}.pdf â€” serves from ABSOLUTE path (use Results.File)
+//// GET/HEAD /uploads/{id}.pdf — serves from ABSOLUTE path (use Results.File)
 //app.MapMethods("/uploads/{uploadId:guid}.pdf", new[] { "GET", "HEAD" }, (Guid uploadId, IWebHostEnvironment env) =>
 //{
 //    try
@@ -218,15 +218,15 @@
 //    ctx.Response.Headers["Cache-Control"] = "no-cache, no-transform";
 //    ctx.Response.Headers["Connection"] = "keep-alive";
 
-//    // Kick the stream so proxies donâ€™t buffer forever
+//    // Kick the stream so proxies don’t buffer forever
 //    await ctx.Response.WriteAsync("\n");
 //    await ctx.Response.Body.FlushAsync();
 
 //    var prompt = ctx.Request.Query["prompt"].ToString();
 
 //    var text =
-//        $"Thanks! I looked at your prompt ({(string.IsNullOrWhiteSpace(prompt) ? "â€¦" : prompt)}) " +
-//        "and found key evidence on page 5. Hereâ€™s a quick summary to get you started.";
+//        $"Thanks! I looked at your prompt ({(string.IsNullOrWhiteSpace(prompt) ? "…" : prompt)}) " +
+//        "and found key evidence on page 5. Here’s a quick summary to get you started.";
 
 //    var tokens = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 //    var delay = TimeSpan.FromMilliseconds(50);
@@ -254,7 +254,7 @@
 //    }
 //    catch (OperationCanceledException)
 //    {
-//        // client disconnectedâ€”ignore
+//        // client disconnected—ignore
 //    }
 //});
 
@@ -275,7 +275,7 @@
 //});
 
 
-//// GET /api/llm/ping â€” round-trip to model
+//// GET /api/llm/ping — round-trip to model
 //app.MapGet("/api/llm/ping", async (OpenAI.Chat.ChatClient chat) =>
 //{
 //    // Some installs return ClientResult<ChatCompletion>; take .Value to get ChatCompletion
@@ -288,8 +288,8 @@
 //    return Results.Json(new { ok = text.Contains("hello from CasePilot Q&A"), reply = text });
 //});
 
-//// GET /api/embeddings/ping â€” sanity check: returns vector length
-//// GET /api/embeddings/ping â€” sanity check: returns vector length
+//// GET /api/embeddings/ping — sanity check: returns vector length
+//// GET /api/embeddings/ping — sanity check: returns vector length
 //app.MapGet("/api/embeddings/ping", () =>
 //{
 //    var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
@@ -325,7 +325,7 @@
 //        .Select(p => new
 //        {
 //            page = p.page,
-//            snippet = SafeHead(p.text, 300) + (p.text.Length > 300 ? "â€¦" : "")
+//            snippet = SafeHead(p.text, 300) + (p.text.Length > 300 ? "…" : "")
 //        });
 
 //    return Results.Json(preview);
@@ -334,7 +334,7 @@
 
 //// ---- simple in-memory vector index ----
 
-//// POST /index/{uploadId} â€” embed per-page text into an in-memory index (and persist to disk)
+//// POST /index/{uploadId} — embed per-page text into an in-memory index (and persist to disk)
 //app.MapPost("/index/{uploadId:guid}", async (Guid uploadId, IWebHostEnvironment env) =>
 //{
 //    var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
@@ -447,7 +447,7 @@
 //            var fbWide = QaRetrieval.KeywordFallback(list, q ?? "", k: 12);
 //            if (fbWide.Count > top.Count)
 //            {
-//                var ctxStrWide = string.Join("\n\n", fbWide.Select(t => $"â€” Page {t.Page} â€”\n{t.Preview}"));
+//                var ctxStrWide = string.Join("\n\n", fbWide.Select(t => $"— Page {t.Page} —\n{t.Preview}"));
 //                return AnswerWithContext(ctxStrWide, q, fbWide.Select(t => t.Page).Distinct().ToArray(), apiKey);
 //            }
 //        }
@@ -473,11 +473,11 @@
 //                });
 //            }
 
-//            var ctxStrFb = string.Join("\n\n", fb.Select(t => $"â€” Page {t.Page} â€”\n{t.Preview}"));
+//            var ctxStrFb = string.Join("\n\n", fb.Select(t => $"— Page {t.Page} —\n{t.Preview}"));
 //            return AnswerWithContext(ctxStrFb, q, fb.Select(t => t.Page).Distinct().ToArray(), apiKey);
 //        }
 
-//        var ctxStr = string.Join("\n\n", top.Select(t => $"â€” Page {t.Page} â€”\n{t.Preview}"));
+//        var ctxStr = string.Join("\n\n", top.Select(t => $"— Page {t.Page} —\n{t.Preview}"));
 //        return AnswerWithContext(ctxStr, q, top.Select(t => t.Page).Distinct().ToArray(), apiKey);
 //    }
 //    catch (Exception ex)
@@ -525,7 +525,7 @@
 //                answer = "I can't find that in the document.",
 //                pagesUsed = pages,
 //                citations = Array.Empty<int>(),
-//                debug = new { note = "Empty model reply; joined all parts", contextPreview = ctxStr.Length > 300 ? ctxStr[..300] + "â€¦" : ctxStr }
+//                debug = new { note = "Empty model reply; joined all parts", contextPreview = ctxStr.Length > 300 ? ctxStr[..300] + "…" : ctxStr }
 //            });
 //        }
 
@@ -620,7 +620,7 @@
 
 //        // Build short context (bounds-safe preview)
 //        var context = string.Join("\n\n", ctxChunks.Select(t =>
-//    $"â€” Page {t.Page} â€”\n{t.Preview}"));
+//    $"— Page {t.Page} —\n{t.Preview}"));
 
 
 //        var chat = new OpenAI.Chat.ChatClient(model: "gpt-4o-mini", apiKey);

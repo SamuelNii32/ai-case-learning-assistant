@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React from 'react'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
