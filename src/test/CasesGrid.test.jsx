@@ -20,6 +20,7 @@ const mockCreateSession = vi.fn()
 vi.mock('@/lib/api', () => ({
   listSessionsMine: (...args) => mockListSessions(...args),
   createSession: (...args) => mockCreateSession(...args),
+  getPagedItems: data => (Array.isArray(data) ? data : data?.items ?? []),
   renameCase: vi.fn(),
   deleteCase: vi.fn(),
 }))

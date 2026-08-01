@@ -59,7 +59,7 @@ describe('API contract helpers', () => {
     const summary = await getClassReadingCoachSummary('class-123')
 
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/admin/classes/class-123/tutor-progress/summary'),
+      expect.stringContaining('/admin/classes/class-123/tutor-summary'),
       expect.objectContaining({ method: 'GET' })
     )
     expect(summary).toEqual({
