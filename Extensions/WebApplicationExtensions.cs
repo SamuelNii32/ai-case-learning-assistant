@@ -42,6 +42,8 @@ public static class WebApplicationExtensions
             return next();
         });
 
+        app.UseMiddleware<RequestTelemetryMiddleware>();
+
         app.UseExceptionHandler(handlerApp =>
         {
             handlerApp.Run(async context =>
@@ -76,7 +78,15 @@ public static class WebApplicationExtensions
         });
 
         app.UseCors("FrontendDev");
-        app.MapHealthChecks("/healthz").AllowAnonymous();
+        app.MapHealthChecks("/healthz", HealthResponseWriter.LivenessOptions)
+            .AllowAnonymous()
+            .DisableRateLimiting();
+        app.MapHealthChecks("/health/live", HealthResponseWriter.LivenessOptions)
+            .AllowAnonymous()
+            .DisableRateLimiting();
+        app.MapHealthChecks("/health/ready", HealthResponseWriter.ReadinessOptions)
+            .AllowAnonymous()
+            .DisableRateLimiting();
         if (app.Environment.IsProduction())
         {
             app.UseHttpsRedirection();

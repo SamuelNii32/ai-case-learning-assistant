@@ -93,6 +93,7 @@ public sealed class RedisRateLimiter(IConnectionMultiplexer connection, ILogger<
         }
         catch (Exception ex) when (ex is RedisException or TimeoutException)
         {
+            CasePilotTelemetry.RecordRedisRateLimitFallback(policy);
             LogFailureAtMostOncePerMinute(ex);
             // The existing in-process limiter remains active as a safe fallback.
             return RedisRateLimitResult.Fallback;
@@ -145,7 +146,7 @@ public static class RedisRateLimiterApplicationExtensions
                 partitionKey, "global", 180, TimeSpan.FromMinutes(1), context.RequestAborted);
             if (!global.IsAllowed)
             {
-                await RejectAsync(context, global);
+                await RejectAsync(context, global, "global");
                 return;
             }
 
@@ -169,7 +170,7 @@ public static class RedisRateLimiterApplicationExtensions
                     context.RequestAborted);
                 if (!endpoint.IsAllowed)
                 {
-                    await RejectAsync(context, endpoint);
+                    await RejectAsync(context, endpoint, policyName!);
                     return;
                 }
             }
@@ -178,8 +179,12 @@ public static class RedisRateLimiterApplicationExtensions
         });
     }
 
-    private static async Task RejectAsync(HttpContext context, RedisRateLimitResult result)
+    private static async Task RejectAsync(
+        HttpContext context,
+        RedisRateLimitResult result,
+        string policy)
     {
+        CasePilotTelemetry.RecordRateLimitRejection(policy);
         context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
         context.Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling(result.RetryAfter.TotalSeconds)).ToString();
         await context.Response.WriteAsJsonAsync(new { error = "Too many requests. Please retry later." });

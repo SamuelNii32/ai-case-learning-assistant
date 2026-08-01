@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using Api.Infrastructure;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -52,7 +54,13 @@ public static class TutorChoiceWriter
             )
         };
 
+        var completionStarted = Stopwatch.GetTimestamp();
         var result = await Task.Run(() => chat.CompleteChat(messages));
+        CasePilotTelemetry.RecordChatCompletion(
+            result.Value,
+            "tutor_choices",
+            CasePilotTelemetry.ConfiguredAnswerModel,
+            Stopwatch.GetElapsedTime(completionStarted));
         var text = string.Concat(result.Value.Content.Select(p => p.Text ?? "")).Trim();
 
         try

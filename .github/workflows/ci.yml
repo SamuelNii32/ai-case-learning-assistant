@@ -114,6 +114,33 @@ jobs:
           AZURE_STORAGE_CONTAINER: ci-documents
           OPENAI_API_KEY: verification-key-not-used
 
+      - name: Verify liveness and dependency readiness endpoints
+        shell: bash
+        run: |
+          dotnet artifacts/ci-backend/IngestionApi.dll > /tmp/casepilot-api.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true; cat /tmp/casepilot-api.log' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:5055/health/live >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --show-error http://127.0.0.1:5055/health/live
+          curl --fail --show-error http://127.0.0.1:5055/health/ready
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ASPNETCORE_URLS: http://127.0.0.1:5055
+          DATABASE_PROVIDER: postgres
+          POSTGRES_CONNECTION_STRING: Host=localhost;Port=5432;Database=ingestion_verify;Username=postgres;Password=postgres
+          DOCUMENT_STORAGE_PROVIDER: azureblob
+          AZURE_STORAGE_CONNECTION_STRING: UseDevelopmentStorage=true
+          AZURE_STORAGE_CONTAINER: ci-documents
+          REDIS_CONNECTION_STRING: localhost:6379,abortConnect=true
+          OPENAI_API_KEY: verification-key-not-used
+          JWT_SECRET: verification-only-secret-at-least-32-characters
+          RUN_BACKGROUND_WORKER: 'false'
+
       - name: Stop Azurite Blob emulator
         if: always()
         run: docker stop casepilot-ci-azurite

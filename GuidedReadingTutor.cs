@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Linq;
 using System.Data.Common;
@@ -236,7 +237,13 @@ public static class GuidedReadingTutor
 
         try
         {
+            var completionStarted = Stopwatch.GetTimestamp();
             var result = await Task.Run(() => chat.CompleteChat(messages));
+            CasePilotTelemetry.RecordChatCompletion(
+                result.Value,
+                "reading_coach",
+                CasePilotTelemetry.ConfiguredAnswerModel,
+                Stopwatch.GetElapsedTime(completionStarted));
             var text = string.Concat(result.Value.Content.Select(p => p.Text ?? "")).Trim();
             var parsed = JsonSerializer.Deserialize<TutorFeedback>(text, new JsonSerializerOptions
             {
@@ -344,7 +351,13 @@ cmd.AddWithValue("$sessionId", session.SessionId);
         var narrative = "You completed the guided reading path. " + citationText;
         try
         {
+            var completionStarted = Stopwatch.GetTimestamp();
             var result = await Task.Run(() => chat.CompleteChat(messages));
+            CasePilotTelemetry.RecordChatCompletion(
+                result.Value,
+                "reading_coach",
+                CasePilotTelemetry.ConfiguredAnswerModel,
+                Stopwatch.GetElapsedTime(completionStarted));
             var text = string.Concat(result.Value.Content.Select(p => p.Text ?? "")).Trim();
             if (!string.IsNullOrWhiteSpace(text))
             {
@@ -493,7 +506,13 @@ cmd.AddWithValue("$sessionId", session.SessionId);
 
         try
         {
+            var completionStarted = Stopwatch.GetTimestamp();
             var result = await Task.Run(() => chat.CompleteChat(messages));
+            CasePilotTelemetry.RecordChatCompletion(
+                result.Value,
+                "reading_coach",
+                CasePilotTelemetry.ConfiguredAnswerModel,
+                Stopwatch.GetElapsedTime(completionStarted));
             var text = string.Concat(result.Value.Content.Select(p => p.Text ?? "")).Trim();
             if (!string.IsNullOrWhiteSpace(text))
             {

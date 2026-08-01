@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using OpenAI.Chat;
@@ -53,7 +54,13 @@ public static class QuestionClassifier
     };
 
         var options = new ChatCompletionOptions { Temperature = 0f };
+        var completionStarted = Stopwatch.GetTimestamp();
         var result = client.CompleteChat(messages, options).Value;
+        Api.Infrastructure.CasePilotTelemetry.RecordChatCompletion(
+            result,
+            "classify_question",
+            classifierModel,
+            Stopwatch.GetElapsedTime(completionStarted));
 
         var raw = string.Concat(result.Content.Select(part => part.Text ?? string.Empty));
         var label = raw.Trim().ToUpperInvariant();

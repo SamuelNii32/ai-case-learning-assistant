@@ -47,6 +47,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>();
         services.AddSingleton<IndexJobStore>();
         services.AddSingleton<IndexingService>();
+        services.AddCasePilotObservability(configuration, CasePilotTelemetry.ServiceName);
 
         if (ShouldRunBackgroundWorker(configuration))
         {
@@ -78,7 +79,9 @@ public static class ServiceCollectionExtensions
             options.AddPolicy("StudentOnly", p => p.RequireClaim("role", "student"));
         });
 
-        services.AddHealthChecks();
+        var healthChecks = services.AddHealthChecks()
+            .AddCheck<DatabaseHealthCheck>("database", tags: new[] { "ready" })
+            .AddCheck<IndexQueueHealthCheck>("index_queue", tags: new[] { "ready" });
 
         var redisConnectionString = Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING")
             ?? configuration["Redis:ConnectionString"];
@@ -93,6 +96,7 @@ public static class ServiceCollectionExtensions
                 return ConnectionMultiplexer.Connect(options);
             });
             services.AddSingleton<RedisRateLimiter>();
+            healthChecks.AddCheck<RedisHealthCheck>("redis", tags: new[] { "ready" });
         }
 
         // Swagger (optional)
@@ -187,6 +191,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(DatabaseOptions.Load(configuration));
         services.AddSingleton<IndexJobStore>();
         services.AddSingleton<IndexingService>();
+        services.AddCasePilotObservability(configuration, "casepilot-index-worker");
         services.AddHostedService<IndexJobWorkerHostedService>();
         return services;
     }

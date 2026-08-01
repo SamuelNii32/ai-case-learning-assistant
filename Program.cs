@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -1506,7 +1507,13 @@ Context:
 
         };
 
+        var answerCompletionStarted = Stopwatch.GetTimestamp();
         var result = chat.CompleteChat(chatMessages, options).Value;
+        CasePilotTelemetry.RecordChatCompletion(
+            result,
+            "document_answer",
+            answerModel,
+            Stopwatch.GetElapsedTime(answerCompletionStarted));
 
         var answer = string.Concat(result.Content.Select(part => part.Text ?? string.Empty)).Trim();
 
@@ -1787,12 +1794,15 @@ Context:
 {ctxStr}
 """;
 
+            var fastCompletionStarted = Stopwatch.GetTimestamp();
             var updatesFast = chatFast.CompleteChatStreaming(promptFast);
             var sbFast = new System.Text.StringBuilder();
+            OpenAI.Chat.ChatTokenUsage? usageFast = null;
 
             foreach (var update in updatesFast)
             {
                 if (ctx.RequestAborted.IsCancellationRequested) break;
+                if (update.Usage is not null) usageFast = update.Usage;
                 if (update.ContentUpdate.Count > 0)
                 {
                     var piece = update.ContentUpdate[0].Text ?? "";
@@ -1801,6 +1811,12 @@ Context:
                     await ctx.Response.Body.FlushAsync();
                 }
             }
+
+            CasePilotTelemetry.RecordChatUsage(
+                usageFast,
+                "document_answer_stream",
+                answerModel,
+                Stopwatch.GetElapsedTime(fastCompletionStarted));
 
             var answerFast = sbFast.ToString();
 
@@ -1998,12 +2014,15 @@ Context:
 """;
 
 
+        var streamCompletionStarted = Stopwatch.GetTimestamp();
         var updates2 = chat2.CompleteChatStreaming(prompt2);
         var sb2 = new System.Text.StringBuilder();
+        OpenAI.Chat.ChatTokenUsage? usage2 = null;
 
         foreach (var update in updates2)
         {
             if (ctx.RequestAborted.IsCancellationRequested) break;
+            if (update.Usage is not null) usage2 = update.Usage;
             if (update.ContentUpdate.Count > 0)
             {
                 var piece = update.ContentUpdate[0].Text ?? "";
@@ -2012,6 +2031,11 @@ Context:
                 await ctx.Response.Body.FlushAsync();
             }
         }
+        CasePilotTelemetry.RecordChatUsage(
+            usage2,
+            "document_answer_stream",
+            answerModel,
+            Stopwatch.GetElapsedTime(streamCompletionStarted));
         var answer2 = sb2.ToString();
         var pages2 = Regex.Matches(answer2, @"\[\s*p\s*:\s*(\d+)\s*\]", RegexOptions.IgnoreCase)
                           .Select(m => int.Parse(m.Groups[1].Value))

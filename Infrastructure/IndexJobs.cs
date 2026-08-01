@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Diagnostics;
 using System.Text.Json;
 using iText.Kernel.Pdf;
 using Microsoft.Extensions.Hosting;
@@ -355,7 +356,8 @@ public sealed class IndexingService
         var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
             ?? throw new InvalidOperationException("OPENAI_API_KEY not set.");
 
-        var emb = new OpenAI.Embeddings.EmbeddingClient("text-embedding-3-small", apiKey);
+        const string embeddingModel = "text-embedding-3-small";
+        var emb = new OpenAI.Embeddings.EmbeddingClient(embeddingModel, apiKey);
         var chunks = new List<IndexedChunk>();
         var pendingChunks = new List<(int Page, string Text)>();
         var pagesIndexed = 0;
@@ -386,11 +388,29 @@ public sealed class IndexingService
                 await _jobStore.MarkHeartbeatAsync(uploadId, workerId, cancellationToken);
 
             var batch = pendingChunks.Skip(i).Take(embeddingBatchSize).ToList();
-            var embeddings = await emb.GenerateEmbeddingsAsync(
-                batch.Select(x => x.Text),
-                cancellationToken: cancellationToken);
+            var embeddingStarted = Stopwatch.GetTimestamp();
+            OpenAI.Embeddings.OpenAIEmbeddingCollection embeddings;
+            try
+            {
+                embeddings = (await emb.GenerateEmbeddingsAsync(
+                    batch.Select(x => x.Text),
+                    cancellationToken: cancellationToken)).Value;
+                CasePilotTelemetry.RecordEmbeddingBatch(
+                    embeddingModel,
+                    embeddings.Usage.InputTokenCount,
+                    Stopwatch.GetElapsedTime(embeddingStarted));
+            }
+            catch
+            {
+                CasePilotTelemetry.RecordAiFailure(
+                    "embedding",
+                    "index",
+                    embeddingModel,
+                    Stopwatch.GetElapsedTime(embeddingStarted));
+                throw;
+            }
 
-            var vectors = embeddings.Value.ToList();
+            var vectors = embeddings.ToList();
             for (var j = 0; j < batch.Count; j++)
             {
                 var vec = vectors[j].ToFloats();
@@ -477,11 +497,20 @@ public sealed class IndexJobWorkerHostedService : BackgroundService
                 continue;
             }
 
+            var jobStarted = Stopwatch.GetTimestamp();
             try
             {
+                using var activity = CasePilotTelemetry.ActivitySource.StartActivity(
+                    "index.job.process",
+                    ActivityKind.Consumer);
+                activity?.SetTag("job.attempt", job.Attempts + 1);
                 _logger.LogInformation("Indexing upload {UploadId} (attempt {Attempt}).", job.UploadId, job.Attempts + 1);
                 var result = await _indexingService.BuildAsync(job.UploadId, stoppingToken, _workerId);
                 await _jobStore.MarkCompletedAsync(job.UploadId, result, _workerId, stoppingToken);
+                CasePilotTelemetry.RecordIndexJob(
+                    "completed",
+                    Stopwatch.GetElapsedTime(jobStarted),
+                    result.Cached);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -489,6 +518,10 @@ public sealed class IndexJobWorkerHostedService : BackgroundService
             }
             catch (Exception ex)
             {
+                CasePilotTelemetry.RecordIndexJob(
+                    "failed",
+                    Stopwatch.GetElapsedTime(jobStarted),
+                    cached: false);
                 _logger.LogError(ex, "Index job failed for upload {UploadId}.", job.UploadId);
                 try
                 {

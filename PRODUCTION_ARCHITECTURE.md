@@ -15,7 +15,7 @@ This app is moving from a single-instance SQLite/local-disk pilot toward a produ
 - `IClassRepository` owns class flows: create/list/join/enrolled/delete/join-code, roster management, case assignment, class details/history, and instructor session logs.
 - `ITutorRepository` owns tutor help events, reading assignment lookup, reading performance snapshots, and class progress reporting.
 - `IndexJobs`, `IndexingService`, and `IndexJobWorkerHostedService` provide a durable job boundary for document indexing and classification.
-- `/healthz` is available for load balancer and container health probes.
+- `/health/live` is a process liveness probe. `/health/ready` verifies PostgreSQL, the index queue, and Redis when configured. `/healthz` remains a liveness-compatible alias.
 
 ## Target Architecture
 
@@ -48,7 +48,11 @@ This app is moving from a single-instance SQLite/local-disk pilot toward a produ
    - Done: Azure Blob behavior is integration-tested in CI with Azurite, including cache eviction and re-download.
 4. Done: upload post-processing now enqueues durable index jobs.
 5. Done: the app can run as a worker with `--worker`, and `RUN_BACKGROUND_WORKER=false` allows web-only instances.
-6. Add load tests for auth, upload, indexing, chat, tutor, and instructor dashboards.
+6. Performance and observability hardening.
+   - Done: OpenTelemetry traces and metrics cover HTTP, outbound calls, runtime behavior, AI latency/token use, index jobs, and distributed rate limiting.
+   - Done: separate liveness and dependency-aware readiness probes cover PostgreSQL, Redis, and durable index queue health.
+   - Done: repeatable k6 profiles cover public health, authenticated reads, and a deliberately opt-in paid AI path.
+   - Next: establish staging baselines for upload/indexing, tutor, and instructor dashboards using seeded test data.
 
 ## Process-local caches
 
@@ -74,3 +78,13 @@ This app is moving from a single-instance SQLite/local-disk pilot toward a produ
 - `MAX_UPLOAD_BYTES` limits uploaded file size.
 - `MAX_UPLOAD_PAGES` limits uploaded PDF page count.
 - `ENABLE_DEBUG_ENDPOINTS=true` exposes protected debug endpoints in production.
+
+## Observability and performance
+
+- Set `OTEL_EXPORTER_OTLP_ENDPOINT` to send traces and metrics to any OTLP-compatible observability provider. Standard `OTEL_EXPORTER_OTLP_PROTOCOL` and `OTEL_EXPORTER_OTLP_HEADERS` settings are honored by the exporter.
+- Leave the endpoint unset to keep instrumentation active without attempting network export. This is safe for local development and CI.
+- `SLOW_REQUEST_THRESHOLD_MS` defaults to `1500`; slower requests and server errors produce structured warning logs containing route templates and request IDs, never query contents.
+- `INDEX_QUEUE_DEGRADED_DEPTH` defaults to `20`; readiness becomes degraded at that queue depth.
+- `INDEX_JOB_STALE_MINUTES` defaults to `35`; readiness becomes degraded when a running job has not renewed its lease within that window.
+- Dashboard the HTTP p50/p95/p99 latency and error rate, AI latency and tokens by operation/model, index completion/failure duration, Redis fallback/rejection counts, runtime GC/memory, and readiness state.
+- Run the release profiles documented in `performance/README.md` against staging before raising production capacity or changing model configuration.
