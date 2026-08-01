@@ -18,6 +18,8 @@ obj/
 artifacts/
 publish/
 deploy.zip
+performance/secrets/
+performance/results/
 
 # Editor / OS files
 .vscode/*

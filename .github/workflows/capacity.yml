@@ -1,0 +1,132 @@
+name: Staging Capacity Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: HTTPS URL of the approved staging API
+        required: true
+        type: string
+      profile:
+        description: Workload profile
+        required: true
+        default: capacity
+        type: choice
+        options:
+          - capacity
+          - spike
+      target_vus:
+        description: Maximum concurrent virtual users
+        required: true
+        default: '100'
+        type: choice
+        options:
+          - '50'
+          - '100'
+          - '250'
+          - '500'
+          - '1000'
+      stage_duration:
+        description: Duration of each capacity ramp stage
+        required: true
+        default: 1m
+        type: choice
+        options:
+          - 30s
+          - 1m
+          - 2m
+      confirmation:
+        description: Type LOAD TEST STAGING
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: casepilot-staging-capacity
+  cancel-in-progress: false
+
+jobs:
+  capacity:
+    name: ${{ inputs.profile }} at ${{ inputs.target_vus }} VUs
+    runs-on: ubuntu-latest
+    environment: capacity-staging
+    timeout-minutes: 45
+    steps:
+      - name: Validate explicit approval and target
+        shell: bash
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          BASE_URL: ${{ inputs.base_url }}
+        run: |
+          test "$CONFIRMATION" = "LOAD TEST STAGING"
+          case "$BASE_URL" in
+            https://*) ;;
+            *) echo "The staging capacity workflow requires an HTTPS target." >&2; exit 1 ;;
+          esac
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build token generator
+        run: dotnet build IngestionApi.csproj /p:UseAppHost=false -o artifacts/capacity-build
+
+      - name: Generate unique short-lived identities
+        shell: bash
+        env:
+          ALLOW_LOAD_TEST_TOKEN_GENERATION: 'true'
+          LOAD_TEST_TOKEN_COUNT: ${{ inputs.target_vus }}
+          LOAD_TEST_TOKEN_LIFETIME_MINUTES: '120'
+          LOAD_TEST_TOKEN_OUTPUT: performance/secrets/capacity-tokens.json
+          JWT_SECRET: ${{ secrets.CAPACITY_TEST_JWT_SECRET }}
+          JWT_ISSUER: ${{ vars.CAPACITY_TEST_JWT_ISSUER || 'IngestionApi' }}
+          JWT_AUDIENCE: ${{ vars.CAPACITY_TEST_JWT_AUDIENCE || 'IngestionClient' }}
+        run: |
+          test -n "$JWT_SECRET"
+          mkdir -p performance/secrets performance/results
+          dotnet artifacts/capacity-build/IngestionApi.dll --generate-load-test-tokens
+
+      - name: Verify staging readiness
+        run: curl --fail --show-error --silent "${{ inputs.base_url }}/health/ready"
+
+      - name: Run capacity profile
+        shell: bash
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          PROFILE: ${{ inputs.profile }}
+          MAX_VUS: ${{ inputs.target_vus }}
+          STAGE_DURATION: ${{ inputs.stage_duration }}
+          RUN_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            -e ALLOW_CAPACITY_TEST=true \
+            -e TARGET_ENVIRONMENT=staging \
+            -e BASE_URL="$BASE_URL" \
+            -e MAX_VUS="$MAX_VUS" \
+            -e STAGE_DURATION="$STAGE_DURATION" \
+            -e LOAD_TEST_RUN_ID="$RUN_ID" \
+            -e LOAD_TEST_TOKENS_FILE=/work/performance/secrets/capacity-tokens.json \
+            grafana/k6@sha256:e7eeddf1ce2361df6920d925297f487c0ba549c44be242c6a9c22f28d9b08efa \
+            run --summary-export="/work/performance/results/${PROFILE}-${MAX_VUS}.json" \
+            "/work/performance/k6/${PROFILE}.js"
+
+      - name: Remove generated credentials
+        if: always()
+        run: rm -f performance/secrets/capacity-tokens.json
+
+      - name: Upload capacity summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capacity-${{ inputs.profile }}-${{ inputs.target_vus }}-${{ github.run_id }}
+          path: performance/results/*.json
+          if-no-files-found: warn
+          retention-days: 30

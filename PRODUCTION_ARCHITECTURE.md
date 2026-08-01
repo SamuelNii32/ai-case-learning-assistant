@@ -52,7 +52,8 @@ This app is moving from a single-instance SQLite/local-disk pilot toward a produ
    - Done: OpenTelemetry traces and metrics cover HTTP, outbound calls, runtime behavior, AI latency/token use, index jobs, and distributed rate limiting.
    - Done: separate liveness and dependency-aware readiness probes cover PostgreSQL, Redis, and durable index queue health.
    - Done: repeatable k6 profiles cover public health, authenticated reads, and a deliberately opt-in paid AI path.
-   - Next: establish staging baselines for upload/indexing, tutor, and instructor dashboards using seeded test data.
+   - Done: guarded capacity and spike profiles model up to 1,000 unique authenticated users, with an approval-ready manual staging workflow.
+   - Next: execute the staged 50/100/250/500/1,000 certification ladder against production-sized staging infrastructure, then establish paid AI and seeded-data baselines.
 
 ## Process-local caches
 
@@ -88,3 +89,4 @@ This app is moving from a single-instance SQLite/local-disk pilot toward a produ
 - `INDEX_JOB_STALE_MINUTES` defaults to `35`; readiness becomes degraded when a running job has not renewed its lease within that window.
 - Dashboard the HTTP p50/p95/p99 latency and error rate, AI latency and tokens by operation/model, index completion/failure duration, Redis fallback/rejection counts, runtime GC/memory, and readiness state.
 - Run the release profiles documented in `performance/README.md` against staging before raising production capacity or changing model configuration.
+- Capacity token generation requires `ALLOW_LOAD_TEST_TOKEN_GENERATION=true`, writes only to a new file, caps the identity count at 5,000, and should use a staging-only JWT secret. Generated files under `performance/secrets/` are ignored by Git.

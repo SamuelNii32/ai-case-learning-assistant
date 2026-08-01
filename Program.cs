@@ -52,6 +52,12 @@ if (args.Any(arg => string.Equals(arg, "--verify-runtime-state", StringCompariso
     return;
 }
 
+if (args.Any(arg => string.Equals(arg, "--generate-load-test-tokens", StringComparison.OrdinalIgnoreCase)))
+{
+    await LoadTestTokenGenerator.GenerateAsync(builder.Configuration);
+    return;
+}
+
 if (args.Any(arg => string.Equals(arg, "--migrate-documents-to-blob", StringComparison.OrdinalIgnoreCase)))
 {
     var result = await DocumentStorageMigrator.MigrateLocalToAzureAsync(
