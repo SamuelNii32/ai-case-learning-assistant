@@ -1658,7 +1658,7 @@ export default function Workspace() {
                   ref={chatRef}
                   className={`flex-1 overflow-auto p-4 space-y-4 pb-20 ${showFigures ? 'pr-64' : ''}`}
                 >
-                  <Card className="border-[#e4d6c7] bg-[#fffaf4] p-4 shadow-sm">
+                    <Card className="border-[#e4d6c7] bg-[#fffaf4] p-4 shadow-sm" aria-busy={readingLoading}>
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="flex items-center gap-2 text-sm font-semibold text-[#2c2218]">
@@ -1688,7 +1688,7 @@ export default function Workspace() {
                     </div>
 
                     {readingError && (
-                      <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                      <p role="alert" aria-live="assertive" className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                         {readingError}
                       </p>
                     )}
@@ -1777,6 +1777,7 @@ export default function Workspace() {
                               {readingStep.question}
                             </p>
                             <Textarea
+                              aria-label="Reading Coach answer"
                               value={readingAnswer}
                               onChange={e => setReadingAnswer(e.target.value)}
                               placeholder="Answer in your own words..."

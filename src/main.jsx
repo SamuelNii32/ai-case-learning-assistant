@@ -27,6 +27,9 @@ createRoot(document.getElementById('root')).render(
   </StrictMode>
 )
 
+// This component intentionally lives beside the bootstrap because it registers
+// navigation for non-React modules; it is not a Fast Refresh boundary.
+// eslint-disable-next-line react-refresh/only-export-components
 function NavigatorSetter() {
   // This component registers the router navigate function for use by api/Auth modules.
   const navigate = useNavigate()

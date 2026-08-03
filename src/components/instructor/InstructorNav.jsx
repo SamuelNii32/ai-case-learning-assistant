@@ -11,10 +11,12 @@ export default function InstructorNav() {
     <nav className="border-b border-[#e4d6c7] bg-white/90 backdrop-blur-sm">
       <div className="container mx-auto px-4">
         <div className="flex items-center gap-1 overflow-x-auto whitespace-nowrap">
-          {navItems.map(({ to, label, icon: Icon }) => (
+          {navItems.map((item) => {
+            const IconComponent = item.icon
+            return (
             <NavLink
-              key={to}
-              to={to}
+              key={item.to}
+              to={item.to}
               className={({ isActive }) =>
                 `flex items-center gap-2 px-4 py-3 text-sm font-semibold transition-colors border-b-2 ${
                   isActive
@@ -23,10 +25,11 @@ export default function InstructorNav() {
                 }`
               }
             >
-              <Icon className="w-4 h-4 shrink-0" />
-              {label}
+              <IconComponent className="w-4 h-4 shrink-0" />
+              {item.label}
             </NavLink>
-          ))}
+            )
+          })}
         </div>
       </div>
     </nav>

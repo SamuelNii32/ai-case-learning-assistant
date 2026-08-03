@@ -16,7 +16,7 @@ export default function ReadingCoachPanel({
 }) {
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center p-4">
+      <div className="flex-1 flex items-center justify-center p-4" role="status" aria-live="polite">
         <div className="text-center">
           <div className="animate-spin h-8 w-8 border-4 border-[#C96A0A] border-t-transparent rounded-full mx-auto mb-4" />
           <p className="text-sm text-[#5C4C3C]">Loading Reading Coach...</p>
@@ -27,10 +27,15 @@ export default function ReadingCoachPanel({
 
   if (error) {
     return (
-      <div className="flex-1 flex items-center justify-center p-4">
+      <div className="flex-1 flex items-center justify-center p-4" role="alert" aria-live="assertive">
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
           <p className="text-sm text-[#5C4C3C]">{error}</p>
+          {onRetry && (
+            <Button onClick={onRetry} variant="outline" className="mx-auto mt-4">
+              Retry
+            </Button>
+          )}
         </div>
       </div>
     )
@@ -38,7 +43,7 @@ export default function ReadingCoachPanel({
 
   if (!state) {
     return (
-      <div className="flex-1 flex items-center justify-center p-4">
+      <div className="flex-1 flex items-center justify-center p-4" role="status" aria-live="polite">
         <div className="text-center space-y-3">
           <p className="text-sm text-[#5C4C3C]">Starting Reading Coach…</p>
           {onRetry && (
@@ -75,7 +80,7 @@ export default function ReadingCoachPanel({
       <div className="border-b border-[#e4d6c7] p-4">
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-semibold text-[#2C2218]">Reading Coach</h3>
-          <span className="text-xs text-[#5C4C3C]">
+          <span className="text-xs text-[#5C4C3C]" aria-label={`Reading Coach progress: step ${stepNumber} of ${totalSteps}`}>
             Step {stepNumber} of {totalSteps}
           </span>
         </div>
@@ -124,6 +129,7 @@ export default function ReadingCoachPanel({
             <div className="text-sm font-medium text-[#2C2218]">{question}</div>
             <div className="space-y-2">
               <Textarea
+                aria-label="Reading Coach answer"
                 placeholder="Enter your answer here..."
                 value={answerDraft}
                 onChange={e => onAnswerChange(e.target.value)}

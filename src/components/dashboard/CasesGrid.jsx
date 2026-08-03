@@ -225,6 +225,7 @@ export default function CasesGrid({ items = [], loading = false }) {
               <div
                 role="button"
                 tabIndex={0}
+                aria-label={`Open workspace for ${c.title || 'case'}`}
                 onClick={() => handleOpenCase(c)}
                 className="group cursor-pointer"
               >
