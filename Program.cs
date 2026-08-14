@@ -135,8 +135,10 @@ var connString = databaseOptions.ConnectionString;
         // PostgreSQL sequences do not advance when IDs are inserted manually.
         // Repair them at startup so the next chat/message cannot collide with
         // an imported primary key (23505).
-        using var sequenceCmd = conn.CreateCommand();
-        sequenceCmd.CommandText = @"
+        try
+        {
+            using var sequenceCmd = conn.CreateCommand();
+            sequenceCmd.CommandText = @"
 DO $$
 DECLARE t text;
 BEGIN
@@ -146,7 +148,15 @@ BEGIN
       lower(t), t);
   END LOOP;
 END $$;";
-        sequenceCmd.ExecuteNonQuery();
+            sequenceCmd.ExecuteNonQuery();
+        }
+        catch (Exception sequenceError)
+        {
+            // Sequence repair must never prevent the API from starting. The
+            // migration can be repaired separately if a legacy table has no
+            // identity sequence.
+            Console.WriteLine($"[DB WARNING] Could not repair identity sequences: {sequenceError.Message}");
+        }
     }
 
 
