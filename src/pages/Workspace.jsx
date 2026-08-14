@@ -671,6 +671,13 @@ export default function Workspace() {
         setIndexSummary(summary)
         setIndexState('ready')
       } catch (err) {
+        // A database row can outlive a local/ephemeral PDF artifact. Treat
+        // this as a missing document, not as a retryable indexing failure.
+        if (/\b404\b|PDF not found/i.test(String(err?.message || err))) {
+          setIndexState('error')
+          setIndexSummary(null)
+          return
+        }
         console.error('Auto-build index failed', err)
         setIndexState('error')
       }
