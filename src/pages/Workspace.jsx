@@ -646,6 +646,14 @@ export default function Workspace() {
       const token = getAuthToken()
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
       const res = await fetch(url, { headers })
+      if (res.status === 404) {
+        // The upload record may remain in PostgreSQL after its local artifact
+        // was lost during an App Service redeploy. Do not start a rebuild for
+        // a document that the API has already confirmed is missing.
+        setIndexState('error')
+        setIndexSummary(null)
+        return
+      }
       if (!res.ok) throw new Error(`Status ${res.status}`)
       const js = await res.json()
 

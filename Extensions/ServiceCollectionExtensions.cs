@@ -200,9 +200,16 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton<IDocumentStorage>(sp =>
         {
-            var provider = (Environment.GetEnvironmentVariable("DOCUMENT_STORAGE_PROVIDER")
-                ?? configuration["DocumentStorage:Provider"]
-                ?? "local").Trim().ToLowerInvariant();
+            var configuredProvider = Environment.GetEnvironmentVariable("DOCUMENT_STORAGE_PROVIDER")
+                ?? configuration["DocumentStorage:Provider"];
+            // Local disk is ephemeral on App Service. If blob credentials are
+            // present in production, prefer durable storage even when the
+            // provider flag was omitted during deployment.
+            var provider = (configuredProvider
+                ?? (string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Production", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AZURE_STORAGE_CONNECTION_STRING"))
+                    ? "azureblob"
+                    : "local")).Trim().ToLowerInvariant();
 
             return provider switch
             {
