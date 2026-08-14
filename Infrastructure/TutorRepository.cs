@@ -333,7 +333,12 @@ SELECT
   ) AS HelpRequests,
   COALESCE(AVG(ta.Score), 0) AS AverageScore,
   {latestActivityFunction}(
-    COALESCE(ta.CreatedAt, ''),
+    COALESCE((
+      SELECT MAX(ta0.CreatedAt)
+      FROM TutorAnswers ta0
+      WHERE ta0.UserId = cs.StudentId
+        AND UPPER(ta0.UploadId) = UPPER(cc.UploadId)
+    ), ''),
     COALESCE((
       SELECT MAX(he.CreatedAt)
       FROM TutorHelpEvents he
