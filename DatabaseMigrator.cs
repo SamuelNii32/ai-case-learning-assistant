@@ -96,7 +96,7 @@ public static class DatabaseMigrator
         await EnsureBackgroundJobTableAsync(targetConn, cancellationToken);
     }
 
-    private static async Task EnsurePostgresSchemaAsync(DbConnection target, CancellationToken cancellationToken)
+    public static async Task EnsurePostgresSchemaAsync(DbConnection target, CancellationToken cancellationToken = default)
     {
         await using var cmd = target.CreateCommand();
         cmd.CommandText = @"

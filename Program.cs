@@ -131,6 +131,10 @@ var connString = databaseOptions.ConnectionString;
 
     if (string.Equals(databaseOptions.Provider, "postgres", StringComparison.OrdinalIgnoreCase))
     {
+        // The production PostgreSQL database may be newly provisioned. Ensure
+        // the application schema exists before any startup repair or request.
+        DatabaseMigrator.EnsurePostgresSchemaAsync(conn).GetAwaiter().GetResult();
+
         // SQLite-to-PostgreSQL imports preserve explicit identity values, but
         // PostgreSQL sequences do not advance when IDs are inserted manually.
         // Repair them at startup so the next chat/message cannot collide with
