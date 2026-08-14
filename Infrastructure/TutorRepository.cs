@@ -122,11 +122,7 @@ public sealed class SqliteTutorRepository : ITutorRepository
         await using var conn = _dbOptions.CreateConnection();
         await conn.OpenAsync(cancellationToken);
         await using var cmd = conn.CreateCommand();
-        // SQLite exposes MAX(value1, value2, ...) as a scalar function, while
-        // PostgreSQL uses GREATEST for the same operation. Keep this query
-        // portable because this repository supports both providers.
-        var latestActivityFunction = _dbOptions.Provider is "postgres" or "postgresql" ? "GREATEST" : "MAX";
-        cmd.CommandText = $@"
+        cmd.CommandText = @"
 INSERT INTO TutorHelpEvents (
   UserId,
   UploadId,
@@ -315,7 +311,11 @@ ORDER BY CreatedAt ASC, Id ASC;";
         }
 
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
+        // SQLite exposes MAX(value1, value2, ...) as a scalar function, while
+        // PostgreSQL uses GREATEST for the same operation. Keep this query
+        // portable because this repository supports both providers.
+        var latestActivityFunction = _dbOptions.Provider is "postgres" or "postgresql" ? "GREATEST" : "MAX";
+        cmd.CommandText = $@"
 SELECT
   cs.StudentId,
   COALESCE(u.FullName, '') AS FullName,
