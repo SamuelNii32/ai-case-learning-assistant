@@ -266,11 +266,14 @@ export default function Workspace() {
         } catch (err) {
           console.error('[Workspace] failed to prepare document for chat', err)
           setIndexState('error')
+          const missingDocument = /\b404\b|PDF not found/i.test(String(err?.message || err))
           updateAssistantMessage(assistantId, {
-            content: 'I could not prepare this document for Q&A. Please rebuild the index and try again.',
+            content: missingDocument
+              ? 'This document is no longer available. Please upload the PDF again before starting Q&A.'
+              : 'I could not prepare this document for Q&A. Please try again in a moment.',
             streaming: false,
           })
-          toast.error('Document indexing failed')
+          toast.error(missingDocument ? 'PDF is no longer available' : 'Document indexing failed')
           return
         }
       }

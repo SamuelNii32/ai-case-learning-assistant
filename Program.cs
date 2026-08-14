@@ -2503,7 +2503,17 @@ app.MapDelete("/uploads/{uploadId:guid}", async (Guid uploadId, HttpContext ctx,
 
     // 8) Clear in-memory index
     InMemoryStore.VectorIndex.TryRemove(id, out _);
-    await storage.DeleteArtifactsAsync(uploadId, ctx.RequestAborted);
+    // Database ownership is authoritative. Artifact cleanup is best effort so
+    // a missing/expired local file or a temporarily unavailable blob cannot
+    // turn a successful case deletion into a misleading 500 response.
+    try
+    {
+        await storage.DeleteArtifactsAsync(uploadId, ctx.RequestAborted);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[DELETE WARNING] Could not remove artifacts for {uploadId}: {ex.Message}");
+    }
 
     return Results.Json(new { uploadId = id, deleted = true });
 });
