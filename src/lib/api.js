@@ -240,7 +240,8 @@ export async function listCases() {
     throw new Error('List cases failed: unauthorized')
   }
   if (!res.ok) throw new Error('List cases failed')
-  return res.json()
+  const payload = await res.json()
+  return Array.isArray(payload) ? payload : payload?.items || []
 }
 
 export async function uploadFile(formData) {
