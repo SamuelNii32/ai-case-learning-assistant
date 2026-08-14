@@ -122,7 +122,11 @@ public sealed class SqliteTutorRepository : ITutorRepository
         await using var conn = _dbOptions.CreateConnection();
         await conn.OpenAsync(cancellationToken);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
+        // SQLite exposes MAX(value1, value2, ...) as a scalar function, while
+        // PostgreSQL uses GREATEST for the same operation. Keep this query
+        // portable because this repository supports both providers.
+        var latestActivityFunction = _dbOptions.Provider is "postgres" or "postgresql" ? "GREATEST" : "MAX";
+        cmd.CommandText = $@"
 INSERT INTO TutorHelpEvents (
   UserId,
   UploadId,
@@ -328,7 +332,7 @@ SELECT
       AND UPPER(he.UploadId) = UPPER(cc.UploadId)
   ) AS HelpRequests,
   COALESCE(AVG(ta.Score), 0) AS AverageScore,
-  MAX(
+  {latestActivityFunction}(
     COALESCE(ta.CreatedAt, ''),
     COALESCE((
       SELECT MAX(he.CreatedAt)
