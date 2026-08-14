@@ -115,7 +115,7 @@ public sealed class SqliteSessionRepository : ISessionRepository
 SELECT
     s.Id AS SessionId,
     s.UploadId,
-    COALESCE(u.Name, u.OriginalFileName, 'Untitled case') AS CaseName,
+    COALESCE(NULLIF(u.Name, ''), NULLIF(u.OriginalFileName, ''), 'Untitled case') AS CaseName,
     MIN(COALESCE(m.CreatedAt, s.CreatedAt)) AS CreatedAt,
     MAX(COALESCE(m.CreatedAt, s.CreatedAt)) AS LastActivityAt,
     COUNT(m.Id) AS MessageCount,
@@ -159,7 +159,7 @@ WHERE s.UserId = @me");
         {
             baseSql.Append(@"
  AND (
-    LOWER(COALESCE(u.Name, u.OriginalFileName, 'Untitled case')) LIKE @search ESCAPE '\'
+    LOWER(COALESCE(NULLIF(u.Name, ''), NULLIF(u.OriginalFileName, ''), 'Untitled case')) LIKE @search ESCAPE '\'
     OR LOWER(COALESCE(
         (
             SELECT m2.Content
@@ -470,7 +470,7 @@ SELECT DISTINCT
     COALESCE(u.Email, '') AS UserEmail,
     COALESCE(u.FullName,'') AS UserFullName,
     s.UploadId          AS UploadId,
-    COALESCE(up.Name, '') AS CaseName,
+    COALESCE(NULLIF(up.Name, ''), NULLIF(up.OriginalFileName, ''), '') AS CaseName,
     COALESCE(up.OriginalFileName, '') AS OriginalFileName,
     s.CreatedAt         AS SessionCreatedAt,
     (
@@ -496,7 +496,7 @@ WHERE c.InstructorId = @instructorId");
   AND (
     LOWER(COALESCE(u.Email, '')) LIKE @search ESCAPE '\'
     OR LOWER(COALESCE(u.FullName, '')) LIKE @search ESCAPE '\'
-    OR LOWER(COALESCE(up.Name, '')) LIKE @search ESCAPE '\'
+    OR LOWER(COALESCE(NULLIF(up.Name, ''), NULLIF(up.OriginalFileName, ''), '')) LIKE @search ESCAPE '\'
     OR LOWER(COALESCE(up.OriginalFileName, '')) LIKE @search ESCAPE '\'
   )");
         }
@@ -560,7 +560,7 @@ SELECT
     COALESCE(u.Email, '') AS UserEmail,
     COALESCE(u.FullName,'') AS UserFullName,
     s.UploadId          AS UploadId,
-    COALESCE(up.Name, '') AS CaseName,
+    COALESCE(NULLIF(up.Name, ''), NULLIF(up.OriginalFileName, ''), '') AS CaseName,
     COALESCE(up.OriginalFileName, '') AS OriginalFileName,
     s.CreatedAt         AS SessionCreatedAt
 FROM Sessions s

@@ -2216,6 +2216,22 @@ app.MapGet("/sessions/mine", async (HttpContext ctx, ISessionRepository sessions
 
         if (!string.IsNullOrWhiteSpace(row.UploadId) && Guid.TryParse(row.UploadId, out var uploadGuid))
         {
+            // Older rows (and rows created during the SQLite-to-PostgreSQL
+            // migration) may have neither a display name nor a copied summary.
+            // Resolve the canonical filename before exposing an "Untitled"
+            // conversation in history.
+            if (string.IsNullOrWhiteSpace(caseName) ||
+                caseName.Equals("Untitled case", StringComparison.OrdinalIgnoreCase))
+            {
+                var storedName = await ctx.RequestServices
+                    .GetRequiredService<IUploadRepository>()
+                    .GetDisplayNameAsync(uploadGuid, ctx.RequestAborted);
+                if (!string.IsNullOrWhiteSpace(storedName))
+                {
+                    caseName = storedName;
+                }
+            }
+
             var summaryJson = await storage.ReadTextAsync(uploadGuid, ".summary.json", ctx.RequestAborted);
             if (!string.IsNullOrWhiteSpace(summaryJson))
             {
