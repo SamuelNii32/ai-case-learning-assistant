@@ -400,7 +400,7 @@ LEFT JOIN TutorAnswers ta
   ON ta.UserId = cs.StudentId
  AND UPPER(ta.UploadId) = UPPER(cc.UploadId)
 WHERE cs.ClassId = @classId
-GROUP BY cs.StudentId, cc.UploadId
+GROUP BY cs.StudentId, cc.UploadId, u.FullName, u.Email, up.OriginalFileName
 ORDER BY Email, FileName;";
         cmd.AddWithValue("@classId", classId);
 
