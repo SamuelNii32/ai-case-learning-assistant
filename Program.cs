@@ -121,13 +121,33 @@ if (app.Environment.IsDevelopment())
 var databaseOptions = DatabaseOptions.Load(builder.Configuration);
 var connString = databaseOptions.ConnectionString;
 
-using (var conn = databaseOptions.CreateConnection())
+    using (var conn = databaseOptions.CreateConnection())
 {
     conn.Open();
 
     Console.WriteLine(databaseOptions.LocalPath is null
         ? $"[DB] Using configured {databaseOptions.Provider} connection string."
         : $"[DB PATH] Using ingestion.db at: {databaseOptions.LocalPath}");
+
+    if (string.Equals(databaseOptions.Provider, "postgres", StringComparison.OrdinalIgnoreCase))
+    {
+        // SQLite-to-PostgreSQL imports preserve explicit identity values, but
+        // PostgreSQL sequences do not advance when IDs are inserted manually.
+        // Repair them at startup so the next chat/message cannot collide with
+        // an imported primary key (23505).
+        using var sequenceCmd = conn.CreateCommand();
+        sequenceCmd.CommandText = @"
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['Messages','Notes','TutorAnswers','TutorHelpEvents'] LOOP
+    EXECUTE format(
+      'SELECT setval(pg_get_serial_sequence(''%s'', ''id''), COALESCE((SELECT MAX(id) FROM %I), 0) + 1, false)',
+      lower(t), t);
+  END LOOP;
+END $$;";
+        sequenceCmd.ExecuteNonQuery();
+    }
 
 
 
