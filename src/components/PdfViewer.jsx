@@ -241,7 +241,9 @@ export default function PdfViewer({ src, onReady, onError, initialScale = 1.5, f
               } catch {
                 /* ignore */
               }
-              throw new Error(`PDF fetch failed: ${res.status}`)
+              const httpError = new Error(`PDF fetch failed: ${res.status}`)
+              httpError.status = res.status
+              throw httpError
             }
             const buf = await res.arrayBuffer()
             console.debug('[PdfViewer] fetched buffer length', buf?.byteLength)
@@ -255,6 +257,13 @@ export default function PdfViewer({ src, onReady, onError, initialScale = 1.5, f
             task = getDocument({ url: src, disableRange: true })
           }
         } catch (fetchErr) {
+          // Do not retry an authenticated request without its bearer token.
+          // The PDF endpoint is intentionally protected; falling back to a
+          // URL load only produces a second, misleading 401 and hides the
+          // actual session-expiry problem from the user.
+          if (fetchErr?.status === 401 || fetchErr?.status === 403) {
+            throw fetchErr
+          }
           // fallback to url-based load if the authenticated fetch fails for any reason
           // Use disableRange to avoid internal streaming/range-handling in pdf.js
           console.warn(
