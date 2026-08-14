@@ -152,7 +152,7 @@ WHERE s.UserId = @me");
 
         if (hasUploadId)
         {
-            baseSql.Append(" AND s.UploadId = @uploadId");
+            baseSql.Append(" AND s.UploadId = CAST(@uploadId AS text)");
         }
 
         if (hasSearch)
@@ -177,7 +177,7 @@ WHERE s.UserId = @me");
 GROUP BY
     s.Id,
     s.UploadId,
-    COALESCE(u.Name, u.OriginalFileName, 'Untitled case')");
+    COALESCE(NULLIF(u.Name, ''), NULLIF(u.OriginalFileName, ''), 'Untitled case')");
 
         var countSql = $"WITH base AS ({baseSql}) SELECT COUNT(1) FROM base;";
         var pageSql = $"WITH base AS ({baseSql}) SELECT * FROM base ORDER BY LastActivityAt DESC, SessionId DESC LIMIT @limit OFFSET @offset;";
