@@ -5,8 +5,7 @@ import { Card } from '@/components/ui/card'
 import Badge from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import WorkspaceNotesPanel from '@/components/WorkspaceNotesPanel.clean'
-// Use the working implementation while original file is being cleaned
-// Guided mode removed per request
+import GuidedModeFlow from '@/components/GuidedModeFlow'
 import { PdfControllerProvider } from '@/contexts/pdf-controller'
 import initPdfWorker from '@/lib/pdfjs-setup'
 
@@ -25,6 +24,8 @@ import {
   addSessionNote,
   getUploadLayout,
   deleteSession,
+  startTutor,
+  stepTutor,
 } from '@/lib/api'
 
 import toast from 'react-hot-toast'
@@ -194,6 +195,9 @@ export default function Workspace() {
   const [readingAnswer, setReadingAnswer] = useState('')
   const [readingLoading, setReadingLoading] = useState(false)
   const [readingError, setReadingError] = useState(null)
+  const [guidedStep, setGuidedStep] = useState(null)
+  const [guidedLoading, setGuidedLoading] = useState(false)
+  const [guidedError, setGuidedError] = useState(null)
   const [notesRefreshKey, setNotesRefreshKey] = useState(0)
   // Use the local pdf controller state (`pdfCtrl`) which is provided below via PdfControllerProvider.
   // We avoid calling the context consumer here because the Provider is created later in this component.
@@ -385,6 +389,44 @@ export default function Workspace() {
       toast.error('Reading Coach failed to start')
     } finally {
       setReadingLoading(false)
+    }
+  }
+
+  async function handleStartGuidedMode() {
+    if (!uploadId) return
+    setGuidedLoading(true)
+    setGuidedError(null)
+    try {
+      if (indexState !== 'ready') {
+        setIndexState('indexing')
+        const summary = await buildIndex(uploadId)
+        setIndexSummary(summary)
+        setIndexState('ready')
+      }
+      const sid = await ensureWorkspaceSession()
+      const step = await startTutor(sid, uploadId)
+      setGuidedStep(step)
+    } catch (err) {
+      console.error('[Workspace] failed to start guided mode', err)
+      setGuidedError(err?.message || 'Guided Mode failed to start')
+      toast.error('Guided Mode failed to start')
+    } finally {
+      setGuidedLoading(false)
+    }
+  }
+
+  async function handleGuidedChoice(choiceId) {
+    if (!guidedStep?.sessionId || !choiceId) return
+    setGuidedLoading(true)
+    setGuidedError(null)
+    try {
+      const next = await stepTutor(guidedStep.sessionId, choiceId)
+      setGuidedStep(next)
+    } catch (err) {
+      console.error('[Workspace] guided mode step failed', err)
+      setGuidedError(err?.message || 'Guided Mode step failed')
+    } finally {
+      setGuidedLoading(false)
     }
   }
 
@@ -1508,6 +1550,36 @@ export default function Workspace() {
             </div>
 
             <div className="w-full md:flex-1 lg:flex-[0_0_35%] lg:min-w-[24rem] flex-shrink-0 flex flex-col bg-white border border-[#e4d6c7] shadow-sm">
+              <div className="border-b border-[#e4d6c7] bg-[#fffaf4] p-4">
+                {!guidedStep ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-[#2c2218]">Guided Analysis</div>
+                      <p className="mt-1 text-xs text-[#7a5c3e]">
+                        Follow a structured path through the document with evidence-grounded choices.
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleStartGuidedMode}
+                      disabled={!uploadId || guidedLoading}
+                    >
+                      {guidedLoading ? 'Starting…' : 'Start'}
+                    </Button>
+                  </div>
+                ) : (
+                  <GuidedModeFlow
+                    tutorStep={guidedStep}
+                    onChoice={handleGuidedChoice}
+                    isLoading={guidedLoading}
+                    loadingChoiceId={guidedLoading ? guidedStep?.lastChoiceId : null}
+                    activePathTitle={guidedStep?.focus || guidedStep?.pathTitle || 'Guided Analysis'}
+                    onResetPath={handleStartGuidedMode}
+                  />
+                )}
+                {guidedError && <p className="mt-2 text-xs text-red-700">{guidedError}</p>}
+              </div>
               <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Messages */}
                 <div
