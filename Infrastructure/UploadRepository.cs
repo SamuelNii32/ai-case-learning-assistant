@@ -232,7 +232,7 @@ LIMIT 1;";
                 FROM Uploads
                 WHERE UploadId = @u AND UserId = @me
                 LIMIT 1;";
-            chk.AddWithValue("@u", uploadId);
+            chk.AddWithValue("@u", uploadId.ToString());
             chk.AddWithValue("@me", userId);
 
             if (await chk.ExecuteScalarAsync(cancellationToken) is null)
@@ -250,7 +250,7 @@ LIMIT 1;";
                 SELECT Id
                 FROM Sessions
                 WHERE UploadId = @u AND UserId = @me;";
-            scmd.AddWithValue("@u", uploadId);
+            scmd.AddWithValue("@u", uploadId.ToString());
             scmd.AddWithValue("@me", userId);
 
             await using var reader = await scmd.ExecuteReaderAsync(cancellationToken);
@@ -287,7 +287,7 @@ LIMIT 1;";
         {
             scmd2.Transaction = tx;
             scmd2.CommandText = "DELETE FROM Sessions WHERE UploadId = @u AND UserId = @me";
-            scmd2.AddWithValue("@u", uploadId);
+            scmd2.AddWithValue("@u", uploadId.ToString());
             scmd2.AddWithValue("@me", userId);
             await scmd2.ExecuteNonQueryAsync(cancellationToken);
         }
@@ -296,7 +296,7 @@ LIMIT 1;";
         {
             ucmd.Transaction = tx;
             ucmd.CommandText = "DELETE FROM Uploads WHERE UploadId = @u AND UserId = @me";
-            ucmd.AddWithValue("@u", uploadId);
+            ucmd.AddWithValue("@u", uploadId.ToString());
             ucmd.AddWithValue("@me", userId);
             await ucmd.ExecuteNonQueryAsync(cancellationToken);
         }
