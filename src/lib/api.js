@@ -164,7 +164,36 @@ export async function buildIndex(uploadId) {
     const text = await res.text().catch(() => '')
     throw new Error(`Indexing failed: ${res.status} ${text}`)
   }
-  return res.json()
+  const initial = await res.json()
+  const initialState = initial?.state || initial?.job?.status
+  if (res.status !== 202 || !['queued', 'running'].includes(String(initialState).toLowerCase())) {
+    return initial?.result || initial
+  }
+
+  const statusUrl = makeUrl(`/index/status/${encodeURIComponent(uploadId)}`)
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    const statusRes = await fetch(statusUrl, { headers: { ...authHeaders() } })
+    if (statusRes.status === 401) {
+      const txt = await statusRes.text().catch(() => '')
+      await handleAuthFailure(statusRes, txt, `/index/status/${encodeURIComponent(uploadId)}`)
+      throw new Error('Indexing failed: 401')
+    }
+    if (!statusRes.ok) {
+      const text = await statusRes.text().catch(() => '')
+      throw new Error(`Index status failed: ${statusRes.status} ${text}`)
+    }
+    const status = await statusRes.json()
+    const state = String(status?.state || status?.job?.status || '').toLowerCase()
+    if (state === 'completed' || status?.inMemory === true || status?.onDisk === true) {
+      return status?.result || status
+    }
+    if (state === 'failed') {
+      throw new Error(`Indexing failed: ${status?.error || status?.job?.lastError || 'worker failed'}`)
+    }
+  }
+
+  throw new Error('Indexing timed out while waiting for the background worker')
 }
 
 export async function ask(uploadId, q) {
