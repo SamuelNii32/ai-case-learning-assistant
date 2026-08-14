@@ -768,7 +768,8 @@ export async function getClasses() {
     throw new Error(`Get classes failed (${res.status}): ${txt}`)
   }
 
-  return res.json()
+  const payload = await res.json()
+  return Array.isArray(payload) ? payload : payload?.items || []
 }
 
 export async function createClass(name, description = '') {
@@ -1098,7 +1099,8 @@ export async function getEnrolledClasses() {
     throw new Error(`Get enrolled classes failed (${res.status}): ${txt}`)
   }
 
-  return res.json()
+  const payload = await res.json()
+  return Array.isArray(payload) ? payload : payload?.items || []
 }
 
 export async function deleteStudentFromClass(classId, studentId) {
