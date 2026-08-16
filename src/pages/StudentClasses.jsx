@@ -156,7 +156,7 @@ export default function StudentClasses() {
                             size="sm"
                             variant="outline"
                             className="h-auto py-1.5 px-3 text-xs"
-                            onClick={() => navigate(`/workspace/${encodeURIComponent(c.uploadId)}`)}
+                            onClick={() => navigate(`/workspace/${encodeURIComponent(c.uploadId)}`, { state: { from: '/classes' } })}
                           >
                             Open
                           </Button>

@@ -1,4 +1,4 @@
-import { Link, useParams, useSearchParams, useNavigate } from 'react-router-dom'
+import { Link, useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom'
 import React, { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -170,6 +170,7 @@ function appendSmart(prev = '', next = '') {
 }
 
 export default function Workspace() {
+  const location = useLocation()
   const { uploadId } = useParams()
   const navigate = useNavigate()
 
@@ -1262,7 +1263,7 @@ export default function Workspace() {
 
               {/* Render Link styled like a ghost Button to avoid nested anchors */}
               <Link
-                to="/dashboard"
+                to={location.state?.from || '/dashboard'}
                 className={
                   'inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none hover:bg-[#f6eee5] cursor-pointer h-9 px-3 gap-2'
                 }
