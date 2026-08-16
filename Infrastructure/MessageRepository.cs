@@ -32,6 +32,26 @@ public sealed class SqliteMessageRepository : IMessageRepository
         await using var conn = _dbOptions.CreateConnection();
         await conn.OpenAsync(cancellationToken);
 
+        if (string.Equals(_dbOptions.Provider, "postgres", StringComparison.OrdinalIgnoreCase))
+        {
+            // Imported/legacy rows can leave the identity sequence behind.
+            // Synchronize it immediately before inserting a message so a
+            // stale sequence cannot produce messages_pkey collisions.
+            await using var repair = conn.CreateCommand();
+            repair.CommandText = @"
+DO $$
+DECLARE seq_name text;
+BEGIN
+  SELECT pg_get_serial_sequence('""Messages""', 'id') INTO seq_name;
+  IF seq_name IS NOT NULL THEN
+    EXECUTE format(
+      'SELECT setval(%L, COALESCE((SELECT MAX(id) FROM ""Messages""), 0) + 1, false)',
+      seq_name);
+  END IF;
+END $$;";
+            await repair.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
             INSERT INTO Messages (SessionId, Role, Content, Citations, PagesUsed, CreatedAt)
