@@ -31,6 +31,9 @@ public sealed class SqliteMessageRepository : IMessageRepository
 
         await using var conn = _dbOptions.CreateConnection();
         await conn.OpenAsync(cancellationToken);
+        await using var tx = string.Equals(_dbOptions.Provider, "postgres", StringComparison.OrdinalIgnoreCase)
+            ? await conn.BeginTransactionAsync(cancellationToken)
+            : null;
 
         if (string.Equals(_dbOptions.Provider, "postgres", StringComparison.OrdinalIgnoreCase))
         {
@@ -38,10 +41,12 @@ public sealed class SqliteMessageRepository : IMessageRepository
             // Synchronize it immediately before inserting a message so a
             // stale sequence cannot produce messages_pkey collisions.
             await using var repair = conn.CreateCommand();
+            repair.Transaction = tx;
             repair.CommandText = @"
 DO $$
 DECLARE seq_name text;
 BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('casepilot.messages.identity'));
   SELECT pg_get_serial_sequence('""Messages""', 'id') INTO seq_name;
   IF seq_name IS NOT NULL THEN
     EXECUTE format(
@@ -53,6 +58,7 @@ END $$;";
         }
 
         await using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
         cmd.CommandText = @"
             INSERT INTO Messages (SessionId, Role, Content, Citations, PagesUsed, CreatedAt)
             VALUES (@sid, @role, @content, @cites, @pages, @ts)";
@@ -68,6 +74,10 @@ END $$;";
         cmd.AddWithValue("@ts", DateTime.UtcNow.ToString("o"));
 
         await cmd.ExecuteNonQueryAsync(cancellationToken);
+        if (tx is not null)
+        {
+            await tx.CommitAsync(cancellationToken);
+        }
     }
 
     public async Task<CachedAnswerRecord?> FindCachedAnswerAsync(Guid uploadId, string question, string? userId = null, CancellationToken cancellationToken = default)
