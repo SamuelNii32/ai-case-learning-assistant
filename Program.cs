@@ -148,9 +148,8 @@ DECLARE t text;
 DECLARE seq_name text;
 BEGIN
   FOREACH t IN ARRAY ARRAY['Messages','Notes','TutorAnswers','TutorHelpEvents'] LOOP
-    -- Tables are created with quoted PascalCase names in PostgreSQL. Resolve
-    -- the actual identity sequence using the quoted relation name.
-    SELECT pg_get_serial_sequence(format('%I', t), 'id') INTO seq_name;
+    -- PostgreSQL folds the unquoted schema table names to lowercase.
+    SELECT pg_get_serial_sequence(lower(t), 'id') INTO seq_name;
     IF seq_name IS NOT NULL THEN
       EXECUTE format(
         'SELECT setval(%L, COALESCE((SELECT MAX(id) FROM %I), 0) + 1, false)',

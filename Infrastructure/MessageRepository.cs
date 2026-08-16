@@ -47,10 +47,10 @@ DO $$
 DECLARE seq_name text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtext('casepilot.messages.identity'));
-  SELECT pg_get_serial_sequence('""Messages""', 'id') INTO seq_name;
+  SELECT pg_get_serial_sequence('messages', 'id') INTO seq_name;
   IF seq_name IS NOT NULL THEN
     EXECUTE format(
-      'SELECT setval(%L, COALESCE((SELECT MAX(id) FROM ""Messages""), 0) + 1, false)',
+      'SELECT setval(%L, COALESCE((SELECT MAX(id) FROM messages), 0) + 1, false)',
       seq_name);
   END IF;
 END $$;";
