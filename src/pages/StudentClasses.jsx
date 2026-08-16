@@ -116,41 +116,42 @@ export default function StudentClasses() {
           <p className="text-slate-500">You are not enrolled in any classes yet.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="space-y-5">
           {classes.map(cls => {
             const caseCount = Array.isArray(cls.cases) ? cls.cases.length : 0
             return (
               <Card
                 key={cls.classId || cls.id}
-                className="p-6 transition duration-200 ease-out hover:-translate-y-1 hover:shadow-xl cursor-pointer"
+                className="overflow-hidden border-[#eadfd4] bg-white shadow-sm"
               >
-                <div className="space-y-3">
-                  <div>
-                    <h3 className="text-lg font-semibold text-[#2C2218]">{cls.name}</h3>
+                <div className="border-b border-[#eee4da] bg-[#fffaf5] px-5 py-4 md:px-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-[#9b7658]">Enrolled class</p>
+                      <h3 className="mt-1 text-xl font-semibold text-[#2C2218]">{cls.name}</h3>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-[#f1e5d8] px-3 py-1 text-xs font-medium text-[#6c503b]">
+                      {caseCount} {caseCount === 1 ? 'case' : 'cases'}
+                    </span>
+                  </div>
                     {cls.description && (
-                      <p className="text-sm text-[#5C4C3C] mt-1">{cls.description}</p>
+                      <p className="mt-2 text-sm text-[#5C4C3C]">{cls.description}</p>
                     )}
+                </div>
+                <div className="px-5 py-4 md:px-6">
+                  <div className="mb-3 flex items-center gap-2 text-sm text-[#5C4C3C]">
+                    <Users size={16} className="text-[#8B7462]" />
+                    <span>Assigned reading</span>
                   </div>
-                  <div className="flex items-center gap-4 text-sm text-[#5C4C3C]">
-                    <div className="flex items-center gap-1">
-                      <Users size={16} className="text-[#8B7462]" />
-                      <span>Enrolled</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <BookOpen size={16} className="text-[#8B7462]" />
-                      <span>{caseCount} {caseCount === 1 ? 'case' : 'cases'}</span>
-                    </div>
-                  </div>
-
-                  <div className="border-t pt-3 space-y-2">
+                  <div className="space-y-2">
                     {caseCount === 0 ? (
                       <p className="text-sm text-[#5C4C3C]">No cases assigned yet.</p>
                     ) : (
                       (cls.cases || []).map(c => (
-                        <div key={c.uploadId} className="flex items-start justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-[#2C2218]">{c.fileName || c.uploadId}</p>
-                            <p className="text-xs text-[#8B7462]">{c.uploadId}</p>
+                        <div key={c.uploadId} className="flex items-center justify-between gap-4 rounded-lg border border-[#eee4da] bg-white px-4 py-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <BookOpen size={18} className="shrink-0 text-[#9b7658]" />
+                            <p className="truncate text-sm font-medium text-[#2C2218]">{c.fileName || 'Untitled case'}</p>
                           </div>
                           <Button
                             size="sm"
