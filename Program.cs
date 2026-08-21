@@ -104,6 +104,17 @@ static ChatClient CreateConfiguredChatClient(string model, string fallbackKey)
     return new ChatClient(model, new ApiKeyCredential(routerKey), new OpenAIClientOptions { Endpoint = new Uri(endpoint) });
 }
 
+static string ResolveTestModel(string? requested, string fallback)
+{
+    var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "gpt-5.1", "gpt-4o-mini", "openai/gpt-4o-mini",
+        "anthropic/claude-sonnet-4", "google/gemini-2.5-flash",
+        "meta-llama/llama-3.3-70b-instruct"
+    };
+    return !string.IsNullOrWhiteSpace(requested) && allowed.Contains(requested) ? requested : fallback;
+}
+
 
 
 
@@ -1612,6 +1623,7 @@ app.MapGet("/ask/stream/{uploadId}", async (
     string? sessionId,
     string? tutorSessionId,
     string? tutorStepId,
+    string? model,
     HttpContext ctx,
     IWebHostEnvironment env,
     IDocumentStorage storage,
@@ -1634,6 +1646,8 @@ app.MapGet("/ask/stream/{uploadId}", async (
         await ctx.Response.WriteAsJsonAsync(new { error = "unauthorized" });
         return;
     }
+
+    var selectedModel = ResolveTestModel(model, answerModel);
 
     if (!await uploadsRepository.CanAccessAsync(parsedUploadId, me, ctx.RequestAborted))
     {
@@ -1832,7 +1846,7 @@ app.MapGet("/ask/stream/{uploadId}", async (
             var ctxStr = string.Join("\n\n", prioritized.Select(t => $"— Page {t.Page} —\n{t.Preview}"));
             var pages = prioritized.Select(t => t.Page).Distinct().ToArray();
 
-            var chatFast = CreateConfiguredChatClient(answerModel, apiKey);
+            var chatFast = CreateConfiguredChatClient(selectedModel, apiKey);
 
             var promptFast = $"""
 You are a precise assistant. Answer ONLY using the Context below.

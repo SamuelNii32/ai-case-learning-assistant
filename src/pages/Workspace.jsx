@@ -191,6 +191,7 @@ export default function Workspace() {
     },
   ])
   const [message, setMessage] = useState('')
+  const [testModel, setTestModel] = useState('openai/gpt-4o-mini')
   const [readingStep, setReadingStep] = useState(null)
   const [pendingReadingStep, setPendingReadingStep] = useState(null)
   const [readingAnswer, setReadingAnswer] = useState('')
@@ -709,6 +710,7 @@ export default function Workspace() {
     if (sessionIdParam) params.set('sessionId', sessionIdParam)
     if (tutorContext?.tutorSessionId) params.set('tutorSessionId', tutorContext.tutorSessionId)
     if (tutorContext?.tutorStepId) params.set('tutorStepId', tutorContext.tutorStepId)
+    if (testModel) params.set('model', testModel)
     const url = API_BASE
       ? `${base}/ask/stream/${encodeURIComponent(uploadIdParam)}?${params.toString()}`
       : `/ask/stream/${encodeURIComponent(uploadIdParam)}?${params.toString()}`
@@ -1275,6 +1277,16 @@ export default function Workspace() {
               </Link>
 
               <div className="h-6 w-px bg-border hidden sm:block" />
+
+              <label className="hidden md:flex items-center gap-2 text-xs text-muted-foreground">
+                Test model
+                <select value={testModel} onChange={e => setTestModel(e.target.value)} className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground">
+                  <option value="openai/gpt-4o-mini">OpenRouter · GPT-4o mini</option>
+                  <option value="anthropic/claude-sonnet-4">OpenRouter · Claude Sonnet</option>
+                  <option value="google/gemini-2.5-flash">OpenRouter · Gemini Flash</option>
+                  <option value="gpt-5.1">OpenAI · GPT-5.1</option>
+                </select>
+              </label>
 
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
