@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.ClientModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -19,6 +20,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using OpenAI.Chat;
+using OpenAI;
 using PdfPigDoc = UglyToad.PdfPig.PdfDocument;
 
 
@@ -93,6 +95,14 @@ var answerModel = Environment.GetEnvironmentVariable("OPENAI_ANSWER_MODEL")
 // Classifier model: cheap model for question type classification (default gpt-5-mini)
 var classifierModel = Environment.GetEnvironmentVariable("OPENAI_CLASSIFIER_MODEL")
     ?? "gpt-5-mini";
+
+static ChatClient CreateConfiguredChatClient(string model, string fallbackKey)
+{
+    var routerKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
+    if (string.IsNullOrWhiteSpace(routerKey)) return new ChatClient(model, fallbackKey);
+    var endpoint = Environment.GetEnvironmentVariable("OPENROUTER_BASE_URL") ?? "https://openrouter.ai/api/v1";
+    return new ChatClient(model, new ApiKeyCredential(routerKey), new OpenAIClientOptions { Endpoint = new Uri(endpoint) });
+}
 
 
 
@@ -1435,7 +1445,7 @@ LIMIT 1;
     async Task<IResult> AnswerWithContext(string ctxStr, string question, int[] pages, string apiKeyLocal, string categoryHint)
     {
 
-        var chat = new OpenAI.Chat.ChatClient(model: answerModel, apiKeyLocal);
+        var chat = CreateConfiguredChatClient(answerModel, apiKeyLocal);
 
         // Find this section in your /ask endpoint (around line 1410-1425)
         // It's in the AnswerWithContext function
@@ -1822,7 +1832,7 @@ app.MapGet("/ask/stream/{uploadId}", async (
             var ctxStr = string.Join("\n\n", prioritized.Select(t => $"— Page {t.Page} —\n{t.Preview}"));
             var pages = prioritized.Select(t => t.Page).Distinct().ToArray();
 
-            var chatFast = new OpenAI.Chat.ChatClient(model: answerModel, apiKey);
+            var chatFast = CreateConfiguredChatClient(answerModel, apiKey);
 
             var promptFast = $"""
 You are a precise assistant. Answer ONLY using the Context below.
@@ -2021,7 +2031,7 @@ Context:
         }
 
         // ==== Stream the model output ====
-        var chat2 = new OpenAI.Chat.ChatClient(model: answerModel, apiKey);
+        var chat2 = CreateConfiguredChatClient(answerModel, apiKey);
         var prompt2 = $"""
 You are helping a student understand a specific PDF.
 Use the Context below as your PRIMARY source of truth.

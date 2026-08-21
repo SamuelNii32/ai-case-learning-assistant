@@ -3,7 +3,9 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using OpenAI.Chat;
+using OpenAI;
 using System;
+using System.ClientModel;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
@@ -25,6 +27,10 @@ public static class ServiceCollectionExtensions
         // Read OpenAI config (API key + models)
         var openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
             ?? throw new InvalidOperationException("OPENAI_API_KEY not set.");
+        var chatApiKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") ?? openAiApiKey;
+        var chatEndpoint = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") is not null
+            ? new Uri(Environment.GetEnvironmentVariable("OPENROUTER_BASE_URL") ?? "https://openrouter.ai/api/v1")
+            : (Uri?)null;
 
         // Answer model: big brain for actual answers (default gpt-5.1)
         var answerModel = Environment.GetEnvironmentVariable("OPENAI_ANSWER_MODEL")
@@ -33,7 +39,10 @@ public static class ServiceCollectionExtensions
         // OpenAI Chat client for answers (we'll also new up a separate client for the classifier later)
         services.AddSingleton<ChatClient>(_ =>
         {
-            return new ChatClient(model: answerModel, openAiApiKey);
+            var options = chatEndpoint is null ? null : new OpenAIClientOptions { Endpoint = chatEndpoint };
+            return options is null
+                ? new ChatClient(model: answerModel, chatApiKey)
+                : new ChatClient(answerModel, new ApiKeyCredential(chatApiKey), options);
         });
 
         AddDocumentStorage(services, configuration);
