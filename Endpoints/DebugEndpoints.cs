@@ -28,7 +28,17 @@ public static class DebugEndpoints
                 ? completion.Content[0].Text ?? ""
                 : "";
 
-            return Results.Json(new { ok = text.Contains("hello from CasePilot Q&A"), reply = text });
+            var usingOpenRouter = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("OPENROUTER_API_KEY"));
+            return Results.Json(new
+            {
+                ok = text.Contains("hello from CasePilot Q&A"),
+                reply = text,
+                provider = usingOpenRouter ? "openrouter" : "openai",
+                model = Environment.GetEnvironmentVariable("OPENAI_ANSWER_MODEL") ?? "gpt-5.1",
+                endpoint = usingOpenRouter
+                    ? Environment.GetEnvironmentVariable("OPENROUTER_BASE_URL") ?? "https://openrouter.ai/api/v1"
+                    : "https://api.openai.com/v1"
+            });
         });
 
 

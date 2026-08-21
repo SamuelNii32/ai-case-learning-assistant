@@ -31,10 +31,10 @@ public static class ServiceCollectionExtensions
         var chatEndpoint = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") is not null
             ? new Uri(Environment.GetEnvironmentVariable("OPENROUTER_BASE_URL") ?? "https://openrouter.ai/api/v1")
             : (Uri?)null;
-
         // Answer model: big brain for actual answers (default gpt-5.1)
         var answerModel = Environment.GetEnvironmentVariable("OPENAI_ANSWER_MODEL")
             ?? "gpt-5.1";
+        Console.WriteLine($"[AI] Chat provider: {(chatEndpoint is null ? "openai" : "openrouter")}; model: {answerModel}; embeddings: openai");
 
         // OpenAI Chat client for answers (we'll also new up a separate client for the classifier later)
         services.AddSingleton<ChatClient>(_ =>
