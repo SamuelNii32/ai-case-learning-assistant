@@ -26,6 +26,7 @@ import {
   deleteSession,
   startTutor,
   stepTutor,
+  listAiModels,
 } from '@/lib/api'
 
 import toast from 'react-hot-toast'
@@ -192,6 +193,22 @@ export default function Workspace() {
   ])
   const [message, setMessage] = useState('')
   const [testModel, setTestModel] = useState('openai/gpt-4o-mini')
+  const [availableModels, setAvailableModels] = useState([
+    { id: 'openai/gpt-4o-mini', name: 'OpenRouter · GPT-4o mini' },
+    { id: 'anthropic/claude-sonnet-4', name: 'OpenRouter · Claude Sonnet' },
+    { id: 'google/gemini-2.5-flash', name: 'OpenRouter · Gemini Flash' },
+    { id: 'gpt-5.1', name: 'OpenAI · GPT-5.1' },
+  ])
+
+  useEffect(() => {
+    let cancelled = false
+    listAiModels().then(result => {
+      if (!cancelled && Array.isArray(result?.models) && result.models.length) {
+        setAvailableModels(result.models.map(model => ({ id: model.id, name: model.name || model.id })))
+      }
+    }).catch(() => { /* retain safe fallback list */ })
+    return () => { cancelled = true }
+  }, [])
   const [readingStep, setReadingStep] = useState(null)
   const [pendingReadingStep, setPendingReadingStep] = useState(null)
   const [readingAnswer, setReadingAnswer] = useState('')
@@ -1281,10 +1298,7 @@ export default function Workspace() {
               <label className="hidden md:flex items-center gap-2 text-xs text-muted-foreground">
                 Test model
                 <select value={testModel} onChange={e => setTestModel(e.target.value)} className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground">
-                  <option value="openai/gpt-4o-mini">OpenRouter · GPT-4o mini</option>
-                  <option value="anthropic/claude-sonnet-4">OpenRouter · Claude Sonnet</option>
-                  <option value="google/gemini-2.5-flash">OpenRouter · Gemini Flash</option>
-                  <option value="gpt-5.1">OpenAI · GPT-5.1</option>
+                  {availableModels.map(model => <option value={model.id} key={model.id}>{model.name}</option>)}
                 </select>
               </label>
 

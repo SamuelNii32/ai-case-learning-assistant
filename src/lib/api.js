@@ -196,6 +196,12 @@ export async function buildIndex(uploadId) {
   throw new Error('Indexing timed out while waiting for the background worker')
 }
 
+export async function listAiModels() {
+  const response = await fetch(makeUrl('/api/llm/models'), { headers: authHeaders() })
+  if (!response.ok) throw new Error(`AI model catalog failed (${response.status})`)
+  return response.json()
+}
+
 export async function ask(uploadId, q) {
   const enc = encodeURIComponent(q || '')
   const url = makeUrl(`/ask/${encodeURIComponent(uploadId)}?q=${enc}`)
