@@ -41,6 +41,27 @@ public static class DebugEndpoints
             });
         });
 
+        app.MapGet("/api/llm/models", async (HttpContext ctx) =>
+        {
+            var deny = RequireDebugAccess(ctx);
+            if (deny is not null) return deny;
+            var key = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
+            if (string.IsNullOrWhiteSpace(key)) return Results.Json(new { provider = "openai", models = Array.Empty<object>() });
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, "https://openrouter.ai/api/v1/models?output_modalities=text");
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
+            using var client = new HttpClient();
+            using var response = await client.SendAsync(request, ctx.RequestAborted);
+            if (!response.IsSuccessStatusCode) return Results.StatusCode((int)response.StatusCode);
+            using var json = await System.Text.Json.JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ctx.RequestAborted), cancellationToken: ctx.RequestAborted);
+            var models = json.RootElement.GetProperty("data").EnumerateArray()
+                .Select(item => new { id = item.GetProperty("id").GetString(), name = item.TryGetProperty("name", out var n) ? n.GetString() : null })
+                .Where(item => !string.IsNullOrWhiteSpace(item.id))
+                .OrderBy(item => item.name ?? item.id)
+                .ToArray();
+            return Results.Json(new { provider = "openrouter", models });
+        });
+
 
         // GET /api/embeddings/ping — sanity check: returns vector length
         app.MapGet("/api/embeddings/ping", (HttpContext ctx) =>
