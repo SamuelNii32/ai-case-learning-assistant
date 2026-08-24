@@ -30,11 +30,15 @@ public record TutorStepRequest(
     string ChoiceId
 );
 
-public record TutorAnswerRequest(
-    string SessionId,
-    string StepId,
-    string Answer
-);
+// Use a parameterless DTO for ASP.NET request binding. Positional records can
+// route through the .NET 9 parameterized-constructor JSON converter, which has
+// produced InvalidProgramException in the Linux App Service runtime.
+public sealed class TutorAnswerRequest
+{
+    public string SessionId { get; init; } = string.Empty;
+    public string StepId { get; init; } = string.Empty;
+    public string Answer { get; init; } = string.Empty;
+}
 
 public record TutorFeedback(
     double Score,

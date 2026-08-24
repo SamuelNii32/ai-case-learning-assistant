@@ -43,8 +43,10 @@ public static class DebugEndpoints
 
         app.MapGet("/api/llm/models", async (HttpContext ctx) =>
         {
-            var deny = RequireDebugAccess(ctx);
-            if (deny is not null) return deny;
+            // This catalog is used by authenticated internal testers. It must
+            // not be restricted to super-users/debug headers, otherwise the
+            // UI silently falls back to its four hard-coded models.
+            if (ctx.User?.Identity?.IsAuthenticated != true) return Results.Unauthorized();
             var key = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
             if (string.IsNullOrWhiteSpace(key)) return Results.Json(new { provider = "openai", models = Array.Empty<object>() });
 

@@ -174,7 +174,7 @@ BEGIN
     IF seq_name IS NOT NULL THEN
       EXECUTE format(
         'SELECT setval(%L, COALESCE((SELECT MAX(id) FROM %I), 0) + 1, false)',
-        seq_name, t);
+        seq_name, lower(t));
     END IF;
   END LOOP;
 END $$;";
@@ -2047,7 +2047,9 @@ Context:
         }
 
         // ==== Stream the model output ====
-        var chat2 = CreateConfiguredChatClient(answerModel, apiKey);
+        // Honor the model selected by the internal comparison selector for
+        // normal grounded questions, not only the metadata fast paths.
+        var chat2 = CreateConfiguredChatClient(selectedModel, apiKey);
         var prompt2 = $"""
 You are helping a student understand a specific PDF.
 Use the Context below as your PRIMARY source of truth.
@@ -2105,7 +2107,7 @@ Context:
         CasePilotTelemetry.RecordChatUsage(
             usage2,
             "document_answer_stream",
-            answerModel,
+            selectedModel,
             Stopwatch.GetElapsedTime(streamCompletionStarted));
         var answer2 = sb2.ToString();
         var pages2 = Regex.Matches(answer2, @"\[\s*p\s*:\s*(\d+)\s*\]", RegexOptions.IgnoreCase)

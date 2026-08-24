@@ -292,26 +292,26 @@ INSERT INTO TutorAnswers (
   CreatedAt
 )
 VALUES (
-  $sessionId,
-  $userId,
-  $uploadId,
-  $stepId,
-  $question,
-  $answer,
-  $feedback,
-  $score,
-  $createdAt
+  @sessionId,
+  @userId,
+  @uploadId,
+  @stepId,
+  @question,
+  @answer,
+  @feedback,
+  @score,
+  @createdAt
 );
 ";
-cmd.AddWithValue("$sessionId", session.SessionId);
-        cmd.AddWithValue("$userId", userId);
-        cmd.AddWithValue("$uploadId", session.UploadId.ToString());
-        cmd.AddWithValue("$stepId", step.Id);
-        cmd.AddWithValue("$question", question);
-        cmd.AddWithValue("$answer", answer);
-        cmd.AddWithValue("$feedback", JsonSerializer.Serialize(feedback));
-        cmd.AddWithValue("$score", feedback.Score);
-        cmd.AddWithValue("$createdAt", DateTime.UtcNow.ToString("O"));
+cmd.AddWithValue("@sessionId", session.SessionId);
+        cmd.AddWithValue("@userId", userId);
+        cmd.AddWithValue("@uploadId", session.UploadId.ToString());
+        cmd.AddWithValue("@stepId", step.Id);
+        cmd.AddWithValue("@question", question);
+        cmd.AddWithValue("@answer", answer);
+        cmd.AddWithValue("@feedback", JsonSerializer.Serialize(feedback));
+        cmd.AddWithValue("@score", feedback.Score);
+        cmd.AddWithValue("@createdAt", DateTime.UtcNow.ToString("O"));
 
         await cmd.ExecuteNonQueryAsync();
     }
