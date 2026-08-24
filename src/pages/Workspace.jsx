@@ -212,8 +212,10 @@ export default function Workspace() {
   const [readingStep, setReadingStep] = useState(null)
   const [pendingReadingStep, setPendingReadingStep] = useState(null)
   const [readingAnswer, setReadingAnswer] = useState('')
+  const [lastReadingAnswer, setLastReadingAnswer] = useState('')
   const [readingLoading, setReadingLoading] = useState(false)
   const [readingError, setReadingError] = useState(null)
+  const readingFeedbackRef = useRef(null)
   const [guidedStep, setGuidedStep] = useState(null)
   const [guidedLoading, setGuidedLoading] = useState(false)
   const [guidedError, setGuidedError] = useState(null)
@@ -226,6 +228,16 @@ export default function Workspace() {
   const [_conversationLoading, setConversationLoading] = useState(false)
   const [conversationError, setConversationError] = useState('')
   const [deletingConversationId, setDeletingConversationId] = useState(null)
+
+  // When grading completes, bring the feedback and the submitted answer into
+  // view. The coach content can be long enough that feedback otherwise lands
+  // above the user's current scroll position.
+  useEffect(() => {
+    if (!readingStep?.feedback) return
+    requestAnimationFrame(() => {
+      readingFeedbackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }, [readingStep?.feedback])
 
   // Active session (for this workspace)
   const [sessionId, setSessionId] = useState(() => {
@@ -246,7 +258,10 @@ export default function Workspace() {
         try {
           const created = await createSession(uploadId)
           sid = created?.sessionId || created?.id || null
-          if (sid) setSessionId(sid)
+          if (sid) {
+            setSessionId(sid)
+            navigate(`${location.pathname}?sessionId=${encodeURIComponent(sid)}`, { replace: true })
+          }
         } catch (err) {
           console.error('[Workspace] failed to create session', err)
         }
@@ -392,6 +407,7 @@ export default function Workspace() {
 
     setReadingLoading(true)
     setReadingError(null)
+    setLastReadingAnswer(answer)
     try {
       if (indexState !== 'ready') {
         setIndexState('indexing')
@@ -1021,6 +1037,17 @@ export default function Workspace() {
             })
 
         setConversationHistory(mapped)
+
+        // A direct refresh normally has no sessionId in the URL. Restore the
+        // most recent conversation for this upload so the chat transcript is
+        // not replaced by the greeting.
+        if (uploadId && !searchParams.get('sessionId')) {
+          const current = mapped.find(item => String(item.caseId) === String(uploadId))
+          if (current?.id) {
+            setSessionId(current.id)
+            navigate(`${location.pathname}?sessionId=${encodeURIComponent(current.id)}`, { replace: true })
+          }
+        }
       } catch (err) {
         console.error('[Workspace] failed to load conversation history', err)
         if (!cancelled) setConversationError(err?.message || 'Failed to load conversation history')
@@ -1033,7 +1060,7 @@ export default function Workspace() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [uploadId, navigate, location.pathname, searchParams])
 
   // If a sessionId is present in the URL, load its message history
   useEffect(() => {
@@ -1682,7 +1709,7 @@ export default function Workspace() {
                         </div>
 
                         {readingStep.feedback && (
-                          <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                          <div ref={readingFeedbackRef} className="scroll-mt-4 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
                             <div className="flex items-center gap-2 font-semibold">
                               <CheckCircle className="h-3.5 w-3.5" />
                               Feedback
@@ -1690,6 +1717,12 @@ export default function Workspace() {
                             <p className="mt-1">{readingStep.feedback.verdict}</p>
                             {readingStep.feedback.hint && (
                               <p className="mt-1 text-emerald-800">Coaching note: {readingStep.feedback.hint}</p>
+                            )}
+                            {lastReadingAnswer.trim() && (
+                              <div className="mt-2 rounded border border-emerald-200/80 bg-white/70 px-2 py-2 text-[#5C4C3C]">
+                                <span className="font-semibold text-emerald-900">Your answer:</span>{' '}
+                                {readingAnswer.trim()}
+                              </div>
                             )}
                           </div>
                         )}
