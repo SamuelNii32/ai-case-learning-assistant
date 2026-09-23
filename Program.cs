@@ -654,7 +654,7 @@ if (args.Any(arg => string.Equals(arg, "--verify-database", StringComparison.Ord
 
 app.MapAuthEndpoints(authSettings.JwtSecret, authSettings.JwtIssuer, authSettings.JwtAudience);
 app.MapDebugEndpoints(databaseOptions, app.Services.GetRequiredService<IUploadRepository>(), app.Services.GetRequiredService<ISessionRepository>());
-app.MapUploadEndpoints(connString);
+app.MapUploadEndpoints();
 app.MapTutorEndpoints(databaseOptions);
 
 

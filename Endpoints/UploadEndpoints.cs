@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Routing;
 using System.Text.Json;
 using Api.Extensions;
 using Api.Infrastructure;
+using Api.Services;
 using Microsoft.AspNetCore.RateLimiting;
 
 namespace Api.Endpoints;
@@ -9,137 +10,15 @@ namespace Api.Endpoints;
 public static class UploadEndpoints
 {
     public static IEndpointRouteBuilder MapUploadEndpoints(
-        this IEndpointRouteBuilder app,
-        string connString)
+        this IEndpointRouteBuilder app)
     {
 
 
-        // POST /uploads  (save PDF + minimal summary) — uses ABSOLUTE uploads path
-        app.MapPost("/uploads", async (HttpRequest request, HttpContext ctx, IWebHostEnvironment env, IDocumentStorage storage, IUploadRepository uploads) =>
-        {
-            var ownerId = ctx.GetCurrentUserId();
-            if (string.IsNullOrWhiteSpace(ownerId))
-            {
-                return Results.Unauthorized();
-            }
-
-            if (!request.HasFormContentType)
-                return Results.BadRequest("Use multipart/form-data.");
-
-            var form = await request.ReadFormAsync();
-            var file = form.Files.GetFile("file") ?? (form.Files.Count > 0 ? form.Files[0] : null);
-            if (file is null || file.Length == 0)
-            {
-                Console.WriteLine($"[UPLOAD DEBUG] ContentType={request.ContentType} Keys=[{string.Join(",", form.Keys)}] Files={form.Files.Count}");
-                return Results.BadRequest($"No file. ContentType={request.ContentType}; Keys=[{string.Join(",", form.Keys)}]; Files={form.Files.Count}");
-            }
-
-            var maxUploadBytes = GetLongEnv("MAX_UPLOAD_BYTES", 25L * 1024L * 1024L);
-            if (file.Length > maxUploadBytes)
-            {
-                return Results.BadRequest(new
-                {
-                    error = "File is too large.",
-                    maxBytes = maxUploadBytes
-                });
-            }
-
-            // PDF-only guard
-            var isPdf = string.Equals(file.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase)
-                        || Path.GetExtension(file.FileName).Equals(".pdf", StringComparison.OrdinalIgnoreCase);
-            if (!isPdf)
-                return Results.StatusCode(StatusCodes.Status415UnsupportedMediaType);
-
-            var uploadId = Guid.NewGuid();
-
-            var filePath = await storage.SavePdfAsync(uploadId, file, ctx.RequestAborted);
-
-            // --- Minimal analysis: pages + raster images + file size + uploadedAt ---
-            var uploadedAt = DateTime.UtcNow;
-
-            var fi = new FileInfo(filePath);
-            long fileSizeBytes = fi.Length;
-            double fileSizeMB = Math.Round(fileSizeBytes / (1024.0 * 1024.0), 2);
-
-            int pages;
-            using (var doc = new iText.Kernel.Pdf.PdfDocument(new iText.Kernel.Pdf.PdfReader(filePath)))
-            {
-                pages = doc.GetNumberOfPages();
-            }
-
-            var maxPages = GetIntEnv("MAX_UPLOAD_PAGES", 100);
-            if (pages > maxPages)
-            {
-                try
-                {
-                    await storage.DeleteArtifactsAsync(uploadId, ctx.RequestAborted);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[UPLOAD WARNING] Could not delete rejected PDF {filePath}: {ex.Message}");
-                }
-
-                return Results.BadRequest(new
-                {
-                    error = "PDF has too many pages.",
-                    pages,
-                    maxPages
-                });
-            }
-
-            int images = 0;
-
-            try
-            {
-                images = PdfImageUtils.CountRasterImagesExact(filePath);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[PDF IMAGE COUNT WARNING] Could not count images for {filePath}: {ex.Message}");
-            }
-            var figures = 0;
-            var tables = 0;
-            try
-            {
-                var layout = await DocumentLayoutAnalyzer.AnalyzeAndSaveAsync(uploadId, storage, ctx.RequestAborted);
-                figures = layout.Captions.Count(c => c.Kind.Equals("figure", StringComparison.OrdinalIgnoreCase));
-                tables = layout.Captions.Count(c => c.Kind.Equals("table", StringComparison.OrdinalIgnoreCase)) + layout.Tables.Count;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[LAYOUT WARNING] Could not analyze layout for {uploadId}: {ex.GetType().Name} - {ex.Message}");
-            }
-
-            var summary = new
-            {
-                uploadId,
-                fileName = file.FileName,
-                fileSizeBytes,
-                fileSizeMB,
-                pages,
-                counts = new { images, figures, tables },
-                uploadedAt = uploadedAt.ToString("o"),
-                generatedAt = DateTime.UtcNow.ToString("o")
-            };
-
-            await storage.WriteJsonAsync(uploadId, ".summary.json", summary, ctx.RequestAborted);
-
-            // Use the original filename from the upload (e.g. "Healthcare Case.pdf")
-            var originalFileName = Path.GetFileName(file.FileName);
-
-
-            await uploads.CreateAsync(
-                new UploadMetadata(uploadId, ownerId, filePath, originalFileName ?? "", DateTime.UtcNow),
-                ctx.RequestAborted);
-
-            return Results.Json(new { uploadId });
-
-
-           
-        })
+        // POST /uploads
+        app.MapPost("/uploads", HandlePostUploadAsync)
         .Accepts<IFormFile>("multipart/form-data")
         .RequireRateLimiting("Upload")
-        .Produces(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status201Created)
         .Produces(StatusCodes.Status400BadRequest)
         .Produces(StatusCodes.Status415UnsupportedMediaType);
 
@@ -262,15 +141,59 @@ public static class UploadEndpoints
         return app;
     }
 
-    private static long GetLongEnv(string name, long fallback)
+    public static async Task<IResult> HandlePostUploadAsync(
+        HttpRequest request,
+        HttpContext context,
+        IUploadProcessingService uploadProcessingService)
     {
-        var raw = Environment.GetEnvironmentVariable(name);
-        return long.TryParse(raw, out var value) && value > 0 ? value : fallback;
-    }
+        var ownerId = context.GetCurrentUserId();
+        if (string.IsNullOrWhiteSpace(ownerId))
+        {
+            return Results.Unauthorized();
+        }
 
-    private static int GetIntEnv(string name, int fallback)
-    {
-        var raw = Environment.GetEnvironmentVariable(name);
-        return int.TryParse(raw, out var value) && value > 0 ? value : fallback;
+        if (!request.HasFormContentType)
+        {
+            return Results.BadRequest(new { error = "Use multipart/form-data with a file field named 'file'." });
+        }
+
+        IFormCollection form;
+        try
+        {
+            form = await request.ReadFormAsync(context.RequestAborted);
+        }
+        catch (InvalidDataException)
+        {
+            return Results.BadRequest(new { error = "The multipart upload could not be read or exceeds the configured size limit." });
+        }
+
+        var file = form.Files.GetFile("file");
+        if (file is null)
+        {
+            return Results.BadRequest(new { error = "The multipart field 'file' is required." });
+        }
+
+        if (file.Length == 0)
+        {
+            return Results.BadRequest(new { error = "The multipart field 'file' must contain a non-empty PDF." });
+        }
+
+        var result = await uploadProcessingService.ProcessAsync(ownerId, file, context.RequestAborted);
+        if (result.Succeeded && result.UploadId is Guid uploadId)
+        {
+            return Results.Created($"/uploads/{uploadId}/summary", new { uploadId });
+        }
+
+        var errorBody = new
+        {
+            error = result.Error,
+            maxBytes = result.MaxBytes,
+            pages = result.Pages,
+            maxPages = result.MaxPages
+        };
+
+        return result.RejectionReason == UploadRejectionReason.UnsupportedMediaType
+            ? Results.Json(errorBody, statusCode: StatusCodes.Status415UnsupportedMediaType)
+            : Results.BadRequest(errorBody);
     }
 }

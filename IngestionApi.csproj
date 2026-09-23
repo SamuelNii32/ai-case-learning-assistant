@@ -7,7 +7,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<Compile Remove="uploads\**;artifacts\**;publish\**;deploy-out\**" />
+		<Compile Remove="uploads\**;artifacts\**;publish\**;deploy-out\**;IngestionApi.Tests\**" />
 		<Content Remove="uploads\**;artifacts\**;publish\**;deploy-out\**" />
 		<None Remove="uploads\**;artifacts\**;publish\**;deploy-out\**" />
 	</ItemGroup>

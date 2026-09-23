@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 using Api.Infrastructure;
+using Api.Services;
 using Microsoft.OpenApi.Models;
 using StackExchange.Redis;
 
@@ -47,6 +48,9 @@ public static class ServiceCollectionExtensions
 
         AddDocumentStorage(services, configuration);
         services.AddSingleton(DatabaseOptions.Load(configuration));
+        services.AddSingleton(UploadProcessingOptions.Load(configuration));
+        services.AddSingleton<IUploadPdfAnalyzer, UploadPdfAnalyzer>();
+        services.AddSingleton<IUploadProcessingService, UploadProcessingService>();
         services.AddSingleton<IUploadRepository, SqliteUploadRepository>();
         services.AddSingleton<IUserRepository, SqliteUserRepository>();
         services.AddSingleton<ISessionRepository, SqliteSessionRepository>();
