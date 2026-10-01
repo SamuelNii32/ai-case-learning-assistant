@@ -181,6 +181,41 @@ public sealed class UploadEndpointTests
 public sealed class UploadProcessingServiceTests
 {
     [Fact]
+    public async Task StagedPdfBytesReachStorageThroughStream()
+    {
+        const string pdfContents = "%PDF-staged-stream-contents";
+        var storage = new FakeDocumentStorage();
+        var service = CreateService(storage, new FakeUploadRepository(), SuccessfulAnalysis());
+
+        var result = await service.ProcessAsync("user-1", File("case.pdf", pdfContents));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(Encoding.UTF8.GetBytes(pdfContents), storage.SavedPdfBytes);
+    }
+
+    [Fact]
+    public void DocumentStorageSavePdfContractUsesStreamWithoutFormFile()
+    {
+        var storageTypes = new[]
+        {
+            typeof(IDocumentStorage),
+            typeof(LocalDocumentStorage),
+            typeof(AzureBlobDocumentStorage)
+        };
+
+        foreach (var storageType in storageTypes)
+        {
+            var method = Assert.Single(
+                storageType.GetMethods(),
+                method => method.Name == nameof(IDocumentStorage.SavePdfAsync));
+            var parameterTypes = method.GetParameters().Select(parameter => parameter.ParameterType).ToArray();
+
+            Assert.Equal(new[] { typeof(Guid), typeof(Stream), typeof(CancellationToken) }, parameterTypes);
+            Assert.DoesNotContain(typeof(IFormFile), parameterTypes);
+        }
+    }
+
+    [Fact]
     public async Task OversizedFileIsRejectedBeforeStorage()
     {
         var storage = new FakeDocumentStorage();
@@ -346,16 +381,18 @@ internal sealed class FakeUploadPdfAnalyzer(UploadPdfAnalysis result) : IUploadP
 internal sealed class FakeDocumentStorage : IDocumentStorage
 {
     public int SaveCount { get; private set; }
+    public byte[]? SavedPdfBytes { get; private set; }
     public int DeleteCount { get; private set; }
     public CancellationToken DeleteCancellationToken { get; private set; }
     public Exception? DeleteException { get; init; }
     public Dictionary<string, object> WrittenValues { get; } = new(StringComparer.Ordinal);
 
-    public async Task<string> SavePdfAsync(Guid uploadId, IFormFile file, CancellationToken cancellationToken = default)
+    public async Task<string> SavePdfAsync(Guid uploadId, Stream pdfStream, CancellationToken cancellationToken = default)
     {
         SaveCount++;
         await using var sink = new MemoryStream();
-        await file.CopyToAsync(sink, cancellationToken);
+        await pdfStream.CopyToAsync(sink, cancellationToken);
+        SavedPdfBytes = sink.ToArray();
         return Path.Combine(Path.GetTempPath(), "fake-document-cache", $"{uploadId}.pdf");
     }
 

@@ -24,7 +24,7 @@ public static class DocumentArtifactSuffixes
 
 public interface IDocumentStorage
 {
-    Task<string> SavePdfAsync(Guid uploadId, IFormFile file, CancellationToken cancellationToken = default);
+    Task<string> SavePdfAsync(Guid uploadId, Stream pdfStream, CancellationToken cancellationToken = default);
     Task<string?> GetPdfPathAsync(Guid uploadId, CancellationToken cancellationToken = default);
     Task<bool> PdfExistsAsync(Guid uploadId, CancellationToken cancellationToken = default);
     Task WriteJsonAsync(Guid uploadId, string suffix, object value, CancellationToken cancellationToken = default);
@@ -45,13 +45,13 @@ public sealed class LocalDocumentStorage : IDocumentStorage
         Directory.CreateDirectory(_uploadsRoot);
     }
 
-    public async Task<string> SavePdfAsync(Guid uploadId, IFormFile file, CancellationToken cancellationToken = default)
+    public async Task<string> SavePdfAsync(Guid uploadId, Stream pdfStream, CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(_uploadsRoot);
         var path = GetPath(uploadId, ".pdf");
 
         await using var outStream = File.Open(path, FileMode.Create, FileAccess.Write, FileShare.Read);
-        await file.CopyToAsync(outStream, cancellationToken);
+        await pdfStream.CopyToAsync(outStream, cancellationToken);
         return path;
     }
 
@@ -157,13 +157,13 @@ public sealed class AzureBlobDocumentStorage : IDocumentStorage
         Directory.CreateDirectory(_cacheRoot);
     }
 
-    public async Task<string> SavePdfAsync(Guid uploadId, IFormFile file, CancellationToken cancellationToken = default)
+    public async Task<string> SavePdfAsync(Guid uploadId, Stream pdfStream, CancellationToken cancellationToken = default)
     {
         var localPath = GetCachePath(uploadId, ".pdf");
         Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
         await using (var output = File.Open(localPath, FileMode.Create, FileAccess.Write, FileShare.Read))
         {
-            await file.CopyToAsync(output, cancellationToken);
+            await pdfStream.CopyToAsync(output, cancellationToken);
         }
 
         await EnsureContainerAsync(cancellationToken);

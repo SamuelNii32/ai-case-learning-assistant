@@ -114,8 +114,7 @@ public static class DatabaseVerification
         var pdfBytes = "%PDF-1.4 verification"u8.ToArray();
         await using (var pdfStream = new MemoryStream(pdfBytes))
         {
-            var formFile = new FormFile(pdfStream, 0, pdfBytes.Length, "file", "verification.pdf");
-            await storage.SavePdfAsync(artifactId, formFile, cancellationToken);
+            await storage.SavePdfAsync(artifactId, pdfStream, cancellationToken);
         }
 
         Ensure(await storage.PdfExistsAsync(artifactId, cancellationToken),

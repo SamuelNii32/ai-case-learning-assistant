@@ -221,15 +221,9 @@ public sealed class UploadProcessingService(
 
             await using (var stagedInput = File.OpenRead(stagingPath))
             {
-                var stagedFile = new FormFile(stagedInput, 0, stagedInput.Length, "file", originalFileName)
-                {
-                    Headers = new HeaderDictionary(),
-                    ContentType = "application/pdf"
-                };
-
                 // Cleanup is attempted even if a provider fails after a partial durable write.
                 durableWriteStarted = true;
-                durableFilePath = await storage.SavePdfAsync(uploadId, stagedFile, cancellationToken);
+                durableFilePath = await storage.SavePdfAsync(uploadId, stagedInput, cancellationToken);
             }
 
             if (analysis.Layout is not null)

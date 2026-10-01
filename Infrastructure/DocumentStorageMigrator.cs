@@ -36,8 +36,7 @@ public static class DocumentStorageMigrator
             }
 
             await using var stream = File.OpenRead(path);
-            var formFile = new FormFile(stream, 0, stream.Length, "file", Path.GetFileName(path));
-            await azureStorage.SavePdfAsync(uploadId, formFile, cancellationToken);
+            await azureStorage.SavePdfAsync(uploadId, stream, cancellationToken);
             pdfsCopied++;
         }
 
