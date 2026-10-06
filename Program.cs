@@ -83,7 +83,7 @@ if (args.Any(arg => string.Equals(arg, "--migrate-sqlite-to-postgres", StringCom
 }
 
 var authSettings = AuthSettings.Load(builder.Configuration);
-builder.Services.AddAppServices(builder.Configuration, authSettings);
+builder.Services.AddAppServices(builder.Configuration, builder.Environment, authSettings);
 // Read OpenAI config (API key + models)
 var openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
     ?? throw new InvalidOperationException("OPENAI_API_KEY not set.");

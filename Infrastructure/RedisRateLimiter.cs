@@ -142,8 +142,13 @@ public static class RedisRateLimiterApplicationExtensions
             }
 
             var partitionKey = RedisRateLimiter.GetPartitionKey(context);
+            var globalRateLimit = context.RequestServices.GetRequiredService<GlobalRateLimitSettings>();
             var global = await limiter.CheckAsync(
-                partitionKey, "global", 180, TimeSpan.FromMinutes(1), context.RequestAborted);
+                partitionKey,
+                "global",
+                globalRateLimit.PermitLimit,
+                globalRateLimit.Window,
+                context.RequestAborted);
             if (!global.IsAllowed)
             {
                 await RejectAsync(context, global, "global");
@@ -152,10 +157,11 @@ public static class RedisRateLimiterApplicationExtensions
 
             var policyName = context.GetEndpoint()?
                 .Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName;
+            var uploadRateLimit = context.RequestServices.GetRequiredService<UploadRateLimitSettings>();
             var policy = policyName switch
             {
                 "Auth" => (Limit: 10, Window: TimeSpan.FromMinutes(1)),
-                "Upload" => (Limit: 8, Window: TimeSpan.FromMinutes(10)),
+                "Upload" => (Limit: uploadRateLimit.PermitLimit, Window: uploadRateLimit.Window),
                 "Ai" => (Limit: 30, Window: TimeSpan.FromMinutes(1)),
                 _ => ((int Limit, TimeSpan Window)?)null
             };

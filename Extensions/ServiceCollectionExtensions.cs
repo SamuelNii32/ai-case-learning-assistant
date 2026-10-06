@@ -23,6 +23,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddAppServices(
         this IServiceCollection services,
         IConfiguration configuration,
+        IHostEnvironment environment,
         AuthSettings authSettings)
     {
         // Read OpenAI config (API key + models)
@@ -142,18 +143,51 @@ public static class ServiceCollectionExtensions
             options.MultipartHeadersLengthLimit = 64 * 1024;
         });
 
+        var uploadRateLimit = UploadRateLimitSettings.Load(configuration, environment);
+        var globalRateLimit = GlobalRateLimitSettings.Load(configuration, environment);
+        services.AddSingleton(uploadRateLimit);
+        services.AddSingleton(globalRateLimit);
+
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+            options.OnRejected = async (context, cancellationToken) =>
+            {
+                var httpContext = context.HttpContext;
+                var endpoint = httpContext.GetEndpoint();
+                var policyName = endpoint is null ? "global" : (endpoint.DisplayName ?? "endpoint");
+                var partition = GetClientPartitionKey(httpContext);
+                var retryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfterValue)
+                    ? retryAfterValue.ToString()
+                    : "unknown";
+
+                var logger = httpContext.RequestServices.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("RateLimiterDiagnostics");
+
+                logger.LogWarning(
+                    "Rate limiter rejected request. limiter={LimiterName} path={Path} method={Method} partition={Partition} retryAfter={RetryAfter} userAuthenticated={UserAuthenticated} endpoint={Endpoint} tokenLimit={TokenLimit} tokensPerPeriod={TokensPerPeriod}",
+                    policyName,
+                    httpContext.Request.Path.Value ?? "<unknown>",
+                    httpContext.Request.Method,
+                    partition,
+                    retryAfter,
+                    httpContext.User?.Identity?.IsAuthenticated == true,
+                    endpoint?.DisplayName ?? "none",
+                    globalRateLimit.PermitLimit,
+                    globalRateLimit.PermitLimit);
+
+                await Task.CompletedTask;
+            };
 
             options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
             {
                 var key = GetClientPartitionKey(ctx);
                 return RateLimitPartition.GetTokenBucketLimiter(key, _ => new TokenBucketRateLimiterOptions
                 {
-                    TokenLimit = 180,
-                    TokensPerPeriod = 180,
-                    ReplenishmentPeriod = TimeSpan.FromMinutes(1),
+                    TokenLimit = globalRateLimit.PermitLimit,
+                    TokensPerPeriod = globalRateLimit.PermitLimit,
+                    ReplenishmentPeriod = globalRateLimit.Window,
                     QueueLimit = 20,
                     QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                     AutoReplenishment = true
@@ -171,8 +205,8 @@ public static class ServiceCollectionExtensions
             options.AddPolicy("Upload", ctx =>
                 RateLimitPartition.GetFixedWindowLimiter(GetClientPartitionKey(ctx), _ => new FixedWindowRateLimiterOptions
                 {
-                    PermitLimit = 8,
-                    Window = TimeSpan.FromMinutes(10),
+                    PermitLimit = uploadRateLimit.PermitLimit,
+                    Window = uploadRateLimit.Window,
                     QueueLimit = 0
                 }));
 
