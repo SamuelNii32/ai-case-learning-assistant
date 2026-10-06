@@ -5,6 +5,8 @@ using Api.Endpoints;
 using Api.Infrastructure;
 using Api.Services;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -175,6 +177,186 @@ public sealed class UploadEndpointTests
             Headers = new HeaderDictionary(),
             ContentType = "application/pdf"
         };
+    }
+}
+
+public sealed class SqliteUploadRepositoryCaseSensitivityTests
+{
+    [Fact]
+    public async Task DeleteOwnedAsync_AllowsLowercaseRequestWhenStoredUploadIdUsesUppercase()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"case-insensitive-upload-{Guid.NewGuid():N}.db");
+        var uploadId = Guid.Parse("7861AD60-0B68-4C64-BF3F-7B8D5A5675F1");
+        try
+        {
+            Environment.SetEnvironmentVariable("DATABASE_PROVIDER", "sqlite");
+            Environment.SetEnvironmentVariable("SQLITE_CONNECTION_STRING", $"Data Source={dbPath};Cache=Shared");
+
+            await using (var conn = new SqliteConnection($"Data Source={dbPath};Cache=Shared"))
+            {
+                await conn.OpenAsync();
+                await CreateSchemaAsync(conn);
+
+                await using (var insert = conn.CreateCommand())
+                {
+                    insert.CommandText = @"
+                        INSERT INTO Uploads (UploadId, UserId, FilePath, OriginalFileName, CreatedAt)
+                        VALUES (@uploadId, @userId, @filePath, @fileName, @createdAt);";
+                    insert.Parameters.AddWithValue("@uploadId", uploadId.ToString().ToUpperInvariant());
+                    insert.Parameters.AddWithValue("@userId", "owner-1");
+                    insert.Parameters.AddWithValue("@filePath", "/tmp/case.pdf");
+                    insert.Parameters.AddWithValue("@fileName", "case.pdf");
+                    insert.Parameters.AddWithValue("@createdAt", DateTime.UtcNow.ToString("O"));
+                    await insert.ExecuteNonQueryAsync();
+                }
+            }
+
+            var config = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Database:Provider"] = "sqlite",
+                    ["ConnectionStrings:Sqlite"] = $"Data Source={dbPath};Cache=Shared"
+                })
+                .Build();
+
+            var repository = new SqliteUploadRepository(config);
+            var requestId = Guid.Parse("7861ad60-0b68-4c64-bf3f-7b8d5a5675f1");
+
+            var deleted = await repository.DeleteOwnedAsync(requestId, "owner-1");
+
+            Assert.NotNull(deleted);
+            Assert.Empty(deleted!);
+
+            await using (var conn = new SqliteConnection($"Data Source={dbPath};Cache=Shared"))
+            {
+                await conn.OpenAsync();
+                await using var countCmd = conn.CreateCommand();
+                countCmd.CommandText = "SELECT COUNT(*) FROM Uploads WHERE UploadId = @uploadId;";
+                countCmd.Parameters.AddWithValue("@uploadId", uploadId.ToString().ToUpperInvariant());
+                var count = Convert.ToInt64(await countCmd.ExecuteScalarAsync());
+                Assert.Equal(0L, count);
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DATABASE_PROVIDER", null);
+            Environment.SetEnvironmentVariable("SQLITE_CONNECTION_STRING", null);
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(dbPath))
+            {
+                File.Delete(dbPath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task DeleteOwnedAsync_RejectsDeletionWhenRequestUserDoesNotOwnUpload()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"case-insensitive-upload-owner-{Guid.NewGuid():N}.db");
+        var uploadId = Guid.Parse("2D8F2E80-DF8C-4A27-B3AA-25E8C8ED4A0A");
+        try
+        {
+            Environment.SetEnvironmentVariable("DATABASE_PROVIDER", "sqlite");
+            Environment.SetEnvironmentVariable("SQLITE_CONNECTION_STRING", $"Data Source={dbPath};Cache=Shared");
+
+            await using (var conn = new SqliteConnection($"Data Source={dbPath};Cache=Shared"))
+            {
+                await conn.OpenAsync();
+                await CreateSchemaAsync(conn);
+
+                await using (var insert = conn.CreateCommand())
+                {
+                    insert.CommandText = @"
+                        INSERT INTO Uploads (UploadId, UserId, FilePath, OriginalFileName, CreatedAt)
+                        VALUES (@uploadId, @userId, @filePath, @fileName, @createdAt);";
+                    insert.Parameters.AddWithValue("@uploadId", uploadId.ToString().ToUpperInvariant());
+                    insert.Parameters.AddWithValue("@userId", "owner-2");
+                    insert.Parameters.AddWithValue("@filePath", "/tmp/other.pdf");
+                    insert.Parameters.AddWithValue("@fileName", "other.pdf");
+                    insert.Parameters.AddWithValue("@createdAt", DateTime.UtcNow.ToString("O"));
+                    await insert.ExecuteNonQueryAsync();
+                }
+            }
+
+            var config = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Database:Provider"] = "sqlite",
+                    ["ConnectionStrings:Sqlite"] = $"Data Source={dbPath};Cache=Shared"
+                })
+                .Build();
+
+            var repository = new SqliteUploadRepository(config);
+            var requestId = Guid.Parse("2d8f2e80-df8c-4a27-b3aa-25e8c8ed4a0a");
+
+            var deleted = await repository.DeleteOwnedAsync(requestId, "other-user");
+
+            Assert.Null(deleted);
+
+            await using (var conn = new SqliteConnection($"Data Source={dbPath};Cache=Shared"))
+            {
+                await conn.OpenAsync();
+                await using var countCmd = conn.CreateCommand();
+                countCmd.CommandText = "SELECT COUNT(*) FROM Uploads WHERE UploadId = @uploadId AND UserId = @userId;";
+                countCmd.Parameters.AddWithValue("@uploadId", uploadId.ToString().ToUpperInvariant());
+                countCmd.Parameters.AddWithValue("@userId", "owner-2");
+                var count = Convert.ToInt64(await countCmd.ExecuteScalarAsync());
+                Assert.Equal(1L, count);
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DATABASE_PROVIDER", null);
+            Environment.SetEnvironmentVariable("SQLITE_CONNECTION_STRING", null);
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(dbPath))
+            {
+                File.Delete(dbPath);
+            }
+        }
+    }
+
+    private static async Task CreateSchemaAsync(SqliteConnection conn)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            CREATE TABLE IF NOT EXISTS Uploads (
+              UploadId TEXT PRIMARY KEY,
+              UserId TEXT NOT NULL,
+              FilePath TEXT NOT NULL,
+              Name TEXT NULL,
+              OriginalFileName TEXT NULL,
+              CreatedAt TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS Sessions (
+              Id TEXT PRIMARY KEY,
+              UserId TEXT NOT NULL,
+              UploadId TEXT NULL,
+              ClassId TEXT NULL,
+              CreatedAt TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS Messages (
+              Id INTEGER PRIMARY KEY AUTOINCREMENT,
+              SessionId TEXT NOT NULL,
+              Role TEXT NOT NULL,
+              Content TEXT NOT NULL,
+              Citations TEXT NULL,
+              PagesUsed TEXT NULL,
+              CreatedAt TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS Notes (
+              Id INTEGER PRIMARY KEY AUTOINCREMENT,
+              UserId TEXT NOT NULL,
+              SessionId TEXT NULL,
+              UploadId TEXT NULL,
+              Text TEXT NOT NULL,
+              CreatedAt TEXT NOT NULL
+            );
+        ";
+        await cmd.ExecuteNonQueryAsync();
     }
 }
 

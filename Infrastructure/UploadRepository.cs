@@ -230,7 +230,7 @@ LIMIT 1;";
             chk.CommandText = @"
                 SELECT 1
                 FROM Uploads
-                WHERE UploadId = @u AND UserId = @me
+                WHERE UPPER(UploadId) = UPPER(@u) AND UserId = @me
                 LIMIT 1;";
             chk.AddWithValue("@u", uploadId.ToString());
             chk.AddWithValue("@me", userId);
@@ -249,7 +249,7 @@ LIMIT 1;";
             scmd.CommandText = @"
                 SELECT Id
                 FROM Sessions
-                WHERE UploadId = @u AND UserId = @me;";
+                WHERE UPPER(UploadId) = UPPER(@u) AND UserId = @me;";
             scmd.AddWithValue("@u", uploadId.ToString());
             scmd.AddWithValue("@me", userId);
 
@@ -278,7 +278,7 @@ LIMIT 1;";
         await using (var n2 = conn.CreateCommand())
         {
             n2.Transaction = tx;
-            n2.CommandText = "DELETE FROM Notes WHERE UploadId = @u";
+            n2.CommandText = "DELETE FROM Notes WHERE UPPER(UploadId) = UPPER(@u)";
             n2.AddWithValue("@u", uploadId.ToString());
             await n2.ExecuteNonQueryAsync(cancellationToken);
         }
@@ -286,7 +286,7 @@ LIMIT 1;";
         await using (var scmd2 = conn.CreateCommand())
         {
             scmd2.Transaction = tx;
-            scmd2.CommandText = "DELETE FROM Sessions WHERE UploadId = @u AND UserId = @me";
+            scmd2.CommandText = "DELETE FROM Sessions WHERE UPPER(UploadId) = UPPER(@u) AND UserId = @me";
             scmd2.AddWithValue("@u", uploadId.ToString());
             scmd2.AddWithValue("@me", userId);
             await scmd2.ExecuteNonQueryAsync(cancellationToken);
@@ -295,7 +295,7 @@ LIMIT 1;";
         await using (var ucmd = conn.CreateCommand())
         {
             ucmd.Transaction = tx;
-            ucmd.CommandText = "DELETE FROM Uploads WHERE UploadId = @u AND UserId = @me";
+            ucmd.CommandText = "DELETE FROM Uploads WHERE UPPER(UploadId) = UPPER(@u) AND UserId = @me";
             ucmd.AddWithValue("@u", uploadId.ToString());
             ucmd.AddWithValue("@me", userId);
             await ucmd.ExecuteNonQueryAsync(cancellationToken);

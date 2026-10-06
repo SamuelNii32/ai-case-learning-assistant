@@ -1041,9 +1041,9 @@ SELECT
     cs.ClassId,
     cc.ClassId AS CaseClassId
 FROM Uploads u
-LEFT JOIN ClassCases cc ON cc.UploadId = u.UploadId
+LEFT JOIN ClassCases cc ON UPPER(cc.UploadId) = UPPER(u.UploadId)
 LEFT JOIN ClassStudents cs ON cs.ClassId = cc.ClassId
-WHERE u.UploadId = @u;
+WHERE UPPER(u.UploadId) = UPPER(@u);
 ";
     cmd.AddWithValue("@u", uploadId.ToString());
 
@@ -1084,7 +1084,7 @@ WHERE upper(u.UploadId) = upper(@u)
             SELECT 1
             FROM ClassCases cc
             JOIN ClassStudents cs ON cs.ClassId = cc.ClassId
-            WHERE cc.UploadId = u.UploadId
+            WHERE UPPER(cc.UploadId) = UPPER(u.UploadId)
               AND cs.StudentId = @me
         )
   )
@@ -2514,7 +2514,7 @@ app.MapPatch("/uploads/{uploadId:guid}/name", async (Guid uploadId, RenameUpload
     cmd.CommandText = @"
         UPDATE Uploads
         SET OriginalFileName = @name
-        WHERE UploadId = @u AND UserId = @me";
+        WHERE UPPER(UploadId) = UPPER(@u) AND UserId = @me";
     cmd.AddWithValue("@name", input.Name.Trim());
     cmd.AddWithValue("@u", uploadId);
     cmd.AddWithValue("@me", me);

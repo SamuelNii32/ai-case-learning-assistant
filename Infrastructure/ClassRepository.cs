@@ -1015,7 +1015,7 @@ WHERE Id = @uid;";
             fileCmd.CommandText = @"
 SELECT OriginalFileName
 FROM Uploads
-WHERE UploadId = @up;";
+WHERE UPPER(UploadId) = UPPER(@up);";
             fileCmd.AddWithValue("@up", uploadId);
 
             await using var reader = await fileCmd.ExecuteReaderAsync(cancellationToken);
@@ -1076,7 +1076,7 @@ ORDER BY CreatedAt ASC;";
             JOIN ClassCases cc ON cc.ClassId = cs.ClassId
             JOIN Classes c ON c.Id = cs.ClassId
             WHERE cs.StudentId = @studentId
-              AND cc.UploadId = @uploadId
+              AND UPPER(cc.UploadId) = UPPER(@uploadId)
               AND c.InstructorId = @instructorId
             LIMIT 1;";
         checkCmd.AddWithValue("@studentId", studentId);
