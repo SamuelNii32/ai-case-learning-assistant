@@ -12,6 +12,8 @@ import initPdfWorker from '@/lib/pdfjs-setup'
 import { API_BASE } from '@/config'
 import {
   buildIndex,
+  getIndexStatus,
+  waitForIndex,
   getAuthToken,
   getPagedItems,
   getUploadSummary,
@@ -671,29 +673,14 @@ export default function Workspace() {
     }
   }, [showFigures, uploadId])
 
-  // Check index status on server: inMemory | onDisk | none
+  // Observe the server-owned index job. POST is retained only as a self-healing
+  // fallback for legacy uploads created before server-side enqueueing existed.
   async function checkIndexStatus(uploadIdParam) {
     if (!uploadIdParam) return
     setIndexState('checking')
-    const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
-    const url = API_BASE
-      ? `${base}/index/status/${encodeURIComponent(uploadIdParam)}`
-      : `/index/status/${encodeURIComponent(uploadIdParam)}`
 
     try {
-      const token = getAuthToken()
-      const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch(url, { headers })
-      if (res.status === 404) {
-        // The upload record may remain in PostgreSQL after its local artifact
-        // was lost during an App Service redeploy. Do not start a rebuild for
-        // a document that the API has already confirmed is missing.
-        setIndexState('error')
-        setIndexSummary(null)
-        return
-      }
-      if (!res.ok) throw new Error(`Status ${res.status}`)
-      const js = await res.json()
+      const js = await getIndexStatus(uploadIdParam)
 
       // if index in memory or on disk -> consider it ready (lazy-load from disk)
       if (js?.inMemory === true || js?.onDisk === true) {
@@ -702,10 +689,17 @@ export default function Workspace() {
         return
       }
 
-      // otherwise build index automatically
+      const state = String(js?.state || js?.job?.status || '').toLowerCase()
+      if (state === 'failed') {
+        setIndexState('error')
+        return
+      }
+
       setIndexState('indexing')
       try {
-        const summary = await buildIndex(uploadIdParam)
+        const summary = ['queued', 'running'].includes(state)
+          ? await waitForIndex(uploadIdParam)
+          : await buildIndex(uploadIdParam)
         setIndexSummary(summary)
         setIndexState('ready')
       } catch (err) {
@@ -720,6 +714,13 @@ export default function Workspace() {
         setIndexState('error')
       }
     } catch (err) {
+      // The upload record may remain in PostgreSQL after its artifact was lost
+      // during a deployment. Do not start a rebuild for a confirmed 404.
+      if (/\b404\b|PDF not found/i.test(String(err?.message || err))) {
+        setIndexState('error')
+        setIndexSummary(null)
+        return
+      }
       console.error('Failed to fetch index status', err)
       // do not show toast; surface retry via button
       setIndexState('error')

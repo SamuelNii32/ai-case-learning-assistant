@@ -76,27 +76,13 @@ export default function UploadPage() {
       const fd = new FormData()
       fd.append('file', file)
       // use centralized API helper
-      const { uploadFile, getUploadSummary, buildIndex } = await import('../lib/api')
+      const { uploadFile, getUploadSummary } = await import('../lib/api')
       const data = await uploadFile(fd)
       setUploadId(data.uploadId)
 
       setUploadState('processing')
       setUploadProgress(60)
       setAnalysisPrepStatus('preparing')
-
-      // Start indexing immediately and let it run while summary polling happens.
-      // Waiting here makes the workspace feel faster because Q&A/Reading Coach
-      // can use the index as soon as the student opens the document.
-      const indexPromise = buildIndex(data.uploadId)
-        .then(summary => {
-          setAnalysisPrepStatus('ready')
-          return summary
-        })
-        .catch(idxErr => {
-          console.error('Index build failed after upload', idxErr)
-          setAnalysisPrepStatus('error')
-          return null
-        })
 
       // Fetch summary with short retry/poll loop so the UI can proceed quickly but
       // still pick up summary info as soon as the backend produces it.
@@ -137,13 +123,8 @@ export default function UploadPage() {
       setUploadDate(new Date(s.uploadedAt ?? Date.now()).toLocaleString())
 
       setUploadProgress(85)
-      const indexSummary = await indexPromise
-      if (indexSummary) {
-        setAnalysisPrepStatus('ready')
-      } else {
-        toast.error('Document uploaded, but Q&A preparation failed. You can retry in the workspace.')
-      }
-
+      // The API enqueues indexing as part of accepting the upload. Do not keep
+      // this browser request open while the background worker processes it.
       setUploadProgress(100)
       // Notify other parts of the app (Dashboard) that a new case uploaded so they can refresh
       try {

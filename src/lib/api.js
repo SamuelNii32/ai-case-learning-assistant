@@ -170,20 +170,31 @@ export async function buildIndex(uploadId) {
     return initial?.result || initial
   }
 
-  const statusUrl = makeUrl(`/index/status/${encodeURIComponent(uploadId)}`)
-  for (let attempt = 0; attempt < 90; attempt += 1) {
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    const statusRes = await fetch(statusUrl, { headers: { ...authHeaders() } })
-    if (statusRes.status === 401) {
-      const txt = await statusRes.text().catch(() => '')
-      await handleAuthFailure(statusRes, txt, `/index/status/${encodeURIComponent(uploadId)}`)
-      throw new Error('Indexing failed: 401')
-    }
-    if (!statusRes.ok) {
-      const text = await statusRes.text().catch(() => '')
-      throw new Error(`Index status failed: ${statusRes.status} ${text}`)
-    }
-    const status = await statusRes.json()
+  return waitForIndex(uploadId)
+}
+
+export async function getIndexStatus(uploadId) {
+  const endpoint = `/index/status/${encodeURIComponent(uploadId)}`
+  const statusRes = await fetch(makeUrl(endpoint), { headers: { ...authHeaders() } })
+  if (statusRes.status === 401) {
+    const text = await statusRes.text().catch(() => '')
+    await handleAuthFailure(statusRes, text, endpoint)
+    throw new Error('Index status failed: 401')
+  }
+  if (!statusRes.ok) {
+    const text = await statusRes.text().catch(() => '')
+    throw new Error(`Index status failed: ${statusRes.status} ${text}`)
+  }
+  return statusRes.json()
+}
+
+export async function waitForIndex(
+  uploadId,
+  { timeoutMs = 15 * 60 * 1000, pollIntervalMs = 2000 } = {}
+) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const status = await getIndexStatus(uploadId)
     const state = String(status?.state || status?.job?.status || '').toLowerCase()
     if (state === 'completed' || status?.inMemory === true || status?.onDisk === true) {
       return status?.result || status
@@ -191,6 +202,7 @@ export async function buildIndex(uploadId) {
     if (state === 'failed') {
       throw new Error(`Indexing failed: ${status?.error || status?.job?.lastError || 'worker failed'}`)
     }
+    await new Promise(resolve => setTimeout(resolve, pollIntervalMs))
   }
 
   throw new Error('Indexing timed out while waiting for the background worker')
