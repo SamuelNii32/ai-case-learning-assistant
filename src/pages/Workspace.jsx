@@ -409,7 +409,7 @@ export default function Workspace() {
 
     setReadingLoading(true)
     setReadingError(null)
-    setLastReadingAnswer(answer)
+    setLastReadingAnswer('')
     try {
       if (indexState !== 'ready') {
         setIndexState('indexing')
@@ -476,6 +476,7 @@ export default function Workspace() {
 
     setReadingLoading(true)
     setReadingError(null)
+    setLastReadingAnswer(answer)
     try {
       const next = await answerReadingCoach(readingStep.sessionId, readingStep.stepId, answer)
       if (next?.feedback && next?.stage === 'retry') {
@@ -577,19 +578,6 @@ export default function Workspace() {
 
   function updateAssistantMessage(assistantId, patch) {
     setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, ...patch } : m)))
-  }
-
-  async function handleStartIndex() {
-    if (!uploadId) return
-    try {
-      setIndexState('indexing')
-      const summary = await buildIndex(uploadId)
-      setIndexSummary(summary)
-      setIndexState('ready')
-    } catch (err) {
-      console.error('Index build failed', err)
-      setIndexState('error')
-    }
   }
 
   function normalizeLayoutEvidence(layout) {
@@ -1139,7 +1127,7 @@ export default function Workspace() {
   const [pdfLoadError, setPdfLoadError] = useState(null)
   const [uploadDate, setUploadDate] = useState(null)
   const [indexState, setIndexState] = useState('not-indexed') // 'not-indexed' | 'indexing' | 'ready' | 'error'
-  const [indexSummary, setIndexSummary] = useState(null)
+  const [, setIndexSummary] = useState(null)
   const sseRef = useRef(null)
   const retriedRef = useRef(false)
 
@@ -1944,31 +1932,23 @@ export default function Workspace() {
 
                 {/* Input */}
                 <div className="border-t border-[#e4d6c7] p-4 bg-white sticky bottom-0 z-20">
-                  {/* Indexing control */}
-                  {uploadId && indexState !== 'ready' && (
-                    <div className="mb-3 flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant={
-                          indexState === 'indexing' || indexState === 'checking'
-                            ? 'secondary'
-                            : 'outline'
-                        }
-                        onClick={handleStartIndex}
-                        disabled={indexState === 'indexing' || indexState === 'checking'}
-                      >
-                        {indexState === 'not-indexed' && 'Start Q&A'}
-                        {indexState === 'checking' && 'Checking…'}
-                        {indexState === 'indexing' && 'Indexing…'}
-                        {indexState === 'error' && 'Rebuild index'}
-                      </Button>
+                  {uploadId && (indexState === 'checking' || indexState === 'indexing') && (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="mb-3 flex items-center gap-2 text-xs text-muted-foreground"
+                    >
+                      <Clock className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
+                      Preparing this document for questions…
                     </div>
                   )}
-                  {indexState === 'ready' && indexSummary && (
-                    <div className="mb-3 text-xs text-muted-foreground">
-                      {indexSummary.pagesIndexed || indexSummary.indexed || indexSummary.count
-                        ? `${indexSummary.pagesIndexed || indexSummary.indexed || indexSummary.count} pages indexed`
-                        : 'Index ready'}
+                  {uploadId && indexState === 'error' && (
+                    <div
+                      role="alert"
+                      className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                    >
+                      This document is not ready for questions yet. Send your question to retry
+                      automatically.
                     </div>
                   )}
                   <div className="flex gap-2 items-start">
