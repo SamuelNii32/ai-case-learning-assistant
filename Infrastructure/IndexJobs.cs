@@ -32,7 +32,19 @@ public sealed record IndexJobRecord(
     string? LastHeartbeatAt
 );
 
-public sealed class IndexJobStore
+public interface IIndexJobQueue
+{
+    Task<IndexJobRecord> EnqueueAsync(
+        Guid uploadId,
+        string? requestedBy,
+        CancellationToken cancellationToken = default);
+
+    Task RemoveAsync(
+        Guid uploadId,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class IndexJobStore : IIndexJobQueue
 {
     private readonly DatabaseOptions _dbOptions;
 
@@ -103,6 +115,17 @@ WHERE UploadId = @uploadId
         }
 
         return (await GetAsync(uploadId, cancellationToken))!;
+    }
+
+    public async Task RemoveAsync(Guid uploadId, CancellationToken cancellationToken = default)
+    {
+        await using var conn = _dbOptions.CreateConnection();
+        await conn.OpenAsync(cancellationToken);
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM IndexJobs WHERE UPPER(UploadId) = UPPER(@uploadId);";
+        cmd.AddWithValue("@uploadId", uploadId.ToString());
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task<IndexJobRecord?> TryClaimNextAsync(string workerId, TimeSpan staleAfter, CancellationToken cancellationToken = default)

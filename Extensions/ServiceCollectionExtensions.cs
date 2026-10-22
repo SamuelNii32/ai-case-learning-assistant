@@ -60,6 +60,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITutorRepository, SqliteTutorRepository>();
         services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>();
         services.AddSingleton<IndexJobStore>();
+        services.AddSingleton<IIndexJobQueue>(sp => sp.GetRequiredService<IndexJobStore>());
         services.AddSingleton<IndexingService>();
         services.AddCasePilotObservability(configuration, CasePilotTelemetry.ServiceName);
 

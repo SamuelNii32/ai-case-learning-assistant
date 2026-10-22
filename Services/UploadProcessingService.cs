@@ -147,6 +147,7 @@ public sealed class UploadProcessingService(
     IDocumentStorage storage,
     IUploadRepository uploads,
     IUploadPdfAnalyzer analyzer,
+    IIndexJobQueue indexJobs,
     UploadProcessingOptions options,
     ILogger<UploadProcessingService> logger) : IUploadProcessingService
 {
@@ -178,6 +179,7 @@ public sealed class UploadProcessingService(
         var stagingRoot = Path.Combine(Path.GetTempPath(), "casepilot-upload-staging");
         var stagingPath = Path.Combine(stagingRoot, $"{Guid.NewGuid():N}.pdf");
         var durableWriteStarted = false;
+        var metadataCreated = false;
 
         try
         {
@@ -263,12 +265,44 @@ public sealed class UploadProcessingService(
             await uploads.CreateAsync(
                 new UploadMetadata(uploadId, ownerId, durableFilePath, originalFileName, uploadedAt),
                 cancellationToken);
+            metadataCreated = true;
+
+            // The durable queue is part of the server-side upload lifecycle. The
+            // browser must not be responsible for starting document processing.
+            await indexJobs.EnqueueAsync(uploadId, ownerId, cancellationToken);
 
             return UploadProcessingResult.Created(uploadId);
         }
         catch (Exception originalException) when (durableWriteStarted)
         {
             logger.LogError(originalException, "Upload processing failed after durable storage started for {UploadId}", uploadId);
+            if (metadataCreated)
+            {
+                try
+                {
+                    await indexJobs.RemoveAsync(uploadId, CancellationToken.None);
+                }
+                catch (Exception cleanupException)
+                {
+                    logger.LogError(
+                        cleanupException,
+                        "Index job cleanup failed for upload {UploadId} after upload processing failed.",
+                        uploadId);
+                }
+
+                try
+                {
+                    await uploads.DeleteOwnedAsync(uploadId, ownerId, CancellationToken.None);
+                }
+                catch (Exception cleanupException)
+                {
+                    logger.LogError(
+                        cleanupException,
+                        "Upload metadata cleanup failed for upload {UploadId} after upload processing failed.",
+                        uploadId);
+                }
+            }
+
             try
             {
                 await storage.DeleteArtifactsAsync(uploadId, CancellationToken.None);

@@ -23,6 +23,7 @@ public sealed class UploadEndpointTests
             storage,
             new FakeUploadRepository(),
             new UploadPdfAnalyzer(NullLogger<UploadPdfAnalyzer>.Instance),
+            new FakeIndexJobQueue(),
             new UploadProcessingOptions(1024 * 1024, 10),
             NullLogger<UploadProcessingService>.Instance);
         var context = CreateContext(FormWith(ValidPdfFile("file", "case.pdf")));
@@ -91,6 +92,7 @@ public sealed class UploadEndpointTests
                 new LayoutManifest(Guid.NewGuid(), DateTime.UtcNow, [], [], []),
                 AnalysisOutcome.Succeeded(),
                 AnalysisOutcome.Succeeded())),
+            new FakeIndexJobQueue(),
             new UploadProcessingOptions(3, 10),
             NullLogger<UploadProcessingService>.Instance);
         var context = CreateContext(FormWith(File("file", "case.pdf", "1234")));
@@ -110,6 +112,7 @@ public sealed class UploadEndpointTests
             storage,
             new FakeUploadRepository(),
             new UploadPdfAnalyzer(NullLogger<UploadPdfAnalyzer>.Instance),
+            new FakeIndexJobQueue(),
             new UploadProcessingOptions(1024, 10),
             NullLogger<UploadProcessingService>.Instance);
         var context = CreateContext(FormWith(File("file", "renamed.pdf", "not really a PDF")));
@@ -363,6 +366,40 @@ public sealed class SqliteUploadRepositoryCaseSensitivityTests
 public sealed class UploadProcessingServiceTests
 {
     [Fact]
+    public async Task SuccessfulUploadEnqueuesIndexJobOnServer()
+    {
+        var storage = new FakeDocumentStorage();
+        var repository = new FakeUploadRepository();
+        var queue = new FakeIndexJobQueue();
+        var service = CreateService(storage, repository, SuccessfulAnalysis(), queue: queue);
+
+        var result = await service.ProcessAsync("user-1", File("case.pdf", "%PDF-staged"));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(result.UploadId, queue.EnqueuedUploadId);
+        Assert.Equal("user-1", queue.RequestedBy);
+    }
+
+    [Fact]
+    public async Task IndexEnqueueFailureCompensatesMetadataAndArtifacts()
+    {
+        var storage = new FakeDocumentStorage();
+        var repository = new FakeUploadRepository();
+        var queue = new FakeIndexJobQueue
+        {
+            EnqueueException = new InvalidOperationException("queue unavailable")
+        };
+        var service = CreateService(storage, repository, SuccessfulAnalysis(), queue: queue);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ProcessAsync("user-1", File("case.pdf", "%PDF-staged")));
+
+        Assert.Equal(1, queue.RemoveCount);
+        Assert.Equal(1, repository.DeleteCount);
+        Assert.Equal(1, storage.DeleteCount);
+    }
+
+    [Fact]
     public async Task StagedPdfBytesReachStorageThroughStream()
     {
         const string pdfContents = "%PDF-staged-stream-contents";
@@ -511,11 +548,13 @@ public sealed class UploadProcessingServiceTests
         FakeUploadRepository repository,
         IUploadPdfAnalyzer analyzer,
         long maxBytes = 1024,
-        int maxPages = 100) =>
+        int maxPages = 100,
+        IIndexJobQueue? queue = null) =>
         new(
             storage,
             repository,
             analyzer,
+            queue ?? new FakeIndexJobQueue(),
             new UploadProcessingOptions(maxBytes, maxPages),
             NullLogger<UploadProcessingService>.Instance);
 
@@ -623,6 +662,7 @@ internal sealed class FakeUploadRepository : IUploadRepository
 {
     public Exception? CreateException { get; init; }
     public Action? OnCreate { get; set; }
+    public int DeleteCount { get; private set; }
 
     public Task CreateAsync(UploadMetadata upload, CancellationToken cancellationToken = default)
     {
@@ -642,5 +682,50 @@ internal sealed class FakeUploadRepository : IUploadRepository
     public Task<List<UploadListRecord>> ListMineAsync(string userId, CancellationToken cancellationToken = default) => Task.FromResult(new List<UploadListRecord>());
     public Task<List<UploadListRecord>> ListAllAsync(CancellationToken cancellationToken = default) => Task.FromResult(new List<UploadListRecord>());
     public Task<string?> GetDisplayNameAsync(Guid uploadId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
-    public Task<List<string>?> DeleteOwnedAsync(Guid uploadId, string userId, CancellationToken cancellationToken = default) => Task.FromResult<List<string>?>(null);
+    public Task<List<string>?> DeleteOwnedAsync(Guid uploadId, string userId, CancellationToken cancellationToken = default)
+    {
+        DeleteCount++;
+        return Task.FromResult<List<string>?>([]);
+    }
+}
+
+internal sealed class FakeIndexJobQueue : IIndexJobQueue
+{
+    public Exception? EnqueueException { get; init; }
+    public Guid? EnqueuedUploadId { get; private set; }
+    public string? RequestedBy { get; private set; }
+    public int RemoveCount { get; private set; }
+
+    public Task<IndexJobRecord> EnqueueAsync(
+        Guid uploadId,
+        string? requestedBy,
+        CancellationToken cancellationToken = default)
+    {
+        if (EnqueueException is not null)
+        {
+            throw EnqueueException;
+        }
+
+        EnqueuedUploadId = uploadId;
+        RequestedBy = requestedBy;
+        return Task.FromResult(new IndexJobRecord(
+            uploadId,
+            "queued",
+            requestedBy,
+            DateTimeOffset.UtcNow.ToString("O"),
+            null,
+            null,
+            0,
+            null,
+            null,
+            null,
+            null,
+            null));
+    }
+
+    public Task RemoveAsync(Guid uploadId, CancellationToken cancellationToken = default)
+    {
+        RemoveCount++;
+        return Task.CompletedTask;
+    }
 }
