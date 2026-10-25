@@ -4,12 +4,20 @@
 		<TargetFramework>net9.0</TargetFramework>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
+		<!--
+			Keep repository-local build, test, frontend, and deployment outputs out of
+			MSBuild's default item globs. Without this, the web project can copy the
+			test output back into its own output (and vice versa), producing recursively
+			nested bin folders that make project evaluation and `dotnet run` extremely slow.
+		-->
+		<RepositoryGeneratedFiles>bin\**;obj\**;artifacts\**;uploads\**;publish\**;publish-clean\**;deploy-out\**;deploy-staging\**;output\**;tmp\**;zip-verify\**;node_modules\**;performance\results\**;IngestionApi.Tests\**;*.zip</RepositoryGeneratedFiles>
+		<DefaultItemExcludes>$(DefaultItemExcludes);$(RepositoryGeneratedFiles)</DefaultItemExcludes>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<Compile Remove="uploads\**;artifacts\**;publish\**;deploy-out\**;IngestionApi.Tests\**" />
-		<Content Remove="uploads\**;artifacts\**;publish\**;deploy-out\**" />
-		<None Remove="uploads\**;artifacts\**;publish\**;deploy-out\**" />
+		<Compile Remove="$(RepositoryGeneratedFiles)" />
+		<Content Remove="$(RepositoryGeneratedFiles)" />
+		<None Remove="$(RepositoryGeneratedFiles)" />
 	</ItemGroup>
 
 	<ItemGroup>
