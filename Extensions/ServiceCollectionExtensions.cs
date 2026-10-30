@@ -15,6 +15,7 @@ using Api.Infrastructure;
 using Api.Services;
 using Microsoft.OpenApi.Models;
 using StackExchange.Redis;
+using Microsoft.AspNetCore.DataProtection;
 
 namespace Api.Extensions;
 
@@ -24,7 +25,8 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration,
         IHostEnvironment environment,
-        AuthSettings authSettings)
+        AuthSettings authSettings,
+        Auth0BffSettings auth0Settings)
     {
         // Read OpenAI config (API key + models)
         var openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
@@ -54,6 +56,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IUploadProcessingService, UploadProcessingService>();
         services.AddSingleton<IUploadRepository, SqliteUploadRepository>();
         services.AddSingleton<IUserRepository, SqliteUserRepository>();
+        services.AddSingleton<IUserIdentityRepository, UserIdentityRepository>();
         services.AddSingleton<ISessionRepository, SqliteSessionRepository>();
         services.AddSingleton<IMessageRepository, SqliteMessageRepository>();
         services.AddSingleton<IClassRepository, SqliteClassRepository>();
@@ -63,6 +66,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IIndexJobQueue>(sp => sp.GetRequiredService<IndexJobStore>());
         services.AddSingleton<IndexingService>();
         services.AddCasePilotObservability(configuration, CasePilotTelemetry.ServiceName);
+
+        services.AddCasePilotDataProtection(configuration, environment, auth0Settings.Enabled);
 
         if (ShouldRunBackgroundWorker(configuration))
         {
@@ -92,6 +97,9 @@ public static class ServiceCollectionExtensions
         {
             options.AddPolicy("InstructorOnly", p => p.RequireClaim("role", "instructor"));
             options.AddPolicy("StudentOnly", p => p.RequireClaim("role", "student"));
+            options.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+                .RequireAuthenticatedUser()
+                .Build();
         });
 
         var healthChecks = services.AddHealthChecks()
@@ -129,7 +137,14 @@ public static class ServiceCollectionExtensions
         services.AddCors(options =>
         {
             options.AddPolicy("FrontendDev", p => p
-                .WithOrigins("http://localhost:5174", "http://localhost:3000", "http://localhost:4173", "https://ai-case-learning-assistant.vercel.app", "https://ai-case-learning-assistant-rku540uom.vercel.app")
+                .SetIsOriginAllowed(origin =>
+                {
+                    if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri)) return false;
+                    if (uri.Scheme is not ("http" or "https")) return false;
+                    if (uri.Host is "localhost" or "127.0.0.1" or "ai-case-learning-assistant.vercel.app") return true;
+                    return uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase)
+                        && uri.Host.StartsWith("ai-case-learning-assistant-", StringComparison.OrdinalIgnoreCase);
+                })
                 .AllowAnyHeader()
                 .AllowAnyMethod()
                 .AllowCredentials());

@@ -2,18 +2,42 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Api.Infrastructure;
+using Api.Extensions;
 
 public static class WebApplicationExtensions
 {
     public static WebApplication UseAppPipeline(this WebApplication app)
     {
-        if (string.Equals(
+        var trustForwardedHeaders = string.Equals(
             Environment.GetEnvironmentVariable("TRUST_FORWARDED_HEADERS")
                 ?? app.Configuration["Proxy:TrustForwardedHeaders"]
                 ?? Environment.GetEnvironmentVariable("RENDER"),
             "true",
-            StringComparison.OrdinalIgnoreCase))
+            StringComparison.OrdinalIgnoreCase);
+        if (trustForwardedHeaders)
         {
+            var expectedFrontDoorId = (Environment.GetEnvironmentVariable("AZURE_FRONT_DOOR_ID")
+                ?? app.Configuration["Proxy:AzureFrontDoorId"] ?? "").Trim();
+            if (app.Environment.IsProduction() && string.IsNullOrWhiteSpace(expectedFrontDoorId))
+                throw new InvalidOperationException(
+                    "AZURE_FRONT_DOOR_ID is required when forwarded headers are trusted in Production.");
+
+            if (!string.IsNullOrWhiteSpace(expectedFrontDoorId))
+            {
+                app.Use(async (context, next) =>
+                {
+                    if (!string.Equals(
+                            context.Request.Headers["X-Azure-FDID"].FirstOrDefault(),
+                            expectedFrontDoorId,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        return;
+                    }
+                    await next();
+                });
+            }
+
             var forwardedHeaders = new ForwardedHeadersOptions
             {
                 ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
@@ -77,6 +101,24 @@ public static class WebApplicationExtensions
             await next();
         });
 
+        app.Use(async (context, next) =>
+        {
+            context.Response.OnStarting(() =>
+            {
+                if (context.User.Identity?.IsAuthenticated == true
+                    || context.Request.Path.StartsWithSegments("/bff")
+                    || context.Request.Path.StartsWithSegments("/signin-auth0")
+                    || context.Request.Path.StartsWithSegments("/signout-callback-auth0"))
+                {
+                    context.Response.Headers.CacheControl = "no-store, max-age=0";
+                    context.Response.Headers.Pragma = "no-cache";
+                    context.Response.Headers.Vary = "Cookie";
+                }
+                return Task.CompletedTask;
+            });
+            await next();
+        });
+
         app.UseCors("FrontendDev");
         app.MapHealthChecks("/healthz", HealthResponseWriter.LivenessOptions)
             .AllowAnonymous()
@@ -89,10 +131,33 @@ public static class WebApplicationExtensions
             .DisableRateLimiting();
         if (app.Environment.IsProduction())
         {
+            app.UseHsts();
             app.UseHttpsRedirection();
         }
 
         app.UseAuthentication();
+        app.UseMiddleware<CasePilotAuthenticationBridgeMiddleware>();
+        app.Use(async (context, next) =>
+        {
+            var endpoint = context.GetEndpoint();
+            var policyName = endpoint is null ? "global" : endpoint.DisplayName ?? "endpoint";
+            var partition = context.User?.FindFirst("sub")?.Value is { Length: > 0 } value
+                ? $"user:{value}"
+                : $"ip:{context.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+
+            var logger = context.RequestServices.GetRequiredService<ILoggerFactory>()
+                .CreateLogger("RateLimiterDiagnostics");
+
+            logger.LogInformation(
+                "Rate limiter pre-check path={Path} method={Method} limiter={Limiter} partition={Partition} userAuthenticated={UserAuthenticated}",
+                context.Request.Path.Value ?? "<unknown>",
+                context.Request.Method,
+                policyName,
+                partition,
+                context.User?.Identity?.IsAuthenticated == true);
+
+            await next();
+        });
         app.UseRedisRateLimiter();
         app.UseRateLimiter();
         app.UseAuthorization();

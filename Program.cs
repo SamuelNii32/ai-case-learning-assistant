@@ -83,7 +83,16 @@ if (args.Any(arg => string.Equals(arg, "--migrate-sqlite-to-postgres", StringCom
 }
 
 var authSettings = AuthSettings.Load(builder.Configuration);
-builder.Services.AddAppServices(builder.Configuration, builder.Environment, authSettings);
+var auth0BffSettings = Auth0BffSettings.Load(builder.Configuration, builder.Environment);
+var auth0BffApiSettings = DevelopmentAuth0ApiSettings.Load(
+    builder.Configuration, auth0BffSettings, builder.Environment);
+var auth0ProvisioningSettings = Auth0ProvisioningSettings.Load(builder.Configuration);
+builder.Services.AddSingleton(auth0BffSettings);
+builder.Services.AddSingleton(auth0BffApiSettings);
+builder.Services.AddSingleton(auth0ProvisioningSettings);
+builder.Services.AddSingleton<Auth0ProvisioningService>();
+builder.Services.AddAppServices(builder.Configuration, builder.Environment, authSettings, auth0BffSettings);
+builder.Services.AddDevelopmentAuth0Bff(builder.Environment, auth0BffSettings, auth0BffApiSettings);
 // Read OpenAI config (API key + models)
 var openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
     ?? throw new InvalidOperationException("OPENAI_API_KEY not set.");
@@ -202,7 +211,17 @@ CREATE TABLE IF NOT EXISTS Users (
   PasswordHash TEXT NOT NULL,
   CreatedAt TEXT NOT NULL,
   FullName TEXT NULL,
-  IsSuperUser INTEGER NOT NULL DEFAULT 0
+  IsSuperUser INTEGER NOT NULL DEFAULT 0,
+  IsDisabled INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS UserIdentities (
+  Provider TEXT NOT NULL,
+  ProviderSubject TEXT NOT NULL,
+  UserId TEXT NOT NULL,
+  CreatedAt TEXT NOT NULL,
+  PRIMARY KEY (Provider, ProviderSubject),
+  FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE RESTRICT
 );
 
 CREATE TABLE IF NOT EXISTS Sessions (
@@ -333,7 +352,17 @@ CREATE TABLE IF NOT EXISTS Users (
   PasswordHash TEXT NOT NULL,
   CreatedAt TEXT NOT NULL,
   FullName TEXT NULL,
-  IsSuperUser INTEGER NOT NULL DEFAULT 0
+  IsSuperUser INTEGER NOT NULL DEFAULT 0,
+  IsDisabled INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS UserIdentities (
+  Provider TEXT NOT NULL,
+  ProviderSubject TEXT NOT NULL,
+  UserId TEXT NOT NULL,
+  CreatedAt TEXT NOT NULL,
+  PRIMARY KEY (Provider, ProviderSubject),
+  FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE RESTRICT
 );
 
 CREATE TABLE IF NOT EXISTS Sessions (
@@ -485,6 +514,7 @@ CREATE INDEX IF NOT EXISTS IX_ClassStudents_StudentId_ClassId ON ClassStudents (
 CREATE INDEX IF NOT EXISTS IX_ClassCases_ClassId_UploadId ON ClassCases (ClassId, UploadId);
 CREATE INDEX IF NOT EXISTS IX_TutorSessions_UserId_UploadId_Focus ON TutorSessions (UserId, UploadId, Focus);
 CREATE INDEX IF NOT EXISTS IX_Users_Email ON Users (Email);
+CREATE INDEX IF NOT EXISTS IX_UserIdentities_UserId ON UserIdentities (UserId);
 CREATE INDEX IF NOT EXISTS IX_IndexJobs_Status_CreatedAt ON IndexJobs (Status, CreatedAt);
 CREATE INDEX IF NOT EXISTS IX_IndexJobs_WorkerId ON IndexJobs (WorkerId);
 ";
@@ -502,6 +532,18 @@ CREATE INDEX IF NOT EXISTS IX_IndexJobs_WorkerId ON IndexJobs (WorkerId);
     catch (Exception ex) when (DatabaseSchemaErrors.IsDuplicateColumn(ex))
     {
         // Column already exists -> ignore
+    }
+
+    // Disabled accounts are denied by both Bearer and BFF authentication.
+    try
+    {
+        using var disabledMigration = conn.CreateCommand();
+        disabledMigration.CommandText = "ALTER TABLE Users ADD COLUMN IsDisabled INTEGER NOT NULL DEFAULT 0";
+        disabledMigration.ExecuteNonQuery();
+    }
+    catch (Exception ex) when (DatabaseSchemaErrors.IsDuplicateColumn(ex))
+    {
+        // Column already exists.
     }
 
 
@@ -652,8 +694,55 @@ if (args.Any(arg => string.Equals(arg, "--verify-database", StringComparison.Ord
     return;
 }
 
+if (args.Any(arg => string.Equals(arg, "--auth0-migration-dry-run", StringComparison.OrdinalIgnoreCase)))
+{
+    var report = await Auth0MigrationReadinessReporter.RunAsync(
+        app.Services.GetRequiredService<DatabaseOptions>());
+    Auth0MigrationReadinessReporter.WriteSafeSummary(report, Console.Out);
+    await app.DisposeAsync();
+    return;
+}
+
+var linkDisposableAuth0User = args.Any(arg =>
+    string.Equals(arg, "--dev-link-auth0-test-user", StringComparison.OrdinalIgnoreCase));
+var cleanupDisposableAuth0User = args.Any(arg =>
+    string.Equals(arg, "--dev-cleanup-auth0-test-user", StringComparison.OrdinalIgnoreCase));
+if (linkDisposableAuth0User && cleanupDisposableAuth0User)
+{
+    throw new InvalidOperationException("Choose either the development link command or cleanup command, not both.");
+}
+if (linkDisposableAuth0User || cleanupDisposableAuth0User)
+{
+    var options = DevelopmentAuth0LinkOptions.Load(builder.Configuration);
+    var linker = new DevelopmentAuth0IdentityLinker(
+        databaseOptions,
+        app.Services.GetRequiredService<IUserRepository>(),
+        app.Services.GetRequiredService<IUserIdentityRepository>());
+    if (linkDisposableAuth0User)
+    {
+        var result = await linker.LinkAsync(app.Environment, options);
+        Console.WriteLine($"[DEV AUTH0 LINK] {result.Status}; local user ID: {result.LocalUserId}");
+    }
+    else
+    {
+        var result = await linker.CleanupAsync(app.Environment, options);
+        Console.WriteLine($"[DEV AUTH0 CLEANUP] {result.Status}; local user ID: {result.LocalUserId}");
+    }
+
+    await app.DisposeAsync();
+    return;
+}
+
 app.MapAuthEndpoints(authSettings.JwtSecret, authSettings.JwtIssuer, authSettings.JwtAudience);
-app.MapDebugEndpoints(databaseOptions, app.Services.GetRequiredService<IUploadRepository>(), app.Services.GetRequiredService<ISessionRepository>());
+app.MapAuth0BffEndpoints(app.Environment, auth0BffSettings);
+var developmentAuth0ApiEnabled = app.Environment.IsDevelopmentAuth0ApiEnabled(
+    auth0BffSettings,
+    auth0BffApiSettings);
+app.MapDebugEndpoints(
+    databaseOptions,
+    app.Services.GetRequiredService<IUploadRepository>(),
+    app.Services.GetRequiredService<ISessionRepository>(),
+    developmentAuth0ApiEnabled);
 app.MapUploadEndpoints();
 app.MapTutorEndpoints(databaseOptions);
 
@@ -2244,7 +2333,7 @@ app.MapGet("/index/status/{uploadId:guid}", async (Guid uploadId, HttpContext ct
 
 
 
-app.MapGet("/uploads/mine", async (HttpContext ctx, IUploadRepository uploadsRepository) =>
+var uploadsMineEndpoint = app.MapGet("/uploads/mine", async (HttpContext ctx, IUploadRepository uploadsRepository) =>
 {
     var me = ctx.GetCurrentUserId() ?? "";
     var query = ctx.Request.Query;
@@ -2263,10 +2352,11 @@ app.MapGet("/uploads/mine", async (HttpContext ctx, IUploadRepository uploadsRep
     var pageItems = items.Skip(skip).Take(pageSize).ToList();
     return Results.Ok(new PagedResult<object>(pageItems.Cast<object>().ToList(), page, pageSize, items.Count));
 });
+uploadsMineEndpoint.RequireDevelopmentAuth0ApiOrBearer(developmentAuth0ApiEnabled);
 
 
 // GET /sessions/mine -> list sessions for current user (with stats + lastMessagePreview)
-app.MapGet("/sessions/mine", async (HttpContext ctx, ISessionRepository sessionsRepository, IDocumentStorage storage) =>
+var sessionsMineEndpoint = app.MapGet("/sessions/mine", async (HttpContext ctx, ISessionRepository sessionsRepository, IDocumentStorage storage) =>
 {
     var me = ctx.GetCurrentUserId() ?? "";
     var query = ctx.Request.Query;
@@ -2355,6 +2445,7 @@ app.MapGet("/sessions/mine", async (HttpContext ctx, ISessionRepository sessions
 
     return Results.Ok(new PagedResult<SessionMineDto>(sessions, rows.Page, rows.PageSize, rows.TotalCount));
 });
+sessionsMineEndpoint.RequireDevelopmentAuth0ApiOrBearer(developmentAuth0ApiEnabled);
 
 
 // POST /sessions  -> create a chat thread (optionally tied to an upload)
@@ -2498,7 +2589,7 @@ app.MapDelete("/sessions/{id}/notes/{noteId:long}", async (string id, long noteI
 });
 
 // PATCH /uploads/{uploadId}/name -> rename a case for the current user
-app.MapPatch("/uploads/{uploadId:guid}/name", async (Guid uploadId, RenameUploadDto input, HttpContext ctx) =>
+var renameUploadEndpoint = app.MapPatch("/uploads/{uploadId:guid}/name", async (Guid uploadId, RenameUploadDto input, HttpContext ctx) =>
 {
     var me = ctx.GetCurrentUserId() ?? "";
 
@@ -2532,6 +2623,7 @@ app.MapPatch("/uploads/{uploadId:guid}/name", async (Guid uploadId, RenameUpload
         name = input.Name.Trim()
     });
 });
+renameUploadEndpoint.RequireDevelopmentAuth0WriteOrBearer(developmentAuth0ApiEnabled);
 
 app.MapGet("/uploads/{uploadId:guid}/download", async (Guid uploadId, HttpContext ctx, IDocumentStorage storage, IUploadRepository uploadsRepository) =>
 {
@@ -2739,7 +2831,7 @@ app.MapPost("/classes/join", async (HttpContext ctx, IClassRepository classesRep
     });
 });
 
-app.MapGet("/classes/enrolled", async (HttpContext ctx, IClassRepository classesRepository) =>
+var classesEnrolledEndpoint = app.MapGet("/classes/enrolled", async (HttpContext ctx, IClassRepository classesRepository) =>
 {
     var me = ctx.GetCurrentUserId();
     if (string.IsNullOrWhiteSpace(me))
@@ -2776,6 +2868,7 @@ app.MapGet("/classes/enrolled", async (HttpContext ctx, IClassRepository classes
     var pageItems = classes.Skip(skip).Take(pageSize).ToList();
     return Results.Ok(new PagedResult<object>(pageItems.Cast<object>().ToList(), page, pageSize, classes.Count));
 });
+classesEnrolledEndpoint.RequireDevelopmentAuth0ApiOrBearer(developmentAuth0ApiEnabled);
 
 app.MapDelete("/classes/{classId}", async (string classId, HttpContext ctx, IClassRepository classesRepository) =>
 {

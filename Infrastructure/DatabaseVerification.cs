@@ -9,6 +9,7 @@ public static class DatabaseVerification
     {
         Console.WriteLine("[DB VERIFY] Creating repository test data...");
         var users = services.GetRequiredService<IUserRepository>();
+        var identities = services.GetRequiredService<IUserIdentityRepository>();
         var classes = services.GetRequiredService<IClassRepository>();
         var sessions = services.GetRequiredService<ISessionRepository>();
         var messages = services.GetRequiredService<IMessageRepository>();
@@ -35,6 +36,21 @@ public static class DatabaseVerification
             "verification student",
             false,
             now), cancellationToken);
+
+        Console.WriteLine("[DB VERIFY] Verifying external identity mappings...");
+        var providerSubject = $"verification-subject-{suffix}";
+        Ensure(await identities.CreateAsync("verification", providerSubject, studentId, now, cancellationToken)
+               == CreateUserIdentityResult.Created, "The provider identity mapping was not created.");
+        Ensure(await identities.ResolveLocalUserIdAsync("verification", providerSubject, cancellationToken)
+               == studentId, "The provider identity did not resolve to its local user.");
+        Ensure(await identities.ResolveLocalUserIdAsync("verification", $"missing-{suffix}", cancellationToken)
+               is null, "A missing provider identity unexpectedly resolved.");
+        Ensure(await identities.CreateAsync("verification", providerSubject, studentId, now, cancellationToken)
+               == CreateUserIdentityResult.AlreadyExists, "A duplicate identity mapping was not rejected.");
+        Ensure(await identities.CreateAsync("verification", providerSubject, instructorId, now, cancellationToken)
+               == CreateUserIdentityResult.Conflict, "A conflicting identity mapping was not rejected.");
+        Ensure(await identities.CreateAsync("verification", $"unknown-{suffix}", $"missing-{suffix}", now, cancellationToken)
+               == CreateUserIdentityResult.UserNotFound, "An identity was linked to a nonexistent local user.");
 
         var createdClass = await classes.CreateAsync(
             instructorId,

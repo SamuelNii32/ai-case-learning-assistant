@@ -11,9 +11,10 @@ public static class DebugEndpoints
         this IEndpointRouteBuilder app,
         DatabaseOptions databaseOptions,
         IUploadRepository uploadsRepository,
-        ISessionRepository sessionsRepository)
+        ISessionRepository sessionsRepository,
+        bool enableDevelopmentAuth0Api = false)
     {
-        app.MapGet("/ping", () => Results.Ok("pong"));
+        app.MapGet("/ping", () => Results.Ok("pong")).AllowAnonymous();
 
         // GET /api/llm/ping — round-trip to model
         app.MapGet("/api/llm/ping", async (HttpContext ctx, OpenAI.Chat.ChatClient chat) =>
@@ -85,7 +86,7 @@ public static class DebugEndpoints
 
 
 
-        app.MapGet("/me", async (HttpContext ctx, IUserRepository users) =>
+        var meEndpoint = app.MapGet("/me", async (HttpContext ctx, IUserRepository users) =>
         {
             var userId = ctx.GetCurrentUserId();
             if (string.IsNullOrWhiteSpace(userId))
@@ -114,7 +115,8 @@ public static class DebugEndpoints
                 fullName = profile.FullName,
                 role
             });
-        }).RequireAuthorization();
+        });
+        meEndpoint.RequireDevelopmentAuth0ApiOrBearer(enableDevelopmentAuth0Api);
 
 
         app.MapGet("/debug/claims", (HttpContext ctx) =>

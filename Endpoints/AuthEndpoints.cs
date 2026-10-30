@@ -65,7 +65,7 @@ public static class AuthEndpoints
 
             return Results.Ok(new { userId, email, fullName, role = isInstructor ? "instructor" : "student" });
 
-        }).RequireRateLimiting("Auth");
+        }).AllowAnonymous().RequireRateLimiting("Auth");
 
 
         app.MapPost("/auth/login", async (HttpContext ctx, IUserRepository users) =>
@@ -93,7 +93,7 @@ public static class AuthEndpoints
                 return Results.BadRequest(new { error = "email and password required" });
 
             var user = await users.GetCredentialsByEmailAsync(email, ctx.RequestAborted);
-            if (user is null || !BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
+            if (user is null || user.IsDisabled || !BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
                 return Results.Unauthorized();
 
             var key = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
@@ -125,7 +125,7 @@ public static class AuthEndpoints
                 .WriteToken(token);
 
             return Results.Ok(new { token = jwt, userId = user.Id, email, fullName = user.FullName, isSuperUser = user.IsSuperUser });
-        }).RequireRateLimiting("Auth");
+        }).AllowAnonymous().RequireRateLimiting("Auth");
 
         return app;
     }

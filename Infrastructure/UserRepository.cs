@@ -15,13 +15,15 @@ public sealed record UserCredentialRecord(
     string Email,
     string PasswordHash,
     string FullName,
-    bool IsSuperUser);
+    bool IsSuperUser,
+    bool IsDisabled = false);
 
 public sealed record UserProfileRecord(
     string Id,
     string Email,
     string FullName,
-    bool IsSuperUser);
+    bool IsSuperUser,
+    bool IsDisabled = false);
 
 public interface IUserRepository
 {
@@ -77,7 +79,7 @@ VALUES (@id,@e,@h,@n,@t,@su)";
         await conn.OpenAsync(cancellationToken);
 
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT Id, PasswordHash, COALESCE(FullName,''), COALESCE(IsSuperUser,0) FROM Users WHERE Email = @e LIMIT 1";
+        cmd.CommandText = "SELECT Id, PasswordHash, COALESCE(FullName,''), COALESCE(IsSuperUser,0), COALESCE(IsDisabled,0) FROM Users WHERE Email = @e LIMIT 1";
         cmd.AddWithValue("@e", email);
 
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -91,7 +93,8 @@ VALUES (@id,@e,@h,@n,@t,@su)";
             Email: email,
             PasswordHash: reader.GetString(1),
             FullName: reader.GetString(2),
-            IsSuperUser: reader.GetInt32(3) != 0);
+            IsSuperUser: reader.GetInt32(3) != 0,
+            IsDisabled: reader.GetInt32(4) != 0);
     }
 
     public async Task<UserProfileRecord?> GetProfileByIdAsync(string userId, CancellationToken cancellationToken = default)
@@ -103,7 +106,8 @@ VALUES (@id,@e,@h,@n,@t,@su)";
         cmd.CommandText = @"
 SELECT Email,
        COALESCE(FullName, ''),
-       COALESCE(IsSuperUser, 0)
+       COALESCE(IsSuperUser, 0),
+       COALESCE(IsDisabled, 0)
 FROM Users
 WHERE Id = @id
 LIMIT 1;";
@@ -119,7 +123,8 @@ LIMIT 1;";
             Id: userId,
             Email: reader.GetString(0),
             FullName: reader.GetString(1),
-            IsSuperUser: reader.GetInt32(2) != 0);
+            IsSuperUser: reader.GetInt32(2) != 0,
+            IsDisabled: reader.GetInt32(3) != 0);
     }
 }
 

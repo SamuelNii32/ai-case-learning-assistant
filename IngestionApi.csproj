@@ -4,6 +4,7 @@
 		<TargetFramework>net9.0</TargetFramework>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
+		<UserSecretsId>casepilot-ingestionapi-auth0-development</UserSecretsId>
 		<!--
 			Keep repository-local build, test, frontend, and deployment outputs out of
 			MSBuild's default item globs. Without this, the web project can copy the
@@ -21,11 +22,15 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<PackageReference Include="Azure.Extensions.AspNetCore.DataProtection.Blobs" Version="1.5.3" />
+		<PackageReference Include="Azure.Extensions.AspNetCore.DataProtection.Keys" Version="1.6.4" />
+		<PackageReference Include="Azure.Identity" Version="1.21.0" />
 		<PackageReference Include="Azure.Storage.Blobs" Version="12.29.1" />
 		<PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
 		<PackageReference Include="Dapper" Version="2.1.66" />
 		<PackageReference Include="itext7" Version="9.3.0" />
 		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.10" />
+		<PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="9.0.10" />
 		<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.9" />
 		<PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
 		<PackageReference Include="Npgsql" Version="10.0.3" />
@@ -41,6 +46,9 @@
 		<PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="9.0.6" />
 		<PackageReference Include="Swashbuckle.AspNetCore.Swagger" Version="9.0.6" />
+		<!-- Explicit patched pins override older Azure SDK transitives. -->
+		<PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.0.21" />
+		<PackageReference Include="System.Security.Cryptography.Xml" Version="9.0.21" />
 		<PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.14.0" />
 		<PackageReference Include="System.Numerics.Tensors" Version="9.0.10" />
 	</ItemGroup>

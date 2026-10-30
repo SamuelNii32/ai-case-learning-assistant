@@ -18,8 +18,18 @@ obj/
 artifacts/
 publish/
 deploy.zip
+*.zip
+deploy-out/
+deploy-staging/
+publish-clean/
+output/
+tmp/
+zip-verify/
 performance/secrets/
 performance/results/
+
+# Local search/editor scratch files
+*.code-search
 
 # Editor / OS files
 .vscode/*
@@ -32,6 +42,12 @@ performance/results/
 *.ntvs*
 *.njsproj
 *.sw?
+
+# Local environment overrides and secrets (commit only example templates)
+.env.local
+.env.*.local
+.env.auth0
+!.env.auth0.example
 
 # Local SQLite DBs
 *.db

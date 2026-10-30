@@ -34,10 +34,21 @@ public static class DatabaseMigrator
         await EnsurePostgresSchemaAsync(targetConn, cancellationToken);
         await ClearPostgresDataAsync(targetConn, cancellationToken);
 
-        await CopyTableAsync(sourceConn, targetConn, "Users", new[]
+        var userColumns = new List<string>
         {
             "Id", "Email", "PasswordHash", "CreatedAt", "FullName", "IsSuperUser"
-        }, cancellationToken);
+        };
+        if (await SqliteColumnExistsAsync(sourceConn, "Users", "IsDisabled", cancellationToken))
+            userColumns.Add("IsDisabled");
+        await CopyTableAsync(sourceConn, targetConn, "Users", userColumns.ToArray(), cancellationToken);
+
+        if (await SqliteTableExistsAsync(sourceConn, "UserIdentities", cancellationToken))
+        {
+            await CopyTableAsync(sourceConn, targetConn, "UserIdentities", new[]
+            {
+                "Provider", "ProviderSubject", "UserId", "CreatedAt"
+            }, cancellationToken);
+        }
 
         await CopyTableAsync(sourceConn, targetConn, "Sessions", new[]
         {
@@ -106,8 +117,22 @@ CREATE TABLE IF NOT EXISTS Users (
   PasswordHash TEXT NOT NULL,
   CreatedAt TEXT NOT NULL,
   FullName TEXT NULL,
-  IsSuperUser INTEGER NOT NULL DEFAULT 0
+  IsSuperUser INTEGER NOT NULL DEFAULT 0,
+  IsDisabled INTEGER NOT NULL DEFAULT 0
 );
+
+ALTER TABLE Users ADD COLUMN IF NOT EXISTS IsDisabled INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS UserIdentities (
+  Provider TEXT NOT NULL,
+  ProviderSubject TEXT NOT NULL,
+  UserId TEXT NOT NULL,
+  CreatedAt TEXT NOT NULL,
+  PRIMARY KEY (Provider, ProviderSubject),
+  FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS IX_UserIdentities_UserId ON UserIdentities (UserId);
 
 CREATE TABLE IF NOT EXISTS Sessions (
   Id TEXT PRIMARY KEY,
@@ -246,6 +271,7 @@ TRUNCATE TABLE
   Notes,
   Messages,
   Sessions,
+  UserIdentities,
   Users
 RESTART IDENTITY CASCADE;";
         await cmd.ExecuteNonQueryAsync(cancellationToken);
@@ -296,5 +322,37 @@ CREATE TABLE IF NOT EXISTS IndexJobs (
         }
 
         tx.Commit();
+    }
+
+    private static async Task<bool> SqliteTableExistsAsync(
+        DbConnection source,
+        string tableName,
+        CancellationToken cancellationToken)
+    {
+        await using var command = source.CreateCommand();
+        command.CommandText = @"
+SELECT 1
+FROM sqlite_master
+WHERE type = 'table' AND name = @tableName
+LIMIT 1;";
+        command.AddWithValue("@tableName", tableName);
+        return await command.ExecuteScalarAsync(cancellationToken) is not null;
+    }
+
+    private static async Task<bool> SqliteColumnExistsAsync(
+        DbConnection source,
+        string tableName,
+        string columnName,
+        CancellationToken cancellationToken)
+    {
+        await using var command = source.CreateCommand();
+        command.CommandText = $"PRAGMA table_info({tableName});";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 }
