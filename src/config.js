@@ -1,4 +1,5 @@
 // src/config.js
+import { isBffAuthMode } from '@/auth/authMode'
 
 // Prefer the single canonical env var set at build time:
 //   VITE_API_BASE = "https://...azurewebsites.net"
@@ -10,7 +11,11 @@ const runtimeBase = typeof window !== 'undefined' ? (window.__API_BASE__ || '').
 // In development, fall back to local backend if VITE_API_BASE is not set.
 // In production, if it's missing, we leave it empty and the UI can show
 // a clear config error instead of silently calling the frontend origin.
-const rawBase = envBase || runtimeBase || (import.meta.env.DEV ? 'http://localhost:5259' : '')
+// BFF mode deliberately uses relative URLs so the browser only talks to the
+// Vite origin. Vite then proxies the explicitly enabled routes to the API.
+const rawBase = isBffAuthMode()
+  ? ''
+  : envBase || runtimeBase || (import.meta.env.DEV ? 'http://localhost:5259' : '')
 
 // Normalized base without trailing slash (if empty, stays empty)
 export const API_BASE = rawBase.replace(/\/$/, '')

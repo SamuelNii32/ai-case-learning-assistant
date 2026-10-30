@@ -2657,7 +2657,15 @@ app.MapDelete("/uploads/{uploadId:guid}", async (Guid uploadId, HttpContext ctx,
     var sessionIds = await uploadsRepository.DeleteOwnedAsync(uploadId, me, ctx.RequestAborted);
     if (sessionIds is null)
     {
-        return Results.NotFound(new { error = "not_found" });
+        // Keep deletion idempotent for stale client entries while using the
+        // provider-agnostic repository introduced by the production backend.
+        return Results.Ok(new
+        {
+            uploadId = id,
+            deleted = false,
+            alreadyMissing = true,
+            error = "not_found"
+        });
     }
 
     // 8) Clear in-memory index

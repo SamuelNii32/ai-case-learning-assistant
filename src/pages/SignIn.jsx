@@ -41,6 +41,14 @@ export default function SignInPage() {
     }
   }, [location])
 
+  useEffect(() => {
+    if (auth?.authMode === 'bff' && auth?.loggedIn && auth?.user) {
+      navigate(auth.user.role === 'instructor' ? '/admin/classes' : '/dashboard', {
+        replace: true,
+      })
+    }
+  }, [auth?.authMode, auth?.loggedIn, auth?.user, navigate])
+
   async function handleSignIn(e) {
     e.preventDefault()
     setErr(null)
@@ -113,6 +121,66 @@ export default function SignInPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (auth?.authMode === 'bff') {
+    const isUnlinked = auth.authStatus === 'unlinked' || auth.authStatus === 'invalid_mapping'
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f8f5ef] px-5">
+        <section className="w-full max-w-md rounded-xl border border-[#ecdccf] bg-white p-8 shadow-sm">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <img src="/fav.png" alt="CasePilot logo" className="h-12 w-12" />
+            <h1 className="text-2xl font-semibold text-[#2C2218]">Sign in to CasePilot</h1>
+            <p className="text-sm leading-6 text-[#5c4c3c]">
+              Continue securely with your CasePilot account.
+            </p>
+          </div>
+
+          {isUnlinked && (
+            <div className="mt-6 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+              This sign-in is not linked to a CasePilot account. Contact CasePilot support to verify
+              account ownership.
+            </div>
+          )}
+          {auth.authStatus === 'error' && (
+            <div className="mt-6 rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700">
+              CasePilot could not restore your session. Please try again.
+            </div>
+          )}
+          {auth.authStatus === 'suspended' && (
+            <div className="mt-6 rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700">
+              This CasePilot account is suspended. Contact an administrator before trying again.
+            </div>
+          )}
+
+          <Button
+            type="button"
+            className="mt-6 h-12 w-full rounded-[10px] bg-[#C96A08] text-white hover:bg-[#9c5306]"
+            disabled={auth.isLoading}
+            onClick={() => auth.loginWithAuth0('/login')}
+          >
+            {auth.isLoading
+              ? 'Checking session...'
+              : isUnlinked
+                ? 'Retry Auth0 sign-in'
+                : 'Continue with Auth0'}
+          </Button>
+          {isUnlinked && (
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-3 w-full"
+              onClick={() => void auth.logout()}
+            >
+              Sign out
+            </Button>
+          )}
+          <p className="mt-5 text-center text-xs text-[#6b5a49]">
+            No Auth0 token is stored in browser storage or exposed to this application.
+          </p>
+        </section>
+      </main>
+    )
   }
 
   return (

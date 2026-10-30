@@ -63,8 +63,10 @@ export default function UploadPage() {
     setUploadProgress(25)
 
     try {
-      // runtime check: ensure API base is present
-      if (!API_BASE) {
+      // JWT mode calls a separately hosted API and still requires its base URL.
+      // BFF mode deliberately leaves API_BASE empty so requests stay same-origin
+      // and flow through the Vite proxy with the session cookie and CSRF token.
+      if (auth?.authMode !== 'bff' && !API_BASE) {
         const msg =
           'VITE_API_BASE is not set. Did you restart the dev server after creating .env/local?'
         console.error(msg)

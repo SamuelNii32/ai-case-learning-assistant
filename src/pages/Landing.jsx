@@ -12,8 +12,9 @@ export default function Landing() {
     try {
       console.debug('[Landing] auth', {
         loggedIn: auth?.loggedIn,
-        token: auth?.token,
-        ls: typeof window !== 'undefined' ? localStorage.getItem('authToken') : null,
+        hasToken: Boolean(auth?.token),
+        hasStoredToken:
+          typeof window !== 'undefined' ? Boolean(localStorage.getItem('authToken')) : false,
       })
     } catch {
       /* ignore */
@@ -21,15 +22,15 @@ export default function Landing() {
   }
 
   return (
-    <main className="bg-[#f3eee7]">
+    <main className="overflow-x-hidden bg-[#f3eee7]">
       <div className="container mx-auto px-4 sm:px-8 lg:px-12 py-20">
-        <div className="grid grid-cols-1 md:grid-cols-[minmax(0,340px)_minmax(0,760px)_minmax(0,340px)] gap-y-14 md:gap-y-0 gap-x-10 md:gap-x-12 lg:gap-x-16 items-start">
-          <div className="space-y-16 md:-mt-4">
-            <article className="rounded-[20px] border border-white bg-[#f5f4f2] px-6 py-5 text-[#2f2118] shadow-[0_18px_36px_rgba(0,0,0,0.12)] transition-transform duration-200 hover:-translate-y-[2px] hover:shadow-[0_24px_40px_rgba(0,0,0,0.25)] md:max-w-[300px] md:mx-auto">
+        <div className="grid grid-cols-1 gap-y-14 gap-x-6 md:grid-cols-2 md:gap-y-8 xl:grid-cols-[minmax(0,340px)_minmax(0,760px)_minmax(0,340px)] xl:gap-x-16 xl:gap-y-0 items-start">
+          <div className="space-y-16 md:-mt-4 md:space-y-6 xl:space-y-16">
+            <article className="w-full rounded-[20px] border border-white bg-[#f5f4f2] px-6 py-5 text-[#2f2118] shadow-[0_18px_36px_rgba(0,0,0,0.12)] transition-transform duration-200 hover:-translate-y-[2px] hover:shadow-[0_24px_40px_rgba(0,0,0,0.25)] md:max-w-[300px] md:mx-auto">
               <div className="flex items-center gap-3">
                 <span className="h-8 w-8 shrink-0 rounded-[14px] bg-[#d2a47f]"></span>
 
-                <h2 className="whitespace-nowrap text-[22px] font-medium leading-[1.2] tracking-[-0.02em] text-[#2b120d]">
+                <h2 className="text-[22px] font-medium leading-[1.2] tracking-[-0.02em] text-[#2b120d]">
                   Tutorial Response
                 </h2>
               </div>
@@ -39,7 +40,7 @@ export default function Landing() {
               </p>
             </article>
 
-            <article className="bg-[#8B735E] rounded-[20px] border border-[#AA8A65] shadow-[0_18px_38px_rgba(15,10,7,0.35)] px-5 py-4 text-white max-w-[280px] transition-transform duration-200 hover:-translate-y-[2px] hover:shadow-[0_24px_45px_rgba(15,10,7,0.48)] md:mx-auto">
+            <article className="w-full rounded-[20px] border border-[#AA8A65] bg-[#8B735E] px-5 py-4 text-white shadow-[0_18px_38px_rgba(15,10,7,0.35)] transition-transform duration-200 hover:-translate-y-[2px] hover:shadow-[0_24px_45px_rgba(15,10,7,0.48)] md:max-w-[280px] md:mx-auto">
               <h2 className="text-[22px] font-semibold leading-tight tracking-[-0.01em]">
                 Session History &amp; Notes
               </h2>
@@ -57,12 +58,12 @@ export default function Landing() {
             </div>
           </div>
 
-          <div className="flex justify-center md:relative md:-mt-6">
+          <div className="flex justify-center md:justify-self-center md:relative md:-mt-6">
             <Hero />
           </div>
 
-          <div className="space-y-10 md:pt-8 md:-mt-6">
-            <article className="bg-[#C49A77] rounded-[20px] border border-[#d1ad80] shadow-[0_18px_40px_rgba(44,34,24,0.15)] px-6 py-5 text-[#2c2218] max-w-[340px] transition-transform duration-200 hover:-translate-y-[2px] hover:shadow-[0_24px_48px_rgba(44,34,24,0.22)] md:mx-auto">
+          <div className="space-y-10 md:space-y-6 md:pt-8 md:-mt-6 xl:space-y-10">
+            <article className="w-full rounded-[20px] border border-[#d1ad80] bg-[#C49A77] px-6 py-5 text-[#2c2218] shadow-[0_18px_40px_rgba(44,34,24,0.15)] transition-transform duration-200 hover:-translate-y-[2px] hover:shadow-[0_24px_48px_rgba(44,34,24,0.22)] md:max-w-[340px] md:mx-auto">
               <h2 className="text-[22px] font-semibold leading-snug tracking-[-0.01em]">
                 Private by <span className="text-[#2c2218] font-black">DESIGN</span>
               </h2>

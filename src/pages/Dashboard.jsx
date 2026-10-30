@@ -7,6 +7,42 @@ const SortControl = React.lazy(() => import('../components/dashboard/SortControl
 import { Upload } from 'lucide-react'
 import { listCases } from '@/lib/api'
 
+// Kept exported for focused contract tests; it is a pure normalization helper.
+// eslint-disable-next-line react-refresh/only-export-components
+export function normalizeCaseList(data) {
+  if (!data || typeof data !== 'object') return []
+
+  const rawList = Array.isArray(data)
+    ? data
+    : Array.isArray(data.items)
+      ? data.items
+      : Array.isArray(data.uploads)
+        ? data.uploads
+        : []
+
+  return rawList.map(c => {
+    const fileName = c?.originalFileName || c?.fileName || c?.filename || c?.name || ''
+    const rawTitle = c?.title || c?.name || fileName || c?.uploadId || c?.id
+    const displayTitle = rawTitle
+      ? String(rawTitle)
+          .replace(/\.pdf$/i, '')
+          .trim() || 'Untitled case'
+      : 'Untitled case'
+
+    return {
+      id: c?.uploadId || c?.id,
+      uploadId: c?.uploadId || c?.id,
+      fileName,
+      title: displayTitle,
+      createdAt: c?.createdAt || c?.uploadedAt || c?.uploaded_at,
+      status: c?.status || 'completed',
+      description: c?.description || '',
+      image: c?.image || null,
+      ...c,
+    }
+  })
+}
+
 export default function Dashboard() {
   // get search from layout
   const { searchQuery } = useOutletContext()
@@ -44,27 +80,7 @@ export default function Dashboard() {
       setLoading(true)
       try {
         const data = await listCases()
-
-        const normalized = data.map(c => {
-          const rawTitle =
-            c.title || c.name || c.originalFileName || c.fileName || c.filename || c.uploadId
-          const displayTitle = rawTitle
-            ? String(rawTitle)
-                .replace(/\.pdf$/i, '')
-                .trim() || 'Untitled case'
-            : 'Untitled case'
-          return {
-            id: c.uploadId || c.id,
-            uploadId: c.uploadId || c.id,
-            fileName: c.originalFileName || c.fileName || c.filename,
-            title: displayTitle,
-            createdAt: c.createdAt || c.uploadedAt || c.uploaded_at,
-            status: c.status || 'completed',
-            description: c.description || '',
-            image: c.image || null,
-            ...c,
-          }
-        })
+        const normalized = normalizeCaseList(data)
 
         if (!cancelled) setCases(normalized)
       } catch (err) {
@@ -80,7 +96,14 @@ export default function Dashboard() {
         ? window.requestIdleCallback(fetchCasesAndNormalize, { timeout: 500 })
         : window.setTimeout(fetchCasesAndNormalize, 100)
 
-    const onUploaded = () => {
+    const onCaseChanged = event => {
+      const detail = event?.detail || {}
+      const changedId = detail.uploadId ?? detail.id
+
+      if (detail.action === 'delete' && changedId) {
+        setCases(prev => prev.filter(c => String(c.id ?? c.uploadId) !== String(changedId)))
+      }
+
       try {
         fetchCasesAndNormalize()
       } catch (err) {
@@ -88,8 +111,8 @@ export default function Dashboard() {
       }
     }
 
-    window.addEventListener('case:uploaded', onUploaded)
-    window.addEventListener('case:changed', onUploaded)
+    window.addEventListener('case:uploaded', onCaseChanged)
+    window.addEventListener('case:changed', onCaseChanged)
 
     return () => {
       cancelled = true
@@ -100,8 +123,8 @@ export default function Dashboard() {
       } catch (e) {
         console.debug('[Dashboard] idle/callback cancelled or failed', e)
       }
-      window.removeEventListener('case:uploaded', onUploaded)
-      window.removeEventListener('case:changed', onUploaded)
+      window.removeEventListener('case:uploaded', onCaseChanged)
+      window.removeEventListener('case:changed', onCaseChanged)
     }
   }, [auth?.loggedIn])
 

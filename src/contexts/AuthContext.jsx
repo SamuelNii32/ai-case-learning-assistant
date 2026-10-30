@@ -1,256 +1,251 @@
-import React, { createContext, useState, useEffect, useCallback } from 'react'
+import React, { createContext, useCallback, useEffect, useMemo, useState } from 'react'
 import { setAuthTokenGetter, setOnAuthFailure, setRefreshTokenFn } from '@/lib/api'
-// at the top of AuthContext.jsx
 import { API_BASE } from '@/config'
-import { isDemoModeEnabled, isDemoSessionActive, getDemoUser, endDemoSession } from '@/auth/demoMode'
+import { AUTH_MODE } from '@/auth/authMode'
+import {
+  isDemoModeEnabled,
+  isDemoSessionActive,
+  getDemoUser,
+  endDemoSession,
+} from '@/auth/demoMode'
 
 const AuthContext = createContext(null)
 export { AuthContext }
 
-function AuthProvider({ children }) {
+function normalizeUser(value) {
+  return {
+    userId: value?.userId || value?.id || null,
+    email: value?.email || null,
+    fullName: value?.fullName || null,
+    role: value?.role || (value?.isSuperUser ? 'instructor' : 'student'),
+  }
+}
+
+function localUrl(path) {
+  return path.startsWith('/') ? path : `/${path}`
+}
+
+function legacyUrl(path) {
+  const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
+  return base ? `${base}${localUrl(path)}` : localUrl(path)
+}
+
+function navigateBrowserTopLevel(url) {
+  window.location.assign(url)
+}
+
+function AuthProvider({ children, navigateTopLevel = navigateBrowserTopLevel }) {
+  const isBff = AUTH_MODE === 'bff'
   const [token, setToken] = useState(() => {
-    if (typeof window === 'undefined') return null
+    if (isBff || typeof window === 'undefined') return null
     try {
       return localStorage.getItem('authToken') || null
     } catch {
       return null
     }
   })
-
-  // On startup, we don't trust the stored user; we’ll re-fetch it via /me.
-  // So begin with null and let login()/`/me` fill it.
   const [user, setUser] = useState(null)
+  const [authStatus, setAuthStatus] = useState(isBff ? 'checking' : 'ready')
 
-  const login = useCallback((newToken, newUser) => {
-    try {
-      if (typeof window !== 'undefined') {
-        if (newToken) localStorage.setItem('authToken', newToken)
-        if (newUser) localStorage.setItem('authUser', JSON.stringify(newUser))
-      }
-    } catch {
-      /* ignore */
-    }
-    setToken(newToken || null)
-    setUser(newUser || null)
+  const clearBffState = useCallback(() => {
+    setToken(null)
+    setUser(null)
+    setAuthStatus('unauthenticated')
   }, [])
 
-  const logout = useCallback(() => {
+  const login = useCallback(
+    (newToken, newUser) => {
+      if (isBff) return
+      try {
+        if (typeof window !== 'undefined') {
+          if (newToken) localStorage.setItem('authToken', newToken)
+          if (newUser) localStorage.setItem('authUser', JSON.stringify(newUser))
+        }
+      } catch {
+        /* storage can be unavailable */
+      }
+      setToken(newToken || null)
+      setUser(newUser || null)
+    },
+    [isBff]
+  )
+
+  const restoreBffSession = useCallback(async () => {
+    if (!isBff) return
+    setAuthStatus('checking')
+    setUser(null)
+
+    try {
+      const sessionResponse = await fetch('/bff/session', { credentials: 'same-origin' })
+      if (!sessionResponse.ok) throw new Error(`Session check failed (${sessionResponse.status})`)
+      const session = await sessionResponse.json()
+
+      if (!session?.authenticated) {
+        clearBffState()
+        return
+      }
+      if (!session?.accountLinked) {
+        if (session?.status === 'account_disabled') setAuthStatus('suspended')
+        else setAuthStatus(session?.status === 'invalid_mapping' ? 'invalid_mapping' : 'unlinked')
+        return
+      }
+
+      const meResponse = await fetch('/me', { credentials: 'same-origin' })
+      if (meResponse.status === 401 || meResponse.status === 403) {
+        clearBffState()
+        return
+      }
+      if (!meResponse.ok) throw new Error(`Account lookup failed (${meResponse.status})`)
+
+      setUser(normalizeUser(await meResponse.json()))
+      setAuthStatus('authenticated')
+    } catch (error) {
+      console.error('[auth] BFF session restoration failed', error)
+      setAuthStatus('error')
+    }
+  }, [clearBffState, isBff])
+
+  const loginWithAuth0 = useCallback(
+    (returnUrl = '/login') => {
+      if (!isBff || typeof window === 'undefined') return
+      const safeReturnUrl = String(returnUrl).startsWith('/') ? returnUrl : '/login'
+      window.location.assign(`/bff/login?returnUrl=${encodeURIComponent(safeReturnUrl)}`)
+    },
+    [isBff]
+  )
+
+  const logout = useCallback(async () => {
+    if (isBff) {
+      clearBffState()
+      try {
+        const csrfResponse = await fetch('/bff/csrf', { credentials: 'same-origin' })
+        if (!csrfResponse.ok) return
+        const { requestToken } = await csrfResponse.json()
+        if (!requestToken) return
+        const logoutResponse = await fetch('/bff/logout/prepare?returnUrl=/login', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'X-CSRF-TOKEN': requestToken },
+        })
+        if (!logoutResponse.ok) return
+        const { logoutUrl } = await logoutResponse.json()
+        if (typeof logoutUrl === 'string' && logoutUrl.startsWith('/bff/logout/complete?')) {
+          navigateTopLevel(logoutUrl)
+        }
+      } catch (error) {
+        console.error('[auth] BFF logout failed', error)
+      }
+      return
+    }
+
     try {
       if (typeof window !== 'undefined') {
         localStorage.removeItem('authToken')
         localStorage.removeItem('authUser')
-        // also clear demo session if active
         endDemoSession()
       }
     } catch {
-      /* ignore */
+      /* storage can be unavailable */
     }
     setToken(null)
     setUser(null)
-  }, [])
+  }, [clearBffState, isBff, navigateTopLevel])
 
-  // Let api.js read the current token + react to invalid token / 401
   useEffect(() => {
-    setAuthTokenGetter(() => token)
-
+    setAuthTokenGetter(() => (isBff ? null : token))
     setOnAuthFailure(info => {
-      // Always log for visibility
       console.warn('[auth] auth failure', info)
-
-      // Only force logout on 401 from the auth-critical endpoint
-      if (info?.status === 401 && info?.endpoint === '/me') {
-        logout()
-        ;(async () => {
-          try {
-            const { navigateTo } = await import('@/lib/navigate')
-            if (typeof navigateTo === 'function') navigateTo('/login', { replace: true })
-            else window.location.assign('/login')
-          } catch {
-            try {
-              window.location.assign('/login')
-            } catch {
-              /* ignore */
-            }
-          }
-        })()
+      if (info?.status !== 401) return
+      if (isBff) {
+        clearBffState()
+      } else if (info?.endpoint === '/me') {
+        void logout()
       }
-      // For other 401s, do not logout; let UI handle the error normally
     })
-  }, [token, logout])
-
-  // Register a refresh function with api.js so API helpers can attempt a
-  // refresh when they receive a 401. This implements the queued-refresh
-  // pattern: concurrent callers will await the same in-flight refresh.
-  useEffect(() => {
-    let refreshingRef = { current: null }
-
-    async function refreshAuthToken() {
-      // If a refresh is already running, return the same promise
-      if (refreshingRef.current) return refreshingRef.current
-
-      // Create a refresh promise and store it
-      refreshingRef.current = (async () => {
-        try {
-          const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
-          const url = base ? `${base}/auth/refresh` : '/auth/refresh'
-          const res = await fetch(url, { method: 'POST', credentials: 'include' })
-          if (!res.ok) throw new Error('refresh failed')
-          const js = await res.json().catch(() => ({}))
-          const newToken = js?.accessToken || js?.token || js?.authToken || null
-          if (newToken) {
-            try {
-              if (typeof window !== 'undefined') localStorage.setItem('authToken', newToken)
-            } catch {
-              /* ignore */
-            }
-            setToken(newToken)
-            return newToken
-          }
-          throw new Error('no token in refresh response')
-        } catch (err) {
-          // On refresh failure, logout to force re-auth
-          try {
-            logout()
-          } catch {
-            /* ignore */
-          }
-          throw err
-        } finally {
-          refreshingRef.current = null
-        }
-      })()
-
-      return refreshingRef.current
-    }
-
-    try {
-      setRefreshTokenFn(refreshAuthToken)
-    } catch (err) {
-      console.error('[auth] failed to register refresh function with api helper', err)
-    }
-
     return () => {
-      try {
-        setRefreshTokenFn(null)
-      } catch {
-        /* ignore */
-      }
+      setAuthTokenGetter(null)
+      setOnAuthFailure(null)
     }
-  }, [logout])
+  }, [clearBffState, isBff, logout, token])
 
-  // Keep auth state in sync across tabs/windows, but ONLY on authToken/authUser
   useEffect(() => {
-    function onStorage(e) {
-      try {
-        if (!e) return
-        if (e.key === 'authToken') {
-          const newToken = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null
-          setToken(newToken || null)
-        }
-        if (e.key === 'authUser') {
-          const raw = typeof window !== 'undefined' ? localStorage.getItem('authUser') : null
-          try {
-            setUser(raw ? JSON.parse(raw) : null)
-          } catch {
-            setUser(null)
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-
-    if (typeof window !== 'undefined') {
-      window.addEventListener('storage', onStorage)
-    }
-    return () => {
-      try {
-        if (typeof window !== 'undefined') {
-          window.removeEventListener('storage', onStorage)
-        }
-      } catch {
-        /* ignore */
-      }
-    }
+    setRefreshTokenFn(null)
   }, [])
 
   useEffect(() => {
-    // Demo-mode bootstrap: if demo enabled and session active, set a demo user
-    if (isDemoModeEnabled() && isDemoSessionActive()) {
-      const du = getDemoUser()
-      setUser(du)
-      setToken(null)
-      return
+    if (isBff) return undefined
+    function onStorage(event) {
+      if (event?.key === 'authToken') setToken(localStorage.getItem('authToken') || null)
+      if (event?.key === 'authUser') {
+        try {
+          setUser(JSON.parse(localStorage.getItem('authUser') || 'null'))
+        } catch {
+          setUser(null)
+        }
+      }
     }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [isBff])
 
-    if (!token) return
+  useEffect(() => {
+    if (isDemoModeEnabled() && isDemoSessionActive()) {
+      setUser(getDemoUser())
+      setToken(null)
+      setAuthStatus('authenticated')
+      return undefined
+    }
+    if (isBff) {
+      void restoreBffSession()
+      return undefined
+    }
+    if (!token) return undefined
 
     let cancelled = false
-
     ;(async () => {
       try {
-        const base = API_BASE ? String(API_BASE).replace(/\/$/, '') : ''
-        const url = base ? `${base}/me` : '/me'
-
-        const res = await fetch(url, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+        const response = await fetch(legacyUrl('/me'), {
+          headers: { Authorization: `Bearer ${token}` },
         })
-
-        if (!res.ok) {
-          if (res.status === 401 || res.status === 403) {
-            console.warn('[auth] /me says token is invalid; logging out')
-            logout()
-          } else {
-            console.warn('[auth] /me failed with status', res.status)
-          }
+        if (!response.ok) {
+          if (response.status === 401 || response.status === 403) await logout()
           return
         }
-
-        const js = await res.json()
-
+        const normalizedUser = normalizeUser(await response.json())
         if (cancelled) return
-
-        const normalizedUser = {
-          userId: js.userId || js.id || null,
-          email: js.email || null,
-          fullName: js.fullName || null,
-          // Prefer an explicit role string from the server. Fall back to
-          // legacy boolean `isSuperUser` when present so older backends
-          // remain compatible during a rollout.
-          role: js.role || (js.isSuperUser ? 'instructor' : 'student'),
-        }
-
         setUser(normalizedUser)
-
-        // Keep localStorage in sync (optional, but nice)
         try {
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('authUser', JSON.stringify(normalizedUser))
-          }
+          localStorage.setItem('authUser', JSON.stringify(normalizedUser))
         } catch {
-          /* ignore */
+          /* storage can be unavailable */
         }
-      } catch (err) {
-        if (!cancelled) {
-          console.error('[auth] /me error', err)
-        }
+      } catch (error) {
+        if (!cancelled) console.error('[auth] /me error', error)
       }
     })()
-
     return () => {
       cancelled = true
     }
-  }, [token, logout])
+  }, [isBff, logout, restoreBffSession, token])
 
-  const value = {
-    token,
-    user,
-    loggedIn: Boolean(token && user) || (isDemoModeEnabled() && isDemoSessionActive()),
-    login,
-    logout,
-  }
+  const value = useMemo(
+    () => ({
+      authMode: AUTH_MODE,
+      authStatus,
+      isLoading: isBff && authStatus === 'checking',
+      accountLinked: isBff ? authStatus === 'authenticated' : Boolean(user),
+      token,
+      user,
+      loggedIn:
+        (isBff ? authStatus === 'authenticated' && Boolean(user) : Boolean(token && user)) ||
+        (isDemoModeEnabled() && isDemoSessionActive()),
+      login,
+      loginWithAuth0,
+      logout,
+      restoreSession: restoreBffSession,
+    }),
+    [authStatus, isBff, login, loginWithAuth0, logout, restoreBffSession, token, user]
+  )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

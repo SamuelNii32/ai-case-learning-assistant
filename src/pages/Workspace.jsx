@@ -8,6 +8,7 @@ import WorkspaceNotesPanel from '@/components/WorkspaceNotesPanel.clean'
 import GuidedModeFlow from '@/components/GuidedModeFlow'
 import { PdfControllerProvider } from '@/contexts/pdf-controller'
 import initPdfWorker from '@/lib/pdfjs-setup'
+import { isBffAuthMode } from '@/auth/authMode'
 
 import { API_BASE } from '@/config'
 import {
@@ -29,6 +30,7 @@ import {
   startTutor,
   stepTutor,
   listAiModels,
+  streamFetch,
 } from '@/lib/api'
 
 import toast from 'react-hot-toast'
@@ -71,7 +73,7 @@ function EvidencePreview({ pdfUrl, page, bbox, kind }) {
         loadingTask = pdfjs.getDocument({
           url: pdfUrl,
           httpHeaders: token ? { Authorization: `Bearer ${token}` } : undefined,
-          withCredentials: false,
+          withCredentials: isBffAuthMode(),
         })
 
         const pdf = await loadingTask.promise
@@ -773,7 +775,7 @@ export default function Workspace() {
       return
     }
 
-    fetch(url, { method: 'GET', headers, signal: controller.signal })
+    streamFetch(url, { method: 'GET', headers, signal: controller.signal })
       .then(res => {
         if (!res.ok) throw new Error(`Stream failed: ${res.status}`)
         const reader = res.body.getReader()

@@ -218,10 +218,13 @@ export default function PdfViewer({ src, onReady, onError, initialScale = 1.5, f
         // bearer token and pass the ArrayBuffer to pdf.js via `data`. That lets
         // us include headers (pdf.js cannot add custom headers to its internal
         // URL fetches).
+        let bffAuthMode = false
         try {
           // Use centralized getter so tests or AuthContext can provide the
           // token. This avoids ad-hoc localStorage reads across the codebase.
           const { getAuthToken } = await import('@/lib/api')
+          const { isBffAuthMode } = await import('@/auth/authMode')
+          bffAuthMode = isBffAuthMode()
           const token = getAuthToken()
           if (token) {
             const res = await fetch(src, { headers: { Authorization: `Bearer ${token}` } })
@@ -254,7 +257,12 @@ export default function PdfViewer({ src, onReady, onError, initialScale = 1.5, f
             // which can cause pdf.js internal "BodyStreamBuffer was aborted" errors.
             // Force full-document download in the worker (disable range requests)
             // when loading by URL to avoid streaming/internal aborts.
-            task = getDocument({ url: src, disableRange: true })
+            task = getDocument({
+              url: src,
+              withCredentials: bffAuthMode,
+              disableRange: false,
+              disableStream: false,
+            })
           }
         } catch (fetchErr) {
           // Do not retry an authenticated request without its bearer token.
@@ -270,7 +278,11 @@ export default function PdfViewer({ src, onReady, onError, initialScale = 1.5, f
             '[PdfViewer] authenticated fetch failed, falling back to URL load (disableRange=true)',
             fetchErr
           )
-          task = getDocument({ url: src, disableRange: true })
+          task = getDocument({
+            url: src,
+            withCredentials: bffAuthMode,
+            disableRange: true,
+          })
         }
         const pdf = await task.promise
         if (cancelled) return

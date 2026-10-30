@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useContext } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { API_BASE } from '@/config'
-import { getAuthToken } from '@/lib/api'
+import { getAuthToken, requestWithRetry } from '@/lib/api'
 import { AuthContext } from '@/contexts/AuthContext'
 import { Card } from '@/components/ui/card'
 
@@ -24,7 +24,10 @@ export default function AdminSessionDetail() {
           ? `${base}/admin/sessions/${encodeURIComponent(sessionId)}`
           : `/admin/sessions/${encodeURIComponent(sessionId)}`
         const token = getAuthToken()
-        const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+        const res = await requestWithRetry(url, {
+          method: 'GET',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
         if (!res.ok) {
           const txt = await res.text().catch(() => '')
           throw new Error(`Failed to fetch session: ${res.status} ${txt}`)

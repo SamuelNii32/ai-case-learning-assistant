@@ -2,6 +2,7 @@ import { API_BASE } from '@/config'
 import { isDemoModeEnabled, isDemoSessionActive } from '@/auth/demoMode'
 import { mockUploads, mockSessions, mockClassesMine, mockClassDetails, mockClassesEnrolled, mockNotes } from '@/mocks/demoMocks'
 import { navigateTo } from './navigate'
+import { isBffAuthMode } from '@/auth/authMode'
 
 // tokenGetter is a function that returns the current auth token (string|null).
 // It can be registered by AuthContext so non-React modules can read the
@@ -25,6 +26,7 @@ export function setOnAuthFailure(fn) {
 }
 
 export function getAuthToken() {
+  if (isBffAuthMode()) return null
   try {
     if (tokenGetter) return tokenGetter()
     if (typeof window !== 'undefined') return localStorage.getItem('authToken')
@@ -37,13 +39,20 @@ export function getAuthToken() {
 // the app when the server rejects the token (401 or { error: 'invalid token' }).
 // Note: `authFailureHandler` above is used by `handleAuthFailure`.
 
+export function assertBffOperationSupported(path, method = 'GET') {
+  void path
+  void method
+}
+
 function makeUrl(path) {
+  if (isBffAuthMode()) return path.startsWith('/') ? path : `/${path}`
   if (!API_BASE) return path.startsWith('/') ? path : `/${path}`
   const base = String(API_BASE).replace(/\/$/, '')
   return path.startsWith('/') ? `${base}${path}` : `${base}/${path}`
 }
 
 function authHeaders() {
+  if (isBffAuthMode()) return {}
   let token = null
   try {
     if (tokenGetter) {
@@ -113,9 +122,21 @@ export function ensureFreshToken(thresholdSeconds = 10) {
 // desired later it can be reintroduced.
 
 async function requestWithRetry(url, options = {}) {
+  const method = String(options.method || 'GET').toUpperCase()
   // ensure we call token getter at request time
   const headers = { ...(options.headers || {}), ...authHeaders() }
-  const opts = { ...options, headers }
+  if (
+    isBffAuthMode() &&
+    requiresBffCsrf(url, method) &&
+    !headers['X-CSRF-TOKEN']
+  ) {
+    headers['X-CSRF-TOKEN'] = await getBffCsrfToken()
+  }
+  const opts = {
+    ...options,
+    headers,
+    ...(isBffAuthMode() ? { credentials: 'same-origin' } : {}),
+  }
 
   // first attempt
   const res = await fetch(url, opts)
@@ -126,7 +147,38 @@ async function requestWithRetry(url, options = {}) {
   return res
 }
 
+function requiresBffCsrf(url, method) {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return true
+  if (method !== 'GET') return false
+  try {
+    const path = new URL(url, window.location.origin).pathname
+    return (
+      path.startsWith('/ask/') ||
+      path === '/api/chat/stream' ||
+      path.startsWith('/tutor/reading/resume/') ||
+      (path.startsWith('/api/documents/') && path.endsWith('/figures')) ||
+      (path.startsWith('/classes/') && path.endsWith('/join-code'))
+    )
+  } catch {
+    return false
+  }
+}
+
 export { requestWithRetry }
+
+export async function getBffCsrfToken() {
+  if (!isBffAuthMode()) return null
+
+  const url = makeUrl('/bff/csrf')
+  const res = await requestWithRetry(url, { method: 'GET' })
+  if (!res.ok) {
+    throw new Error(`Unable to acquire a BFF CSRF token (${res.status}).`)
+  }
+
+  const payload = await res.json()
+  if (!payload?.requestToken) throw new Error('The BFF returned an invalid CSRF response.')
+  return payload.requestToken
+}
 
 async function handleAuthFailure(res, body, endpoint) {
   try {
@@ -151,9 +203,8 @@ async function handleAuthFailure(res, body, endpoint) {
 
 export async function buildIndex(uploadId) {
   const url = makeUrl(`/index/${encodeURIComponent(uploadId)}`)
-  const res = await fetch(url, {
+  const res = await requestWithRetry(url, {
     method: 'POST',
-    headers: { ...authHeaders() },
   })
   if (res.status === 401) {
     const txt = await res.text().catch(() => '')
@@ -175,7 +226,7 @@ export async function buildIndex(uploadId) {
 
 export async function getIndexStatus(uploadId) {
   const endpoint = `/index/status/${encodeURIComponent(uploadId)}`
-  const statusRes = await fetch(makeUrl(endpoint), { headers: { ...authHeaders() } })
+  const statusRes = await requestWithRetry(makeUrl(endpoint), { method: 'GET' })
   if (statusRes.status === 401) {
     const text = await statusRes.text().catch(() => '')
     await handleAuthFailure(statusRes, text, endpoint)
@@ -209,7 +260,7 @@ export async function waitForIndex(
 }
 
 export async function listAiModels() {
-  const response = await fetch(makeUrl('/api/llm/models'), { headers: authHeaders() })
+  const response = await requestWithRetry(makeUrl('/api/llm/models'), { method: 'GET' })
   if (!response.ok) throw new Error(`AI model catalog failed (${response.status})`)
   return response.json()
 }
@@ -574,7 +625,7 @@ export async function renameCase(uploadId, name) {
       'Content-Type': 'application/json',
       ...authHeaders(),
     },
-    credentials: 'include',
+    credentials: isBffAuthMode() ? 'same-origin' : 'include',
     // Send both `name` and `title` to be tolerant of backend DTO shape
     body: JSON.stringify({ name, title: name }),
   })
@@ -606,6 +657,10 @@ export async function renameCase(uploadId, name) {
 }
 
 export async function deleteCase(uploadId) {
+  if (!uploadId) {
+    throw new Error('Delete failed: missing upload id')
+  }
+
   const url = makeUrl(`/uploads/${encodeURIComponent(uploadId)}`)
   const res = await requestWithRetry(url, {
     method: 'DELETE',
@@ -621,12 +676,34 @@ export async function deleteCase(uploadId) {
     throw new Error(`Delete failed (${res.status})`)
   }
 
+  if (res.status === 404) {
+    const txt = await res.text().catch(() => '')
+    try {
+      const body = JSON.parse(txt)
+      if (body?.error === 'not_found' || body?.error === 'not found') {
+        return { uploadId, deleted: false, alreadyMissing: true, ...body }
+      }
+    } catch {
+      // ignore JSON parse failure and treat this as already deleted
+    }
+    return { uploadId, deleted: false, alreadyMissing: true }
+  }
+
   if (!res.ok) {
     const txt = await res.text().catch(() => '')
     throw new Error(`Delete failed (${res.status}): ${txt}`)
   }
 
-  return res.json() // { uploadId, deleted: true }
+  try {
+    const body = await res.json()
+    if (body && typeof body === 'object' && 'deleted' in body) {
+      return body
+    }
+  } catch {
+    // ignore parse errors for 204/no-content responses
+  }
+
+  return { uploadId, deleted: true }
 }
 
 export async function getSessionNotes(sessionId) {

@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from 'react'
+import React, { useContext, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AuthContext } from '@/contexts/AuthContext'
 import { isDemoModeEnabled, isDemoSessionActive } from '@/auth/demoMode'
@@ -6,37 +6,18 @@ import { isDemoModeEnabled, isDemoSessionActive } from '@/auth/demoMode'
 export default function RequireAuth({ children, requireInstructor = false }) {
   const auth = useContext(AuthContext)
   const navigate = useNavigate()
-  const [checking, setChecking] = useState(true)
+  const checking = Boolean(
+    auth?.isLoading || (auth?.authMode !== 'bff' && auth?.token && !auth?.user)
+  )
 
   useEffect(() => {
-    // Allow demo sessions to pass through without token
     if (isDemoModeEnabled() && isDemoSessionActive()) {
-      setChecking(false)
       return
     }
-    // If no token at all, redirect immediately
-    if (!auth?.token) {
-      navigate('/login', { replace: true })
-      return
-    }
-
-    // If token exists but user not yet loaded, wait until auth.user is set or token is cleared.
-    if (auth.token && !auth.user) {
-      setChecking(true)
-      return
-    }
-
-    setChecking(false)
-  }, [auth?.token, auth?.user, navigate])
-
-  useEffect(() => {
-    // If demo session, skip auth redirects
-    if (isDemoModeEnabled() && isDemoSessionActive()) return
-    // If auth resolved and user not present (token was invalid), ensure redirect
-    if (auth?.token && !auth?.user && !checking) {
+    if (!checking && !auth?.loggedIn) {
       navigate('/login', { replace: true })
     }
-  }, [auth?.token, auth?.user, checking, navigate])
+  }, [auth?.loggedIn, checking, navigate])
 
   if (checking) {
     return (
@@ -45,6 +26,8 @@ export default function RequireAuth({ children, requireInstructor = false }) {
       </div>
     )
   }
+
+  if (!auth?.loggedIn && !(isDemoModeEnabled() && isDemoSessionActive())) return null
 
   // Role-based guard (optional) - require instructor role for some pages
   if (requireInstructor) {

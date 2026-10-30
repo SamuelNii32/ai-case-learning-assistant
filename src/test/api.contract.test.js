@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('@/auth/authMode', () => ({ isBffAuthMode: () => false }))
 import {
   assignCaseToClass,
+  deleteCase,
   getClassReadingCoachSummary,
   getPagedItems,
 } from '@/lib/api'
@@ -66,6 +68,22 @@ describe('API contract helpers', () => {
       assignedStudents: 12,
       assignedCases: 3,
       startedStudents: 8,
+    })
+  })
+
+  it('treats stale delete targets as already deleted instead of a hard failure', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: 'not_found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(deleteCase('upload-456')).resolves.toMatchObject({
+      uploadId: 'upload-456',
+      deleted: false,
+      alreadyMissing: true,
     })
   })
 

@@ -26,8 +26,9 @@ export default function Header() {
     try {
       console.debug('[Header] auth', {
         loggedIn: auth?.loggedIn,
-        token: auth?.token,
-        ls: typeof window !== 'undefined' ? localStorage.getItem('authToken') : null,
+        hasToken: Boolean(auth?.token),
+        hasStoredToken:
+          typeof window !== 'undefined' ? Boolean(localStorage.getItem('authToken')) : false,
       })
     } catch {
       /* ignore */

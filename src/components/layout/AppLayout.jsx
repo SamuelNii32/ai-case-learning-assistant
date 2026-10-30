@@ -14,19 +14,19 @@ export default function AppLayout() {
   }, [searchQuery])
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="relative flex min-h-screen overflow-x-hidden bg-slate-50">
       {/* Sidebar - hidden on mobile, always visible on lg+ */}
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          className="fixed inset-0 z-40 bg-slate-900/20 backdrop-blur-[1px] lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      <div className="flex-1 flex flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         <Topbar
           searchValue={searchQuery}
           onSearchChange={setSearchQuery}

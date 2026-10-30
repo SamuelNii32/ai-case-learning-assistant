@@ -1,9 +1,11 @@
 import React from 'react'
 import { hasApiBase } from '@/config'
+import { isBffAuthMode } from '@/auth/authMode'
 
 export default function DeployConfigWarning() {
   // Show only in production when API base not set
   if (import.meta.env.DEV) return null
+  if (isBffAuthMode()) return null
   if (hasApiBase()) return null
 
   // Render a prominent banner and log to console

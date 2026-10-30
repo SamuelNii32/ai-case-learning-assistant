@@ -18,12 +18,12 @@ const WorkspacePreview = () => (
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[1.04fr_0.86fr]">
-          <div className="rounded-[24px] bg-[#e8e2da] px-5 pb-6 pt-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
-            <div className="ml-6 inline-flex max-w-[320px] rounded-[14px] bg-[#d8ccbf] px-4 py-3 text-[14px] font-semibold leading-snug text-[#6b3a06] shadow-[0_4px_10px_rgba(44,34,24,0.04)]">
+          <div className="rounded-[24px] bg-[#e8e2da] px-3 pb-6 pt-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] sm:px-5">
+            <div className="ml-0 inline-flex max-w-full rounded-[14px] bg-[#d8ccbf] px-4 py-3 text-[14px] font-semibold leading-snug text-[#6b3a06] shadow-[0_4px_10px_rgba(44,34,24,0.04)] sm:ml-6 sm:max-w-[320px]">
               Supply Chain Management Analysis
             </div>
 
-            <p className="mt-5 max-w-[380px] text-[12px] leading-[1.45] text-[#33261d]">
+            <p className="mt-5 max-w-full text-[12px] leading-[1.45] text-[#33261d] sm:max-w-[380px]">
               The case explores how fragmented communication across teams slowed decisions, created
               uncertainty in staffing, and weakened coordination across the broader supply chain.
               Updates were passed through disconnected channels, ownership was often unclear, and
@@ -44,7 +44,7 @@ const WorkspacePreview = () => (
               </div>
             </div>
 
-            <p className="mt-5 max-w-[390px] text-[12px] leading-[1.45] text-[#33261d]">
+            <p className="mt-5 max-w-full text-[12px] leading-[1.45] text-[#33261d] sm:max-w-[390px]">
               By centralizing updates, surfacing patterns, and highlighting the most relevant
               signals, the workspace helps users move from raw information to clearer decisions with
               less friction.

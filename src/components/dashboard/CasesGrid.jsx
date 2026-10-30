@@ -125,17 +125,26 @@ export default function CasesGrid({ items = [], loading = false }) {
 
   const performDelete = async () => {
     if (!deleteTarget) return
+    const targetId = deleteTarget.id ?? deleteTarget.uploadId
+    if (!targetId) {
+      toast.error('Delete failed: missing case id')
+      return
+    }
+
     try {
-      await apiDeleteCase(deleteTarget.id)
-      toast.success('Deleted')
+      const result = await apiDeleteCase(targetId)
+      if (result?.alreadyMissing) {
+        toast.success('Case was already removed')
+      } else {
+        toast.success('Deleted')
+      }
       setDeleteOpen(false)
       setDeleteTarget(null)
       setOpenId(null)
-      // Notify other parts of the app to refresh without a full page reload
       try {
         window.dispatchEvent(
           new CustomEvent('case:changed', {
-            detail: { uploadId: deleteTarget.id, action: 'delete' },
+            detail: { uploadId: targetId, action: 'delete' },
           })
         )
       } catch (e) {

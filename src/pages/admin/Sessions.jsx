@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useContext } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { API_BASE } from '@/config'
-import { getAuthToken, getPagedItems } from '@/lib/api'
+import { getAuthToken, getPagedItems, requestWithRetry } from '@/lib/api'
 import { AuthContext } from '@/contexts/AuthContext'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -81,7 +81,10 @@ export default function AdminSessions() {
         if (!base) throw new Error('API_BASE is empty in this build')
         const url = `${base}/admin/sessions`
         const token = getAuthToken()
-        const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+        const res = await requestWithRetry(url, {
+          method: 'GET',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
         if (!res.ok) {
           const txt = await res.text().catch(() => '')
           throw new Error(`Failed to fetch sessions: ${res.status} ${txt}`)
