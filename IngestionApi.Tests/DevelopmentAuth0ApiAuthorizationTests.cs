@@ -82,6 +82,19 @@ public sealed class DevelopmentAuth0ApiAuthorizationTests : IClassFixture<Develo
         Assert.Equal("instructor-b-upload", Assert.Single(b).GetProperty("id").GetString());
     }
 
+    [Fact]
+    public async Task Classes_mine_requires_the_current_local_instructor_role()
+    {
+        var instructor = await _application.CreateCookieAsync("auth0|instructor-a");
+        var student = await _application.CreateCookieAsync("auth0|student-a");
+
+        using var instructorResponse = await SendCookieAsync("/classes/mine", instructor);
+        using var studentResponse = await SendCookieAsync("/classes/mine", student);
+
+        Assert.Equal(HttpStatusCode.OK, instructorResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, studentResponse.StatusCode);
+    }
+
     [Theory]
     [InlineData("auth0|unlinked")]
     [InlineData("auth0|invalid-mapping")]
@@ -143,7 +156,8 @@ public sealed class DevelopmentAuth0ApiAuthorizationTests : IClassFixture<Develo
             "/uploads/11111111-1111-1111-1111-111111111111.pdf", cookie);
         Assert.Equal(HttpStatusCode.OK, document.StatusCode);
 
-        using var instructorClasses = await SendCookieAsync("/classes/mine", cookie);
+        var instructorCookie = await _application.CreateCookieAsync("auth0|instructor-a");
+        using var instructorClasses = await SendCookieAsync("/classes/mine", instructorCookie);
         Assert.Equal(HttpStatusCode.OK, instructorClasses.StatusCode);
     }
 
@@ -266,7 +280,9 @@ public sealed class DevelopmentAuth0ApiTestApplication : IAsyncLifetime
                     IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtSecret))
                 };
             });
-        builder.Services.AddAuthorization();
+        builder.Services.AddAuthorization(options =>
+            options.AddPolicy("InstructorOnly", policy =>
+                policy.RequireClaim("role", "instructor")));
         builder.Services.AddSingleton(new DevelopmentAuth0ApiSettings(true));
         builder.Services.AddDevelopmentAuth0Bff(
             builder.Environment, BffSettings, new DevelopmentAuth0ApiSettings(true));
@@ -324,8 +340,8 @@ public sealed class DevelopmentAuth0ApiTestApplication : IAsyncLifetime
         _app.MapGet("/bearer-only", () => Results.Ok()).RequireAuthorization(
             new AuthorizeAttribute { AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme });
         _app.MapGet("/uploads/{uploadId:guid}.pdf", () => Results.Ok()).RequireAuthorization();
-        _app.MapGet("/classes/mine", () => Results.Ok()).RequireAuthorization();
-        _app.MapPost("/classes", () => Results.Ok()).RequireAuthorization();
+        _app.MapGet("/classes/mine", () => Results.Ok()).RequireAuthorization("InstructorOnly");
+        _app.MapPost("/classes", () => Results.Ok()).RequireAuthorization("InstructorOnly");
 
         _app.MapPatch("/uploads/{uploadId:guid}/name", (
             Guid uploadId,

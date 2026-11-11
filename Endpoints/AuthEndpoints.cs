@@ -124,7 +124,15 @@ public static class AuthEndpoints
             var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler()
                 .WriteToken(token);
 
-            return Results.Ok(new { token = jwt, userId = user.Id, email, fullName = user.FullName, isSuperUser = user.IsSuperUser });
+            return Results.Ok(new
+            {
+                token = jwt,
+                userId = user.Id,
+                email,
+                fullName = user.FullName,
+                isSuperUser = user.IsSuperUser,
+                role = user.IsSuperUser ? "instructor" : "student"
+            });
         }).AllowAnonymous().RequireRateLimiting("Auth");
 
         return app;

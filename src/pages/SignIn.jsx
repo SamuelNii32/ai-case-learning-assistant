@@ -93,9 +93,16 @@ export default function SignInPage() {
       }
 
       if (user) {
+        // Roles are authorization data. Never derive them from the role selector:
+        // the selector describes the user's intent, while the API response is the
+        // trusted account record used by the backend.
+        const serverRole =
+          j.role ??
+          user.role ??
+          (j.isSuperUser === true ? 'instructor' : 'student')
         user = {
           ...user,
-          role: j.role ?? (j.isSuperUser ? 'instructor' : role),
+          role: serverRole === 'instructor' ? 'instructor' : 'student',
         }
       }
 
@@ -107,7 +114,7 @@ export default function SignInPage() {
         if (user) localStorage.setItem('authUser', JSON.stringify(user))
       }
 
-      const isInstructor = (user && user.role === 'instructor') || role === 'instructor'
+      const isInstructor = user?.role === 'instructor'
       navigate(isInstructor ? '/admin/classes' : '/dashboard')
     } catch (e) {
       const msg = String(e?.message || e)

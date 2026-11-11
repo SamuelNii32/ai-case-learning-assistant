@@ -38,6 +38,7 @@ public sealed class AuthenticationBaselineTests : IClassFixture<AuthenticationTe
 
         Assert.Equal(HttpStatusCode.OK, login.StatusCode);
         Assert.False(string.IsNullOrWhiteSpace(login.Token));
+        Assert.Equal("student", login.Role);
 
         var jwt = new JwtSecurityTokenHandler().ReadJwtToken(login.Token);
         Assert.Equal(AuthenticationTestApplication.StudentUserId, jwt.Subject);
@@ -53,6 +54,7 @@ public sealed class AuthenticationBaselineTests : IClassFixture<AuthenticationTe
 
         Assert.Equal(HttpStatusCode.OK, login.StatusCode);
         Assert.False(string.IsNullOrWhiteSpace(login.Token));
+        Assert.Equal("instructor", login.Role);
 
         var jwt = new JwtSecurityTokenHandler().ReadJwtToken(login.Token);
         Assert.Equal(AuthenticationTestApplication.InstructorUserId, jwt.Subject);
@@ -202,11 +204,14 @@ public sealed class AuthenticationTestApplication : IAsyncLifetime
         using var response = await Client.PostAsJsonAsync("/auth/login", new { email, password });
         if (!response.IsSuccessStatusCode)
         {
-            return new LoginResult(response.StatusCode, null);
+            return new LoginResult(response.StatusCode, null, null);
         }
 
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return new LoginResult(response.StatusCode, body.RootElement.GetProperty("token").GetString());
+        return new LoginResult(
+            response.StatusCode,
+            body.RootElement.GetProperty("token").GetString(),
+            body.RootElement.GetProperty("role").GetString());
     }
 
     private static UserCredentialRecord CreateUser(
@@ -217,7 +222,7 @@ public sealed class AuthenticationTestApplication : IAsyncLifetime
         bool isSuperUser) =>
         new(id, email, BCrypt.Net.BCrypt.HashPassword(password), fullName, isSuperUser);
 
-    public sealed record LoginResult(HttpStatusCode StatusCode, string? Token);
+    public sealed record LoginResult(HttpStatusCode StatusCode, string? Token, string? Role);
 
     private sealed class InMemoryUserRepository(IEnumerable<UserCredentialRecord> users) : IUserRepository
     {
