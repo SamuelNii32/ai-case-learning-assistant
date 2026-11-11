@@ -16,6 +16,22 @@ function requireFile(file, description) {
 requireFile(appAssembly, 'ASP.NET Core application assembly')
 requireFile(indexPath, 'React application shell')
 
+const forbiddenRootFiles = [
+  'appsettings.Development.json',
+  'audit-ci.json',
+  'global.json',
+  'lighthouse-report.json',
+  'package.json',
+  'package-lock.json',
+  'vercel.json',
+]
+
+for (const file of forbiddenRootFiles) {
+  if (fs.existsSync(path.join(publishDirectory, file))) {
+    throw new Error(`Development/build-only file must not be published: ${file}`)
+  }
+}
+
 const index = fs.readFileSync(indexPath, 'utf8')
 if (index.includes('/src/main.jsx')) {
   throw new Error('The published index.html still references Vite development source files.')

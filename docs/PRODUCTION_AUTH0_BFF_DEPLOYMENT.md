@@ -214,5 +214,7 @@ production cutover on this runtime. Upgrade the backend and test projects to
 package vulnerability scan, App Service startup validation, and staging smoke
 tests before production approval.
 
-The current environment does not have a .NET 10 SDK installed, so this task did
-not make an untestable target-framework change.
+The local build environment now has a .NET 10 SDK, but this combined-hosting PR
+intentionally does not mix a runtime upgrade into the deployment-packaging
+change. Upgrade the backend and test projects in a separate, reviewable PR and
+repeat the complete verification before production cutover.

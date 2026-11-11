@@ -24,6 +24,12 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!-- Build inputs and development-only files must not ship in the App Service package. -->
+		<Content Update="appsettings.Development.json;audit-ci.json;global.json;lighthouse-report.json;package.json;package-lock.json;vercel.json"
+		         CopyToPublishDirectory="Never" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<PackageReference Include="Azure.Extensions.AspNetCore.DataProtection.Blobs" Version="1.5.3" />
 		<PackageReference Include="Azure.Extensions.AspNetCore.DataProtection.Keys" Version="1.6.4" />
 		<PackageReference Include="Azure.Identity" Version="1.21.0" />

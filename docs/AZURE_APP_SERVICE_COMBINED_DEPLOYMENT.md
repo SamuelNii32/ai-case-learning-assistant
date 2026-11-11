@@ -5,9 +5,18 @@ serves the compiled React application, Auth0 BFF, ASP.NET Core APIs, PDFs, and
 AI streams. It does not authorize a deployment, Azure changes, Auth0 changes,
 database migrations, or production account changes.
 
+> **Azure owner start here:** If you are helping by gathering information from
+> the Azure portal, use the short, screenshot-by-screenshot checklist in
+> [`AZURE_OWNER_STAGING_CHECKLIST.md`](AZURE_OWNER_STAGING_CHECKLIST.md). It does
+> not ask you to change anything or reveal secret values.
+
 The Phase 2 branch is based on the unmerged instructor-role fix. Merge order
 must preserve that dependency: merge the instructor fix first, then update this
 branch from `main` and re-run all checks before considering this pull request.
+
+Before either merge, follow the repository release controls in
+[`GITHUB_MAIN_PROTECTION.md`](GITHUB_MAIN_PROTECTION.md). The Vercel production
+branch must remain on the verified hold branch until an explicit cutover.
 
 ## Build one immutable artifact
 
