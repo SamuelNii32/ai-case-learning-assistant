@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite --configLoader native build",
+    "build:appservice": "vite --configLoader native build --mode appservice",
+    "verify:appservice": "node scripts/verify-appservice-publish.js",
+    "smoke:appservice": "node scripts/smoke-appservice-publish.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",

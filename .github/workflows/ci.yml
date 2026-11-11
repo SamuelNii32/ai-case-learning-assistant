@@ -7,6 +7,41 @@ on:
     branches: [main]
 
 jobs:
+  combined-app-service-publish:
+    name: Combined App Service publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: npm
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Publish combined frontend and backend
+        run: dotnet publish IngestionApi.csproj --configuration Release --output artifacts/appservice-publish /p:UseAppHost=false
+
+      - name: Verify combined artifact
+        run: npm run verify:appservice -- artifacts/appservice-publish
+
+      - name: Smoke-test combined routing
+        run: npm run smoke:appservice -- artifacts/appservice-publish
+
+      - name: Upload combined artifact for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: casepilot-appservice
+          path: artifacts/appservice-publish
+          if-no-files-found: error
+          retention-days: 7
+
   frontend:
     name: Frontend test and build
     runs-on: ubuntu-latest

@@ -3,13 +3,15 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { validateAppServiceBuild } from './scripts/appservice-build-config.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 // https://vite.dev/config/
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, __dirname, '')
+  validateAppServiceBuild({ command, mode, env })
   const bffTarget = env.VITE_BFF_PROXY_TARGET || 'https://localhost:7002'
   const bffProxy = {
     target: bffTarget,

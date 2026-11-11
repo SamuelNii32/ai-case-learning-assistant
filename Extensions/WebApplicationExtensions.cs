@@ -135,6 +135,12 @@ public static class WebApplicationExtensions
             app.UseHttpsRedirection();
         }
 
+        // Serve only recognized React document navigations before endpoint
+        // authorization. This resolves intentional route overlaps such as
+        // /cases and /admin/sessions without turning unknown API paths or Auth0
+        // callbacks into successful index.html responses.
+        app.UseCombinedSpaNavigationFallback(app.Environment);
+
         app.UseAuthentication();
         app.UseMiddleware<CasePilotAuthenticationBridgeMiddleware>();
         app.Use(async (context, next) =>
