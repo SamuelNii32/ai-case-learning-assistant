@@ -11,14 +11,22 @@
 			test output back into its own output (and vice versa), producing recursively
 			nested bin folders that make project evaluation and `dotnet run` extremely slow.
 		-->
-		<RepositoryGeneratedFiles>bin\**;obj\**;artifacts\**;uploads\**;publish\**;publish-clean\**;deploy-out\**;deploy-staging\**;output\**;tmp\**;zip-verify\**;node_modules\**;performance\results\**;IngestionApi.Tests\**;*.zip</RepositoryGeneratedFiles>
+		<RepositoryGeneratedFiles>bin\**;obj\**;artifacts\**;dist\**;uploads\**;publish\**;publish-clean\**;deploy-out\**;deploy-staging\**;output\**;tmp\**;zip-verify\**;node_modules\**;performance\results\**;IngestionApi.Tests\**;*.zip</RepositoryGeneratedFiles>
 		<DefaultItemExcludes>$(DefaultItemExcludes);$(RepositoryGeneratedFiles)</DefaultItemExcludes>
+		<BuildReactOnPublish Condition="'$(BuildReactOnPublish)' == ''">true</BuildReactOnPublish>
+		<NpmCommand Condition="'$(NpmCommand)' == ''">npm</NpmCommand>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<Compile Remove="$(RepositoryGeneratedFiles)" />
 		<Content Remove="$(RepositoryGeneratedFiles)" />
 		<None Remove="$(RepositoryGeneratedFiles)" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Build inputs and development-only files must not ship in the App Service package. -->
+		<Content Update="appsettings.Development.json;audit-ci.json;global.json;lighthouse-report.json;package.json;package-lock.json;vercel.json"
+		         CopyToPublishDirectory="Never" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -52,5 +60,24 @@
 		<PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.14.0" />
 		<PackageReference Include="System.Numerics.Tensors" Version="9.0.10" />
 	</ItemGroup>
+
+	<Target Name="BuildReactForCombinedPublish"
+			AfterTargets="ComputeFilesToPublish"
+			Condition="'$(BuildReactOnPublish)' == 'true'">
+		<Message Importance="high" Text="Building the React BFF frontend for the combined Azure App Service artifact." />
+		<Exec WorkingDirectory="$(MSBuildProjectDirectory)" Command="$(NpmCommand) ci --no-audit --no-fund" />
+		<Exec WorkingDirectory="$(MSBuildProjectDirectory)" Command="$(NpmCommand) run build:appservice" />
+		<Error Condition="!Exists('$(MSBuildProjectDirectory)\dist\index.html')"
+			   Text="The React build did not produce dist/index.html." />
+		<ItemGroup>
+			<ReactDistFiles Include="$(MSBuildProjectDirectory)\dist\**\*" />
+			<ResolvedFileToPublish Include="@(ReactDistFiles->'%(FullPath)')"
+			                       Exclude="@(ResolvedFileToPublish)">
+				<RelativePath>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+				<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+				<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+			</ResolvedFileToPublish>
+		</ItemGroup>
+	</Target>
 
 </Project>

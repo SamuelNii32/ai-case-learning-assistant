@@ -3,6 +3,12 @@
 This document prepares deployment; it does not authorize resource creation,
 DNS changes, Auth0 changes, user migration, or production database changes.
 
+> **Architecture update:** Azure Front Door is deferred. The approved next
+> staging topology serves React and ASP.NET Core from one Azure App Service
+> origin. Follow `docs/AZURE_APP_SERVICE_COMBINED_DEPLOYMENT.md`. The Front Door
+> material below is retained as a future scaling option, not a current
+> deployment instruction.
+
 ## Verified repository architecture
 
 - The React repository is a Vite SPA with a Vercel SPA fallback manifest. Its
@@ -208,5 +214,7 @@ production cutover on this runtime. Upgrade the backend and test projects to
 package vulnerability scan, App Service startup validation, and staging smoke
 tests before production approval.
 
-The current environment does not have a .NET 10 SDK installed, so this task did
-not make an untestable target-framework change.
+The local build environment now has a .NET 10 SDK, but this combined-hosting PR
+intentionally does not mix a runtime upgrade into the deployment-packaging
+change. Upgrade the backend and test projects in a separate, reviewable PR and
+repeat the complete verification before production cutover.

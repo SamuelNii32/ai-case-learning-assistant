@@ -3318,8 +3318,6 @@ app.MapGet("/debug/session-access/{sessionId}", async (string sessionId, HttpCon
     return Results.Ok(new { instructorId, sessionId, count });
 });
 
-app.MapFallbackToFile("index.html");
-
 app.Run();
 
 
