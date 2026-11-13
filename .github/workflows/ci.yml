@@ -22,10 +22,10 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '10.0.x'
 
       - name: Publish combined frontend and backend
-        run: dotnet publish IngestionApi.csproj --configuration Release --output artifacts/appservice-publish /p:UseAppHost=false
+        run: npm run publish:appservice -- artifacts/appservice-publish
 
       - name: Verify combined artifact
         run: npm run verify:appservice -- artifacts/appservice-publish
@@ -38,6 +38,41 @@ jobs:
         with:
           name: casepilot-appservice
           path: artifacts/appservice-publish
+          if-no-files-found: error
+          retention-days: 7
+
+  combined-app-service-windows:
+    name: Combined App Service Windows publish
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: npm
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish combined frontend and backend on Windows
+        run: npm run publish:appservice -- artifacts/appservice-publish-windows
+
+      - name: Verify Windows combined artifact
+        run: npm run verify:appservice -- artifacts/appservice-publish-windows
+
+      - name: Smoke-test Windows combined routing
+        run: npm run smoke:appservice -- artifacts/appservice-publish-windows
+
+      - name: Upload Windows combined artifact for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: casepilot-appservice-windows
+          path: artifacts/appservice-publish-windows
           if-no-files-found: error
           retention-days: 7
 
@@ -73,13 +108,13 @@ jobs:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_DB: ingestion_verify
+          POSTGRES_DB: ingestion_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d ingestion_verify"
+          --health-cmd "pg_isready -U postgres -d ingestion_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -99,7 +134,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '10.0.x'
 
       - name: Restore dependencies
         run: dotnet restore IngestionApi.csproj
@@ -123,13 +158,32 @@ jobs:
         env:
           ASPNETCORE_ENVIRONMENT: Development
           DATABASE_PROVIDER: postgres
-          POSTGRES_CONNECTION_STRING: Host=localhost;Port=5432;Database=ingestion_verify;Username=postgres;Password=postgres
+          POSTGRES_CONNECTION_STRING: Host=localhost;Port=5432;Database=ingestion_test;Username=postgres;Password=postgres
           DOCUMENT_STORAGE_PROVIDER: azureblob
           AZURE_STORAGE_CONNECTION_STRING: UseDevelopmentStorage=true
           AZURE_STORAGE_CONTAINER: ci-documents
           OPENAI_API_KEY: verification-key-not-used
           JWT_SECRET: verification-only-secret-at-least-32-characters
           RUN_BACKGROUND_WORKER: 'false'
+
+      - name: Verify trusted staging Auth0 bootstrap against PostgreSQL
+        shell: bash
+        run: |
+          dotnet artifacts/ci-backend/IngestionApi.dll --bootstrap-staging-auth0-test-users
+          dotnet artifacts/ci-backend/IngestionApi.dll --bootstrap-staging-auth0-test-users
+        env:
+          ASPNETCORE_ENVIRONMENT: Staging
+          CASEPILOT_DEPLOYMENT_ENVIRONMENT: staging
+          DATABASE_PROVIDER: postgres
+          POSTGRES_CONNECTION_STRING: Host=localhost;Port=5432;Database=ingestion_test;Username=postgres;Password=postgres
+          DOCUMENT_STORAGE_PROVIDER: local
+          OPENAI_API_KEY: verification-key-not-used
+          JWT_SECRET: verification-only-secret-at-least-32-characters
+          RUN_BACKGROUND_WORKER: 'false'
+          STAGING_AUTH0_BOOTSTRAP_ENABLED: 'true'
+          STAGING_AUTH0_BOOTSTRAP_CONFIRMATION: CASEPILOT-STAGING-DISPOSABLE-USERS
+          STAGING_AUTH0_STUDENT_SUBJECT: auth0|ci-disposable-student
+          STAGING_AUTH0_INSTRUCTOR_SUBJECT: auth0|ci-disposable-instructor
 
       - name: Verify worker starts without web authentication settings
         shell: bash
@@ -142,7 +196,7 @@ jobs:
         env:
           ASPNETCORE_ENVIRONMENT: Production
           DATABASE_PROVIDER: postgres
-          POSTGRES_CONNECTION_STRING: Host=localhost;Port=5432;Database=ingestion_verify;Username=postgres;Password=postgres
+          POSTGRES_CONNECTION_STRING: Host=localhost;Port=5432;Database=ingestion_test;Username=postgres;Password=postgres
           DOCUMENT_STORAGE_PROVIDER: azureblob
           AZURE_STORAGE_CONNECTION_STRING: UseDevelopmentStorage=true
           AZURE_STORAGE_CONTAINER: ci-documents
@@ -166,7 +220,7 @@ jobs:
           ASPNETCORE_ENVIRONMENT: Development
           ASPNETCORE_URLS: http://127.0.0.1:5055
           DATABASE_PROVIDER: postgres
-          POSTGRES_CONNECTION_STRING: Host=localhost;Port=5432;Database=ingestion_verify;Username=postgres;Password=postgres
+          POSTGRES_CONNECTION_STRING: Host=localhost;Port=5432;Database=ingestion_test;Username=postgres;Password=postgres
           DOCUMENT_STORAGE_PROVIDER: azureblob
           AZURE_STORAGE_CONNECTION_STRING: UseDevelopmentStorage=true
           AZURE_STORAGE_CONTAINER: ci-documents

@@ -33,6 +33,8 @@ Portal labels sometimes move; use the closest matching page if a label differs.
 3. **`03-runtime-settings.png` — App Service > Settings > Configuration > General settings**
    - Include stack/runtime version, platform bitness, HTTP version, Web Sockets,
      Always On, HTTPS Only, and minimum inbound TLS version where shown.
+   - Also confirm that **.NET 10 (LTS)** is available for a new Windows Web App.
+     Do not change the existing production runtime during this inspection.
 
 4. **`04-deployment-center-settings.png` — App Service > Deployment Center > Settings**
    - Include source, build provider, organization, repository, and branch.

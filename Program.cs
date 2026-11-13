@@ -703,6 +703,23 @@ if (args.Any(arg => string.Equals(arg, "--auth0-migration-dry-run", StringCompar
     return;
 }
 
+if (args.Any(arg => string.Equals(
+        arg, "--bootstrap-staging-auth0-test-users", StringComparison.OrdinalIgnoreCase)))
+{
+    var bootstrapper = new StagingAuth0TestUserBootstrapper(
+        databaseOptions,
+        app.Services.GetRequiredService<IUserRepository>(),
+        app.Services.GetRequiredService<IUserIdentityRepository>());
+    var results = await bootstrapper.BootstrapAsync(StagingAuth0BootstrapOptions.Load());
+    foreach (var result in results)
+    {
+        Console.WriteLine(
+            $"[STAGING AUTH0 BOOTSTRAP] {result.Role}: {result.Status}; local user ID: {result.LocalUserId}");
+    }
+    await app.DisposeAsync();
+    return;
+}
+
 var linkDisposableAuth0User = args.Any(arg =>
     string.Equals(arg, "--dev-link-auth0-test-user", StringComparison.OrdinalIgnoreCase));
 var cleanupDisposableAuth0User = args.Any(arg =>

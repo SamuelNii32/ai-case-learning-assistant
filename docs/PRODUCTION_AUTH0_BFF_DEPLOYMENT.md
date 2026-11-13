@@ -207,14 +207,8 @@ tests, deployment, cutover, and legacy JWT retirement.
 
 ## Runtime support gate
 
-The backend currently targets `net9.0` and the repository pins the .NET 9 SDK.
-Microsoft support for .NET 9 ends on November 10, 2026. Do not schedule the
-production cutover on this runtime. Upgrade the backend and test projects to
-.NET 10 LTS in a separate, reviewable change, then repeat the full backend suite,
-package vulnerability scan, App Service startup validation, and staging smoke
-tests before production approval.
-
-The local build environment now has a .NET 10 SDK, but this combined-hosting PR
-intentionally does not mix a runtime upgrade into the deployment-packaging
-change. Upgrade the backend and test projects in a separate, reviewable PR and
-repeat the complete verification before production cutover.
+The backend and test projects target .NET 10 LTS, and CI publishes with the
+.NET 10 SDK. Keep Azure App Service on the latest supported .NET 10 patch and
+repeat the full backend suite, package vulnerability scan, App Service startup
+validation, and staging smoke tests after runtime or hosting-stack changes.
+Do not combine a future runtime migration with an authentication cutover.

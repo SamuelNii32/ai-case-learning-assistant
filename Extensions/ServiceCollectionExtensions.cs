@@ -13,7 +13,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 using Api.Infrastructure;
 using Api.Services;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using StackExchange.Redis;
 using Microsoft.AspNetCore.DataProtection;
 
