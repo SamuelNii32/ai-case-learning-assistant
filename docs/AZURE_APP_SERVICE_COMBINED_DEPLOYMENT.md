@@ -32,16 +32,18 @@ The `appservice` Vite mode is defined by `.env.appservice`. It requires
 requests on the public App Service origin. These are build settings, not Azure
 runtime secrets.
 
-From a clean checkout with .NET 9 and Node.js 20 installed:
+From a clean checkout with .NET 10 and Node.js 20 installed:
 
 ```powershell
-dotnet publish IngestionApi.csproj `
-  --configuration Release `
-  --output artifacts/appservice-publish `
-  /p:UseAppHost=false
+npm run publish:appservice -- artifacts/appservice-publish
 npm run verify:appservice -- artifacts/appservice-publish
 npm run smoke:appservice -- artifacts/appservice-publish
 ```
+
+The publish command deletes only the selected child directory under
+`artifacts/` before invoking `dotnet publish`. This is required because a custom
+publish output otherwise retains stale files from earlier builds. The verifier
+also rejects `appsettings.Development.json` and other development-only inputs.
 
 For a backend-only diagnostic publish, `/p:BuildReactOnPublish=false` is
 available. Do not use that opt-out for the combined production site.
@@ -81,6 +83,7 @@ the frontend build, chat, or a deployment ZIP.
 
 ```text
 ASPNETCORE_ENVIRONMENT=Production
+CASEPILOT_DEPLOYMENT_ENVIRONMENT=staging
 AUTH0_ENABLED=true
 AUTH0_BFF_API_ENABLED=true
 AUTH0_DOMAIN=<hostname only>
@@ -143,6 +146,12 @@ Allowed Web Origins: https://PUBLIC_HOST
 Keep Authorization Code flow, confidential client authentication, PKCE,
 state, nonce, and correlation validation enabled. Do not put the client secret
 or Auth0 tokens in React settings. Do not enable automatic email linking.
+
+Use the trusted command documented in
+[`STAGING_AUTH0_BOOTSTRAP.md`](STAGING_AUTH0_BOOTSTRAP.md) to create only the
+two disposable staging mappings. It has no HTTP route, assigns fixed roles
+server-side, and refuses databases whose names are not explicitly marked for
+staging or testing.
 
 ## Route and security behavior
 

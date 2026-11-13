@@ -132,7 +132,7 @@ if ([IO.Path]::GetExtension($resolvedPdfPath) -ne ".pdf") {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $solutionPath = Join-Path $repoRoot "IngestionApi.sln"
-$apiDll = Join-Path $repoRoot "bin\Release\net9.0\IngestionApi.dll"
+$apiDll = Join-Path $repoRoot "bin\Release\net10.0\IngestionApi.dll"
 
 if (-not $SkipBuild) {
     & dotnet build $solutionPath -c Release

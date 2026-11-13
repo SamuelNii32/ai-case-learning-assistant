@@ -45,7 +45,7 @@ public static class WebApplicationExtensions
             };
             // Render sets RENDER=true and exposes the service port only through its managed
             // reverse proxy. Other platforms must opt in explicitly after verifying the same.
-            forwardedHeaders.KnownNetworks.Clear();
+            forwardedHeaders.KnownIPNetworks.Clear();
             forwardedHeaders.KnownProxies.Clear();
             app.UseForwardedHeaders(forwardedHeaders);
         }

@@ -17,6 +17,7 @@ Require:
 - the branch to be up to date before merging;
 - these status checks:
   - `Combined App Service publish`
+  - `Combined App Service Windows publish`
   - `Frontend test and build`
   - `Backend build and PostgreSQL verification`
   - `Security audit`
