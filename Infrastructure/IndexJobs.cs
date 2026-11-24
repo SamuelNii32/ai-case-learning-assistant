@@ -360,9 +360,7 @@ public sealed class IndexingService
 
     public async Task<IndexBuildSummary> BuildAsync(Guid uploadId, CancellationToken cancellationToken = default, string? workerId = null)
     {
-        var pdfPath = await _storage.GetPdfPathAsync(uploadId, cancellationToken);
-        if (pdfPath is null)
-            throw new FileNotFoundException($"PDF not found for upload {uploadId}.");
+        cancellationToken.ThrowIfCancellationRequested();
 
         var existingChunks = await IndexPersistence.TryLoadAsync(uploadId, _storage, cancellationToken);
         if (existingChunks is { Count: > 0 })
@@ -375,6 +373,10 @@ public sealed class IndexingService
                 Cached: true
             );
         }
+
+        var pdfPath = await _storage.GetPdfPathAsync(uploadId, cancellationToken);
+        if (pdfPath is null)
+            throw new FileNotFoundException($"PDF not found for upload {uploadId}.");
 
         var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
             ?? throw new InvalidOperationException("OPENAI_API_KEY not set.");
