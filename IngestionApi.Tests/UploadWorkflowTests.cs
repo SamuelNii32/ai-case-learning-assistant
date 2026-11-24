@@ -16,6 +16,124 @@ namespace IngestionApi.Tests;
 public sealed class UploadEndpointTests
 {
     [Fact]
+    public async Task CasesRejectsMissingAuthenticatedUserBeforeReadingOwnershipOrStorage()
+    {
+        var storage = new FakeDocumentStorage();
+        var repository = new FakeUploadRepository();
+        var context = new DefaultHttpContext
+        {
+            RequestServices = new ServiceCollection().AddLogging().BuildServiceProvider()
+        };
+        context.Response.Body = new MemoryStream();
+
+        var result = await UploadEndpoints.HandleGetCasesAsync(context, storage, repository);
+        await result.ExecuteAsync(context);
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, context.Response.StatusCode);
+        Assert.Equal(0, repository.GetOwnedUploadIdsCallCount);
+        Assert.Empty(storage.ReadUploadIds);
+    }
+
+    [Fact]
+    public async Task CasesReadsOnlyOwnedSummariesAndPreservesResponseShapeAndSorting()
+    {
+        var olderUploadId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var newerUploadId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var unrelatedUploadId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var storage = new FakeDocumentStorage();
+        storage.SummaryTexts[olderUploadId] = SummaryJson(
+            olderUploadId, "older.pdf", 3, 2, 1.25, "2025-01-01T00:00:00Z");
+        storage.SummaryTexts[newerUploadId] = SummaryJson(
+            newerUploadId, "newer.pdf", 5, 4, 2.5, "2025-02-01T00:00:00Z");
+        storage.SummaryTexts[unrelatedUploadId] = SummaryJson(
+            unrelatedUploadId, "unrelated.pdf", 99, 99, 99, "2025-03-01T00:00:00Z");
+        var repository = new FakeUploadRepository
+        {
+            OwnedUploadIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                olderUploadId.ToString(),
+                newerUploadId.ToString()
+            }
+        };
+        using var cancellation = new CancellationTokenSource();
+        var context = CreateCasesContext(cancellation.Token);
+
+        var result = await UploadEndpoints.HandleGetCasesAsync(context, storage, repository);
+        await result.ExecuteAsync(context);
+
+        context.Response.Body.Position = 0;
+        using var body = await JsonDocument.ParseAsync(context.Response.Body);
+        var cases = body.RootElement.EnumerateArray().ToArray();
+        Assert.Equal(2, cases.Length);
+        Assert.Equal(newerUploadId.ToString(), cases[0].GetProperty("id").GetString());
+        Assert.Equal("newer.pdf", cases[0].GetProperty("name").GetString());
+        Assert.Equal(5, cases[0].GetProperty("pages").GetInt32());
+        Assert.Equal(4, cases[0].GetProperty("images").GetInt32());
+        Assert.Equal(2.5, cases[0].GetProperty("sizeMB").GetDouble());
+        Assert.Equal("2025-02-01T00:00:00Z", cases[0].GetProperty("uploadedAt").GetString());
+        Assert.Equal(olderUploadId.ToString(), cases[1].GetProperty("id").GetString());
+        Assert.Equal(new[] { olderUploadId, newerUploadId }, storage.ReadUploadIds.OrderBy(id => id));
+        Assert.DoesNotContain(unrelatedUploadId, storage.ReadUploadIds);
+        Assert.Equal(0, storage.EnumerateSummariesCallCount);
+        Assert.All(storage.ReadCancellationTokens, token => Assert.Equal(cancellation.Token, token));
+    }
+
+    [Fact]
+    public async Task CasesSkipsMissingMalformedAndMismatchedSummaries()
+    {
+        var validUploadId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var missingUploadId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var malformedUploadId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var mismatchedUploadId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+        var unrelatedUploadId = Guid.Parse("55555555-5555-5555-5555-555555555555");
+        var storage = new FakeDocumentStorage();
+        storage.SummaryTexts[validUploadId] = SummaryJson(
+            validUploadId, "valid.pdf", 1, 0, 0.5, "2025-01-01T00:00:00Z");
+        storage.SummaryTexts[malformedUploadId] = "{not-json";
+        storage.SummaryTexts[mismatchedUploadId] = SummaryJson(
+            unrelatedUploadId, "not-owned.pdf", 8, 8, 8, "2025-02-01T00:00:00Z");
+        var repository = new FakeUploadRepository
+        {
+            OwnedUploadIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                validUploadId.ToString(),
+                missingUploadId.ToString(),
+                malformedUploadId.ToString(),
+                mismatchedUploadId.ToString()
+            }
+        };
+        var context = CreateCasesContext();
+
+        var result = await UploadEndpoints.HandleGetCasesAsync(context, storage, repository);
+        await result.ExecuteAsync(context);
+
+        context.Response.Body.Position = 0;
+        using var body = await JsonDocument.ParseAsync(context.Response.Body);
+        var returnedCase = Assert.Single(body.RootElement.EnumerateArray());
+        Assert.Equal(validUploadId.ToString(), returnedCase.GetProperty("id").GetString());
+        Assert.Equal(4, storage.ReadUploadIds.Count);
+        Assert.Equal(0, storage.EnumerateSummariesCallCount);
+    }
+
+    [Fact]
+    public async Task CasesHonorsRequestCancellationBeforeReadingSummaries()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var storage = new FakeDocumentStorage();
+        var repository = new FakeUploadRepository
+        {
+            OwnedUploadIds = new HashSet<string> { Guid.NewGuid().ToString() }
+        };
+        var context = CreateCasesContext(cancellation.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => UploadEndpoints.HandleGetCasesAsync(context, storage, repository));
+
+        Assert.Empty(storage.ReadUploadIds);
+    }
+
+    [Fact]
     public async Task ValidPdfReturnsCreatedWithUploadIdAndLocation()
     {
         var storage = new FakeDocumentStorage();
@@ -136,6 +254,35 @@ public sealed class UploadEndpointTests
         context.Response.Body = new MemoryStream();
         return context;
     }
+
+    private static DefaultHttpContext CreateCasesContext(CancellationToken cancellationToken = default)
+    {
+        var context = new DefaultHttpContext
+        {
+            RequestServices = new ServiceCollection().AddLogging().BuildServiceProvider()
+        };
+        context.Items["userId"] = "user-1";
+        context.RequestAborted = cancellationToken;
+        context.Response.Body = new MemoryStream();
+        return context;
+    }
+
+    private static string SummaryJson(
+        Guid uploadId,
+        string fileName,
+        int pages,
+        int images,
+        double fileSizeMb,
+        string uploadedAt) =>
+        JsonSerializer.Serialize(new
+        {
+            uploadId,
+            fileName,
+            pages,
+            counts = new { images },
+            fileSizeMB = fileSizeMb,
+            uploadedAt
+        });
 
     private static FormCollection FormWith(IFormFile file) =>
         new(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues>(), new FormFileCollection { file });
@@ -607,6 +754,10 @@ internal sealed class FakeDocumentStorage : IDocumentStorage
     public CancellationToken DeleteCancellationToken { get; private set; }
     public Exception? DeleteException { get; init; }
     public Dictionary<string, object> WrittenValues { get; } = new(StringComparer.Ordinal);
+    public Dictionary<Guid, string> SummaryTexts { get; } = [];
+    public List<Guid> ReadUploadIds { get; } = [];
+    public List<CancellationToken> ReadCancellationTokens { get; } = [];
+    public int EnumerateSummariesCallCount { get; private set; }
 
     public async Task<string> SavePdfAsync(Guid uploadId, Stream pdfStream, CancellationToken cancellationToken = default)
     {
@@ -632,8 +783,15 @@ internal sealed class FakeDocumentStorage : IDocumentStorage
     public Task WriteTextAsync(Guid uploadId, string suffix, string content, CancellationToken cancellationToken = default) =>
         Task.CompletedTask;
 
-    public Task<string?> ReadTextAsync(Guid uploadId, string suffix, CancellationToken cancellationToken = default) =>
-        Task.FromResult<string?>(null);
+    public Task<string?> ReadTextAsync(Guid uploadId, string suffix, CancellationToken cancellationToken = default)
+    {
+        ReadUploadIds.Add(uploadId);
+        ReadCancellationTokens.Add(cancellationToken);
+        return Task.FromResult(
+            suffix == DocumentArtifactSuffixes.Summary && SummaryTexts.TryGetValue(uploadId, out var summary)
+                ? summary
+                : null);
+    }
 
     public Task<bool> ExistsAsync(Guid uploadId, string suffix, CancellationToken cancellationToken = default) =>
         Task.FromResult(false);
@@ -641,6 +799,7 @@ internal sealed class FakeDocumentStorage : IDocumentStorage
     public async IAsyncEnumerable<StoredSummaryFile> EnumerateSummariesAsync(
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        EnumerateSummariesCallCount++;
         await Task.CompletedTask;
         yield break;
     }
@@ -663,6 +822,8 @@ internal sealed class FakeUploadRepository : IUploadRepository
     public Exception? CreateException { get; init; }
     public Action? OnCreate { get; set; }
     public int DeleteCount { get; private set; }
+    public HashSet<string> OwnedUploadIds { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public int GetOwnedUploadIdsCallCount { get; private set; }
 
     public Task CreateAsync(UploadMetadata upload, CancellationToken cancellationToken = default)
     {
@@ -678,7 +839,11 @@ internal sealed class FakeUploadRepository : IUploadRepository
     public Task<bool> CanAccessAsync(Guid uploadId, string userId, CancellationToken cancellationToken = default) => Task.FromResult(false);
     public Task<bool> CanAccessClassAssignmentAsync(Guid uploadId, string userId, CancellationToken cancellationToken = default) => Task.FromResult(false);
     public Task<string?> FindAccessibleClassIdAsync(Guid uploadId, string userId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
-    public Task<HashSet<string>> GetOwnedUploadIdsAsync(string userId, CancellationToken cancellationToken = default) => Task.FromResult(new HashSet<string>());
+    public Task<HashSet<string>> GetOwnedUploadIdsAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        GetOwnedUploadIdsCallCount++;
+        return Task.FromResult(OwnedUploadIds);
+    }
     public Task<List<UploadListRecord>> ListMineAsync(string userId, CancellationToken cancellationToken = default) => Task.FromResult(new List<UploadListRecord>());
     public Task<List<UploadListRecord>> ListAllAsync(CancellationToken cancellationToken = default) => Task.FromResult(new List<UploadListRecord>());
     public Task<string?> GetDisplayNameAsync(Guid uploadId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
