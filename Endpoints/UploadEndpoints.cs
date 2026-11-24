@@ -58,64 +58,7 @@ public static class UploadEndpoints
         });
 
         // GET /cases — per-user list of uploads
-        app.MapGet("/cases", async (HttpContext ctx, IDocumentStorage storage, IUploadRepository uploads) =>
-        {
-            // 1) Get current userId from JWT middleware
-            var userId = ctx.GetCurrentUserId();
-            if (string.IsNullOrWhiteSpace(userId))
-            {
-                // Should not normally happen because of auth middleware,
-                // but this keeps things explicit.
-                return Results.Unauthorized();
-            }
-
-            var allowedUploadIds = await uploads.GetOwnedUploadIdsAsync(userId, ctx.RequestAborted);
-
-            // 3) Scan uploads folder as before, but filter to this user's UploadIds
-            var cases = new List<CaseDto>();
-
-            await foreach (var summaryFile in storage.EnumerateSummariesAsync(ctx.RequestAborted))
-            {
-                try
-                {
-                    using var doc = JsonDocument.Parse(summaryFile.Json);
-                    var root = doc.RootElement;
-
-                    string id = root.TryGetProperty("uploadId", out var pid)
-                        ? (pid.ValueKind == JsonValueKind.String ? pid.GetString()! : pid.ToString())
-                        : "";
-                    if (string.IsNullOrWhiteSpace(id)) continue;
-
-                    // ?? New: if this upload does NOT belong to the current user, skip it
-                    if (!allowedUploadIds.Contains(id))
-                        continue;
-
-                    string name = root.TryGetProperty("fileName", out var pn) ? (pn.GetString() ?? "") : "";
-                    int pages = root.TryGetProperty("pages", out var pp) && pp.TryGetInt32(out var p) ? p : 0;
-                    double sizeMB = root.TryGetProperty("fileSizeMB", out var ps) && ps.TryGetDouble(out var s) ? s : 0.0;
-
-                    int images = 0;
-                    if (root.TryGetProperty("counts", out var counts) && counts.TryGetProperty("images", out var ci))
-                        ci.TryGetInt32(out images);
-
-                    string uploadedAt = root.TryGetProperty("uploadedAt", out var pu) && pu.ValueKind == JsonValueKind.String
-                        ? (pu.GetString() ?? "")
-                        : summaryFile.LastModifiedUtc.ToString("o");
-
-                    cases.Add(new CaseDto(id, name, pages, images, sizeMB, uploadedAt));
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[CASES] Skipping '{summaryFile.UploadId}': {ex.GetType().Name} - {ex.Message}");
-                }
-            }
-
-            var ordered = cases
-                .OrderByDescending(c => DateTime.TryParse(c.UploadedAt, out var dt) ? dt : DateTime.MinValue)
-                .ToList();
-
-            return Results.Json(ordered);
-        });
+        app.MapGet("/cases", HandleGetCasesAsync);
 
         // GET/HEAD /uploads/{id}.pdf — serves from ABSOLUTE path (use Results.File)
         app.MapMethods("/uploads/{uploadId:guid}.pdf", new[] { "GET", "HEAD" }, async (Guid uploadId, HttpContext ctx, IDocumentStorage storage, IUploadRepository uploads) =>
@@ -139,6 +82,77 @@ public static class UploadEndpoints
 
 
         return app;
+    }
+
+    public static async Task<IResult> HandleGetCasesAsync(
+        HttpContext context,
+        IDocumentStorage storage,
+        IUploadRepository uploads)
+    {
+        var userId = context.GetCurrentUserId();
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Results.Unauthorized();
+        }
+
+        var ownedUploadIds = await uploads.GetOwnedUploadIdsAsync(userId, context.RequestAborted);
+        var cases = new List<CaseDto>();
+
+        foreach (var ownedUploadId in ownedUploadIds)
+        {
+            context.RequestAborted.ThrowIfCancellationRequested();
+            if (!Guid.TryParse(ownedUploadId, out var uploadId))
+            {
+                continue;
+            }
+
+            var summaryJson = await storage.ReadTextAsync(
+                uploadId,
+                DocumentArtifactSuffixes.Summary,
+                context.RequestAborted);
+            if (summaryJson is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(summaryJson);
+                var root = doc.RootElement;
+
+                string id = root.TryGetProperty("uploadId", out var pid)
+                    ? (pid.ValueKind == JsonValueKind.String ? pid.GetString()! : pid.ToString())
+                    : "";
+                if (string.IsNullOrWhiteSpace(id) || !ownedUploadIds.Contains(id))
+                {
+                    continue;
+                }
+
+                string name = root.TryGetProperty("fileName", out var pn) ? (pn.GetString() ?? "") : "";
+                int pages = root.TryGetProperty("pages", out var pp) && pp.TryGetInt32(out var p) ? p : 0;
+                double sizeMB = root.TryGetProperty("fileSizeMB", out var ps) && ps.TryGetDouble(out var s) ? s : 0.0;
+
+                int images = 0;
+                if (root.TryGetProperty("counts", out var counts) && counts.TryGetProperty("images", out var ci))
+                    ci.TryGetInt32(out images);
+
+                string uploadedAt = root.TryGetProperty("uploadedAt", out var pu) && pu.ValueKind == JsonValueKind.String
+                    ? (pu.GetString() ?? "")
+                    : "";
+
+                cases.Add(new CaseDto(id, name, pages, images, sizeMB, uploadedAt));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[CASES] Skipping '{ownedUploadId}': {ex.GetType().Name} - {ex.Message}");
+            }
+        }
+
+        var ordered = cases
+            .OrderByDescending(c => DateTime.TryParse(c.UploadedAt, out var dt) ? dt : DateTime.MinValue)
+            .ToList();
+
+        return Results.Json(ordered);
     }
 
     public static async Task<IResult> HandlePostUploadAsync(
