@@ -138,9 +138,9 @@ static string ResolveTestModel(string? requested, string fallback)
 
 
 var app = builder.Build();
-app.UseAppPipeline();
 app.UseDefaultFiles();
 app.UseStaticFiles();
+app.UseAppPipeline();
 
 if (app.Environment.IsDevelopment())
 {
